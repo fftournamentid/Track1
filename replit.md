@@ -1,6 +1,6 @@
-# [Project name]
+# Truck Invoice Manager
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A professional mobile invoice management app for truck operators — create, manage, share, and track freight invoices with PDF generation and WhatsApp sharing.
 
 ## Run & Operate
 
@@ -19,18 +19,48 @@ _Replace the heading above with the project's name, and this line with one sente
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Mobile: Expo ~54, React Native 0.81, expo-router ~6
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+```
+artifacts/mobile/
+├── app/
+│   ├── _layout.tsx             # Root layout (providers + Stack)
+│   ├── (tabs)/
+│   │   ├── _layout.tsx         # Tab bar (NativeTabs on iOS 26+, classic otherwise)
+│   │   ├── index.tsx           # Dashboard screen
+│   │   ├── invoices.tsx        # Invoice list + search + filter
+│   │   └── profile.tsx         # Business profile + settings
+│   └── invoice/
+│       ├── create.tsx          # Create / Edit invoice form
+│       └── [id].tsx            # Invoice detail + PDF + manage
+├── components/                 # Reusable UI components
+├── contexts/                   # InvoiceContext, ProfileContext, SettingsContext
+├── hooks/useColors.ts          # Color token hook
+├── services/
+│   ├── pdfService.ts           # HTML→PDF via expo-print
+│   ├── shareService.ts         # Share / WhatsApp via expo-sharing (legacy import)
+│   └── storage.ts              # AsyncStorage helpers
+├── types/index.ts              # All TypeScript types
+└── utils/formatters.ts         # Currency, date, ID helpers
+```
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- **expo-file-system/legacy** must be used (not `expo-file-system`) because v56 breaks the old `documentDirectory` API — use `import * as FileSystem from 'expo-file-system/legacy'` in shareService
+- **InvoiceContext**: `duplicateInvoice(id, newNumber)` requires two args — generate the number via `generateNextInvoiceNumber()` from SettingsContext before calling
+- **PDF service**: `generatePDF(invoice)` returns `PDFResult` (`{ uri: string }`), not a plain string — unwrap `.uri` if needed
+- **Colors**: Navy `#1A3C6E` + Orange `#F57C00` palette via `constants/colors.ts` (light only); `useColors()` hook returns all tokens
+- **Tab bar**: Detects `isLiquidGlassAvailable()` from `expo-glass-effect` to switch between NativeTabs (iOS 26+) and classic Tabs
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Dashboard**: Greeting + 4 stat cards (total invoices, total revenue, this month, pending) + recent invoices list
+- **Invoice List**: Full-text search, filter chips (All/Active/Paid/Pending/Favorites/Archived), sort modal (6 options)
+- **Create/Edit Invoice**: Auto-fill from profile, line items with live calculations, GST rate picker, save → navigates to detail
+- **Invoice Detail**: Total hero card, Share PDF, WhatsApp share, Favorite, Mark Paid/Pending, Duplicate, Rename, Archive, Delete
+- **Profile**: Company info, logo/signature image pickers, payment details, invoice settings (prefix, GST rate, terms)
 
 ## User preferences
 
@@ -38,7 +68,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- `expo-file-system` v56 ships a new API; always import from `expo-file-system/legacy` for `documentDirectory` support
+- `expo-print`, `expo-sharing`, `expo-file-system` are in `dependencies` (not devDependencies) since they're runtime
+- Tab workflow name: `artifacts/mobile: expo`
 
 ## Pointers
 

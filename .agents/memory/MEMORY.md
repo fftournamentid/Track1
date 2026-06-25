@@ -1,0 +1,2 @@
+- [expo-file-system v56 legacy import](expo-file-system-legacy.md) — v56 breaks documentDirectory; always import from expo-file-system/legacy in shareService
+- [Truck Invoice Manager architecture](truck-invoice-arch.md) — InvoiceContext.duplicateInvoice needs two args (id + newNumber); generatePDF returns PDFResult not string
