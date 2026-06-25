@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable,
   TextInput, Alert, Platform, Image, ActivityIndicator,
@@ -78,19 +78,48 @@ export default function ProfileScreen() {
   const [defaultTerms, setDefaultTerms] = useState(settings.defaultPaymentTerms);
   const [isSaving, setIsSaving] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userEditedRef = useRef(false);
+  const initializedRef = useRef(false);
 
   useEffect(() => {
-    setForm(profile);
-  }, [profile]);
+    if (!profileLoading && !initializedRef.current) {
+      initializedRef.current = true;
+      setForm(profile);
+    }
+  }, [profileLoading, profile]);
 
   useEffect(() => {
+    if (!initializedRef.current) return;
     setDefaultGstRate(settings.defaultGstRate);
     setInvoicePrefix(settings.invoicePrefix);
     setDefaultTerms(settings.defaultPaymentTerms);
   }, [settings]);
 
-  const setField = (key: keyof BusinessInfo, val: string) =>
+  // Debounced auto-save — only fires after user edits
+  useEffect(() => {
+    if (!userEditedRef.current) return;
+    setAutoSaveStatus('saving');
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await updateProfile(form);
+        await updateSettings({ defaultGstRate, invoicePrefix, defaultPaymentTerms: defaultTerms });
+        userEditedRef.current = false;
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus('idle'), 2500);
+      } catch {
+        setAutoSaveStatus('idle');
+      }
+    }, 1800);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  }, [form, defaultGstRate, invoicePrefix, defaultTerms]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setField = (key: keyof BusinessInfo, val: string) => {
+    userEditedRef.current = true;
     setForm((prev) => ({ ...prev, [key]: val }));
+  };
 
   const pickImage = async (field: 'logoUri' | 'signatureUri') => {
     if (Platform.OS !== 'web') {
@@ -291,7 +320,7 @@ export default function ProfileScreen() {
           <FieldInput
             label="Invoice Prefix (e.g. INV)"
             value={invoicePrefix}
-            onChangeText={setInvoicePrefix}
+            onChangeText={(v) => { userEditedRef.current = true; setInvoicePrefix(v); }}
             placeholder="INV"
           />
           <View style={fieldStyles.wrap}>
@@ -300,7 +329,7 @@ export default function ProfileScreen() {
               {GST_OPTIONS.map((r) => (
                 <Pressable
                   key={r}
-                  onPress={() => setDefaultGstRate(r)}
+                  onPress={() => { userEditedRef.current = true; setDefaultGstRate(r); }}
                   style={[
                     styles.gstBtn,
                     {
@@ -319,7 +348,7 @@ export default function ProfileScreen() {
           <FieldInput
             label="Default Payment Terms"
             value={defaultTerms}
-            onChangeText={setDefaultTerms}
+            onChangeText={(v) => { userEditedRef.current = true; setDefaultTerms(v); }}
             multiline
             placeholder="Payment due within 30 days."
           />
@@ -345,8 +374,23 @@ export default function ProfileScreen() {
         </Pressable>
       </ScrollView>
 
-      {/* Save Button */}
+      {/* Save Bar */}
       <View style={[styles.saveBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: insets.bottom + 10 }]}>
+        {/* Auto-save status */}
+        <View style={styles.autoSaveRow}>
+          {autoSaveStatus === 'saving' && (
+            <>
+              <ActivityIndicator size={12} color={colors.mutedForeground} />
+              <Text style={[styles.autoSaveTxt, { color: colors.mutedForeground }]}>Auto-saving…</Text>
+            </>
+          )}
+          {autoSaveStatus === 'saved' && (
+            <>
+              <Feather name="check-circle" size={13} color="#16A34A" />
+              <Text style={[styles.autoSaveTxt, { color: '#16A34A' }]}>All changes saved</Text>
+            </>
+          )}
+        </View>
         <Pressable
           onPress={handleSave}
           disabled={isSaving}
@@ -417,8 +461,10 @@ const styles = StyleSheet.create({
   signOutText: { color: '#DC2626', fontSize: 16, fontWeight: '700' },
   saveBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: 16, borderTopWidth: 1,
+    paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1,
   },
+  autoSaveRow: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 20, marginBottom: 8 },
+  autoSaveTxt: { fontSize: 12, fontWeight: '500' },
   saveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, borderRadius: 12, paddingVertical: 15,

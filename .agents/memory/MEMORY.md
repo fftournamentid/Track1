@@ -1,2 +1,5 @@
 - [expo-file-system v56 legacy import](expo-file-system-legacy.md) — v56 breaks documentDirectory; always import from expo-file-system/legacy in shareService
 - [Truck Invoice Manager architecture](truck-invoice-arch.md) — InvoiceContext.duplicateInvoice needs two args (id + newNumber); generatePDF returns PDFResult not string
+- [Ionicons icon availability](ionicons-icons.md) — "crown" is NOT in this Ionicons build; use Feather "award" for premium/medal UI instead.
+- [Firebase Auth persistence](firebase-auth.md) — getAuth(app) uses browserLocalPersistence on web (Expo preview) — users stay logged in across browser close. No extra config needed for the web preview workflow.
+- [Profile auto-save pattern](profile-autosave.md) — Uses userEditedRef + debounce timer to avoid auto-saving on Firestore-synced initial load; initializedRef prevents first Firestore→state sync from triggering the auto-save effect.

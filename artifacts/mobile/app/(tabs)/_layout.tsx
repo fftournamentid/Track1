@@ -19,6 +19,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "doc.text", selected: "doc.text.fill" }} />
         <Label>Invoices</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="tools">
+        <Icon sf={{ default: "wrench.and.screwdriver", selected: "wrench.and.screwdriver.fill" }} />
+        <Label>Tools</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person.circle", selected: "person.circle.fill" }} />
         <Label>Profile</Label>
@@ -83,6 +87,31 @@ function ClassicTabLayout() {
             ) : (
               <Feather name="file-text" size={22} color={color} />
             ),
+        }}
+      />
+      <Tabs.Screen
+        name="tools"
+        options={{
+          title: "Tools",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="wrench.and.screwdriver" tintColor={color} size={24} />
+            ) : (
+              <Feather name="tool" size={22} color={color} />
+            ),
+        }}
+      />
+      <Tabs.Screen
+        name="premium"
+        options={{
+          title: "Premium",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="crown" tintColor={color} size={24} />
+            ) : (
+              <Feather name="star" size={22} color={color} />
+            ),
+          href: null,
         }}
       />
       <Tabs.Screen
