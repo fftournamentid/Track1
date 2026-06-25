@@ -11,7 +11,7 @@ import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { formatCurrency } from '@/utils/formatters';
-import { sharePDF, shareViaWhatsApp } from '@/services/shareService';
+import TemplatePicker from '@/components/TemplatePicker';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
@@ -99,33 +99,22 @@ export default function InvoiceDetailScreen() {
 
   const invoice: Invoice | undefined = invoices.find((i) => i.id === id);
 
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [templatePickerVisible, setTemplatePickerVisible] = useState(false);
+  const [shareAction, setShareAction] = useState<'pdf' | 'whatsapp'>('pdf');
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [dupLoading, setDupLoading] = useState(false);
 
-  const handleSharePDF = useCallback(async () => {
+  const handleSharePDF = useCallback(() => {
     if (!invoice) return;
-    setPdfLoading(true);
-    try {
-      await sharePDF(invoice);
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setPdfLoading(false);
-    }
+    setShareAction('pdf');
+    setTemplatePickerVisible(true);
   }, [invoice]);
 
-  const handleWhatsApp = useCallback(async () => {
+  const handleWhatsApp = useCallback(() => {
     if (!invoice) return;
-    setPdfLoading(true);
-    try {
-      await shareViaWhatsApp(invoice);
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setPdfLoading(false);
-    }
+    setShareAction('whatsapp');
+    setTemplatePickerVisible(true);
   }, [invoice]);
 
   const handleToggleFavorite = async () => {
@@ -298,24 +287,10 @@ export default function InvoiceDetailScreen() {
         {/* PDF Actions */}
         <Card>
           <STitle title="Export &amp; Share" />
-          {pdfLoading ? (
-            <View style={styles.loadingRow}>
-              <ActivityIndicator color={colors.primary} />
-              <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
-                Generating PDF…
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.actionsRow}>
-              <ActionBtn icon="share" label="Share PDF" onPress={handleSharePDF} variant="accent" />
-              <ActionBtn
-                icon="message-circle"
-                label="WhatsApp"
-                onPress={handleWhatsApp}
-                variant="success"
-              />
-            </View>
-          )}
+          <View style={styles.actionsRow}>
+            <ActionBtn icon="share" label="Share PDF" onPress={handleSharePDF} variant="accent" />
+            <ActionBtn icon="message-circle" label="WhatsApp" onPress={handleWhatsApp} variant="success" />
+          </View>
         </Card>
 
         {/* Manage */}
@@ -487,6 +462,13 @@ export default function InvoiceDetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <TemplatePicker
+        visible={templatePickerVisible}
+        invoice={invoice}
+        action={shareAction}
+        onClose={() => setTemplatePickerVisible(false)}
+      />
     </View>
   );
 }

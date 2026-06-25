@@ -65,9 +65,9 @@ export interface AppSettings {
   defaultGstRate: number;
   defaultCurrency: string;
   defaultPaymentTerms: string;
+  defaultTemplateId: string;
 }
 
-// Admin-ready interfaces (future integration)
 export interface AdminUser {
   id: string;
   name: string;
@@ -164,7 +164,6 @@ export interface AnalyticsSnapshot {
   topCustomers: { name: string; invoiceCount: number; totalAmount: number }[];
 }
 
-// AI-ready interfaces (future integration)
 export interface AIInvoiceRequest {
   prompt: string;
   context?: Partial<Invoice>;
@@ -176,7 +175,6 @@ export interface OCRScanResult {
   confidence: number;
 }
 
-// Multi-language ready
 export type SupportedLocale = 'en' | 'hi' | 'ta' | 'te' | 'kn' | 'mr' | 'gu';
 
 export interface LocaleStrings {

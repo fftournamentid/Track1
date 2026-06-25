@@ -50,6 +50,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultGstRate: 18,
   defaultCurrency: 'INR',
   defaultPaymentTerms: 'Payment due within 30 days.',
+  defaultTemplateId: 'classic',
 };
 
 export async function createUserDocument(

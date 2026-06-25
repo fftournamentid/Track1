@@ -171,12 +171,12 @@ export default function ProfileScreen() {
             setIsSigningOut(true);
             try {
               await signOut();
-              router.replace('/(auth)/login' as never);
             } catch {
               Alert.alert('Error', 'Failed to sign out. Please try again.');
-            } finally {
               setIsSigningOut(false);
+              return;
             }
+            router.replace('/(auth)/login' as never);
           },
         },
       ]

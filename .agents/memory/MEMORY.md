@@ -3,3 +3,5 @@
 - [Ionicons icon availability](ionicons-icons.md) — "crown" is NOT in this Ionicons build; use Feather "award" for premium/medal UI instead.
 - [Firebase Auth persistence](firebase-auth.md) — getAuth(app) uses browserLocalPersistence on web (Expo preview) — users stay logged in across browser close. No extra config needed for the web preview workflow.
 - [Profile auto-save pattern](profile-autosave.md) — Uses userEditedRef + debounce timer to avoid auto-saving on Firestore-synced initial load; initializedRef prevents first Firestore→state sync from triggering the auto-save effect.
+- [Template + TemplatePicker system](template-system.md) — 8 invoice templates in services/invoiceTemplates.ts; TemplatePicker component is self-contained (generates PDF + shares internally); invoice detail screen just sets visible + action state.
+- [Logout fix — no finally on success path](logout-fix.md) — after successful signOut, call router.replace then return; never use finally to reset state because the component unmounts causing a stale-state flash.
