@@ -23,13 +23,11 @@ export default function SignupScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [emailExists, setEmailExists] = useState(false);
 
   const strength = getPasswordStrength(password);
 
   const handleSignup = async () => {
     setError('');
-    setEmailExists(false);
     if (!name.trim()) { setError('Full name is required.'); return; }
     const emailErr = validateEmail(email);
     if (emailErr) { setError(emailErr); return; }
@@ -43,7 +41,6 @@ export default function SignupScreen() {
       router.replace('/(tabs)' as never);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      if (code === 'auth/email-already-in-use') setEmailExists(true);
       setError(getAuthErrorMessage(code));
     } finally {
       setLoading(false);
@@ -79,17 +76,7 @@ export default function SignupScreen() {
           {error ? (
             <View style={styles.errorBox}>
               <Ionicons name="alert-circle" size={16} color={ERROR} />
-              <View style={{ flex: 1, gap: 8 }}>
-                <Text style={styles.errorText}>{error}</Text>
-                {emailExists && (
-                  <TouchableOpacity
-                    style={styles.loginInsteadBtn}
-                    onPress={() => router.replace('/(auth)/login' as never)}
-                  >
-                    <Text style={styles.loginInsteadText}>Sign In to your account →</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+              <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
 
@@ -229,12 +216,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2', borderRadius: 10, padding: 12, marginBottom: 16,
     borderWidth: 1, borderColor: '#FECACA',
   },
-  errorText: { fontSize: 14, color: ERROR },
-  loginInsteadBtn: {
-    backgroundColor: NAVY, borderRadius: 8,
-    paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start',
-  },
-  loginInsteadText: { fontSize: 13, color: '#fff', fontWeight: '700' },
+  errorText: { fontSize: 14, color: ERROR, flex: 1 },
   label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center',

@@ -28,13 +28,17 @@ export default function ForgotPasswordScreen() {
     setLoading(true);
     try {
       await sendPasswordReset(email.trim().toLowerCase());
-      setSent(true);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      setError(getAuthErrorMessage(code));
+      if (code !== 'auth/user-not-found') {
+        setError(getAuthErrorMessage(code));
+        setLoading(false);
+        return;
+      }
     } finally {
       setLoading(false);
     }
+    setSent(true);
   };
 
   return (
