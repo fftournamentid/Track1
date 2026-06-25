@@ -1,14 +1,16 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, {
+  createContext, useContext, useState, useEffect, useCallback, ReactNode,
+} from 'react';
+import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import type { AppSettings } from '@/types';
-import { KEYS, loadJSON, saveJSON } from '@/services/storage';
-
-const DEFAULT_SETTINGS: AppSettings = {
-  invoicePrefix: 'INV',
-  nextInvoiceNumber: 1,
-  defaultGstRate: 18,
-  defaultCurrency: 'INR',
-  defaultPaymentTerms: 'Payment due within 30 days.',
-};
+import { useAuth } from './AuthContext';
+import {
+  DEFAULT_SETTINGS,
+  subscribeToUserDocument,
+  updateUserSettings,
+  type UserDocument,
+} from '@/services/firebase/repositories/user.repository';
+import { db } from '@/services/firebase/config';
 
 interface SettingsContextType {
   settings: AppSettings;
@@ -20,30 +22,57 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadJSON<AppSettings>(KEYS.SETTINGS, DEFAULT_SETTINGS).then((data) => {
-      setSettings(data);
+    if (!user) {
+      setSettings(DEFAULT_SETTINGS);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsub = subscribeToUserDocument(user.uid, (userDoc) => {
+      if (userDoc?.settings) setSettings(userDoc.settings);
       setIsLoading(false);
     });
-  }, []);
+    return unsub;
+  }, [user?.uid]);
 
-  const updateSettings = useCallback(async (updates: Partial<AppSettings>) => {
-    const next = { ...settings, ...updates };
-    setSettings(next);
-    await saveJSON(KEYS.SETTINGS, next);
-  }, [settings]);
+  const updateSettings = useCallback(
+    async (updates: Partial<AppSettings>) => {
+      if (!user) return;
+      const next = { ...settings, ...updates };
+      setSettings(next);
+      await updateUserSettings(user.uid, next);
+    },
+    [user, settings]
+  );
 
   const generateNextInvoiceNumber = useCallback(async (): Promise<string> => {
-    const num = String(settings.nextInvoiceNumber).padStart(4, '0');
-    const invoiceNumber = `${settings.invoicePrefix}-${num}`;
-    const next = { ...settings, nextInvoiceNumber: settings.nextInvoiceNumber + 1 };
-    setSettings(next);
-    await saveJSON(KEYS.SETTINGS, next);
-    return invoiceNumber;
-  }, [settings]);
+    if (!user) {
+      const num = String(settings.nextInvoiceNumber).padStart(4, '0');
+      return `${settings.invoicePrefix}-${num}`;
+    }
+
+    return runTransaction(db, async (tx) => {
+      const userRef = doc(db, 'users', user.uid);
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) {
+        return `${DEFAULT_SETTINGS.invoicePrefix}-0001`;
+      }
+      const current = (snap.data() as UserDocument).settings ?? DEFAULT_SETTINGS;
+      const num = String(current.nextInvoiceNumber).padStart(4, '0');
+      const invoiceNumber = `${current.invoicePrefix}-${num}`;
+      tx.update(userRef, {
+        'settings.nextInvoiceNumber': current.nextInvoiceNumber + 1,
+        updatedAt: serverTimestamp(),
+      });
+      setSettings((prev) => ({ ...prev, nextInvoiceNumber: current.nextInvoiceNumber + 1 }));
+      return invoiceNumber;
+    });
+  }, [user, settings]);
 
   return (
     <SettingsContext.Provider value={{ settings, isLoading, updateSettings, generateNextInvoiceNumber }}>

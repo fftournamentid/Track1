@@ -1,7 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, {
+  createContext, useContext, useState, useEffect, useCallback, ReactNode,
+} from 'react';
 import type { Invoice } from '@/types';
-import { KEYS, loadJSON, saveJSON } from '@/services/storage';
 import { generateId } from '@/utils/formatters';
+import { useAuth } from './AuthContext';
+import {
+  subscribeToInvoices,
+  createInvoiceDoc,
+  updateInvoiceDoc,
+  deleteInvoiceDoc,
+} from '@/services/firebase/repositories/invoice.repository';
 
 interface InvoiceContextType {
   invoices: Invoice[];
@@ -21,62 +29,62 @@ interface InvoiceContextType {
 const InvoiceContext = createContext<InvoiceContextType | null>(null);
 
 export function InvoiceProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadJSON<Invoice[]>(KEYS.INVOICES, []).then((data) => {
-      setInvoices(data);
+    if (!user) {
+      setInvoices([]);
       setIsLoading(false);
-    });
-  }, []);
-
-  const persist = useCallback(async (next: Invoice[]) => {
-    setInvoices(next);
-    await saveJSON(KEYS.INVOICES, next);
-  }, []);
+      return;
+    }
+    setIsLoading(true);
+    const unsub = subscribeToInvoices(
+      user.uid,
+      (data) => { setInvoices(data); setIsLoading(false); },
+      () => setIsLoading(false)
+    );
+    return unsub;
+  }, [user?.uid]);
 
   const createInvoice = useCallback(
     async (data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>): Promise<Invoice> => {
-      const now = new Date().toISOString();
-      const invoice: Invoice = {
-        ...data,
-        id: generateId(),
-        createdAt: now,
-        updatedAt: now,
-        downloadCount: 0,
-      };
-      await persist([invoice, ...invoices]);
-      return invoice;
+      if (!user) throw new Error('Not authenticated');
+      return createInvoiceDoc(user.uid, data);
     },
-    [invoices, persist]
+    [user]
   );
 
   const updateInvoice = useCallback(
     async (id: string, updates: Partial<Invoice>) => {
-      const next = invoices.map((inv) =>
-        inv.id === id ? { ...inv, ...updates, updatedAt: new Date().toISOString() } : inv
+      if (!user) return;
+      setInvoices((prev) =>
+        prev.map((inv) =>
+          inv.id === id ? { ...inv, ...updates, updatedAt: new Date().toISOString() } : inv
+        )
       );
-      await persist(next);
+      await updateInvoiceDoc(user.uid, id, updates);
     },
-    [invoices, persist]
+    [user]
   );
 
   const deleteInvoice = useCallback(
     async (id: string) => {
-      await persist(invoices.filter((inv) => inv.id !== id));
+      if (!user) return;
+      setInvoices((prev) => prev.filter((i) => i.id !== id));
+      await deleteInvoiceDoc(user.uid, id);
     },
-    [invoices, persist]
+    [user]
   );
 
   const toggleFavorite = useCallback(
     async (id: string) => {
-      const next = invoices.map((inv) =>
-        inv.id === id ? { ...inv, isFavorite: !inv.isFavorite, updatedAt: new Date().toISOString() } : inv
-      );
-      await persist(next);
+      const inv = invoices.find((i) => i.id === id);
+      if (!inv) return;
+      await updateInvoice(id, { isFavorite: !inv.isFavorite });
     },
-    [invoices, persist]
+    [invoices, updateInvoice]
   );
 
   const archiveInvoice = useCallback(
@@ -95,26 +103,22 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
 
   const duplicateInvoice = useCallback(
     async (id: string, newNumber: string): Promise<Invoice | null> => {
-      const source = invoices.find((inv) => inv.id === id);
+      if (!user) return null;
+      const source = invoices.find((i) => i.id === id);
       if (!source) return null;
       const now = new Date().toISOString();
-      const dup: Invoice = {
+      const dupData: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'> = {
         ...source,
-        id: generateId(),
         invoiceNumber: newNumber,
         status: 'draft',
         isFavorite: false,
         isArchived: false,
         customName: undefined,
-        createdAt: now,
-        updatedAt: now,
-        downloadCount: 0,
         date: new Date().toLocaleDateString('en-GB'),
       };
-      await persist([dup, ...invoices]);
-      return dup;
+      return createInvoiceDoc(user.uid, dupData);
     },
-    [invoices, persist]
+    [invoices, user]
   );
 
   const renameInvoice = useCallback(
@@ -125,7 +129,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   );
 
   const getInvoiceById = useCallback(
-    (id: string) => invoices.find((inv) => inv.id === id),
+    (id: string) => invoices.find((i) => i.id === id),
     [invoices]
   );
 
@@ -141,18 +145,9 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   return (
     <InvoiceContext.Provider
       value={{
-        invoices,
-        isLoading,
-        createInvoice,
-        updateInvoice,
-        deleteInvoice,
-        toggleFavorite,
-        archiveInvoice,
-        restoreInvoice,
-        duplicateInvoice,
-        renameInvoice,
-        getInvoiceById,
-        incrementDownloadCount,
+        invoices, isLoading, createInvoice, updateInvoice, deleteInvoice,
+        toggleFavorite, archiveInvoice, restoreInvoice, duplicateInvoice,
+        renameInvoice, getInvoiceById, incrementDownloadCount,
       }}
     >
       {children}

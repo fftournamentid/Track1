@@ -1,21 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, {
+  createContext, useContext, useState, useEffect, useCallback, ReactNode,
+} from 'react';
 import type { BusinessInfo } from '@/types';
-import { KEYS, loadJSON, saveJSON } from '@/services/storage';
-
-export const DEFAULT_PROFILE: BusinessInfo = {
-  companyName: '',
-  ownerName: '',
-  driverName: '',
-  mobile: '',
-  truckNumber: '',
-  address: '',
-  gstNumber: '',
-  upiId: '',
-  bankName: '',
-  accountNumber: '',
-  ifscCode: '',
-  footerNotes: 'Thank you for your business.',
-};
+import { useAuth } from './AuthContext';
+import {
+  DEFAULT_PROFILE,
+  subscribeToUserDocument,
+  updateUserProfile,
+} from '@/services/firebase/repositories/user.repository';
 
 interface ProfileContextType {
   profile: BusinessInfo;
@@ -26,21 +18,33 @@ interface ProfileContextType {
 const ProfileContext = createContext<ProfileContextType | null>(null);
 
 export function ProfileProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [profile, setProfile] = useState<BusinessInfo>(DEFAULT_PROFILE);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadJSON<BusinessInfo>(KEYS.PROFILE, DEFAULT_PROFILE).then((data) => {
-      setProfile(data);
+    if (!user) {
+      setProfile(DEFAULT_PROFILE);
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    const unsub = subscribeToUserDocument(user.uid, (userDoc) => {
+      if (userDoc?.profile) setProfile(userDoc.profile);
       setIsLoading(false);
     });
-  }, []);
+    return unsub;
+  }, [user?.uid]);
 
-  const updateProfile = useCallback(async (updates: Partial<BusinessInfo>) => {
-    const next = { ...profile, ...updates };
-    setProfile(next);
-    await saveJSON(KEYS.PROFILE, next);
-  }, [profile]);
+  const updateProfile = useCallback(
+    async (updates: Partial<BusinessInfo>) => {
+      if (!user) return;
+      const next = { ...profile, ...updates };
+      setProfile(next);
+      await updateUserProfile(user.uid, next);
+    },
+    [user, profile]
+  );
 
   return (
     <ProfileContext.Provider value={{ profile, isLoading, updateProfile }}>

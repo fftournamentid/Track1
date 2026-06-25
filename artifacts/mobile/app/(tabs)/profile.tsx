@@ -5,11 +5,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { signOut } from '@/services/firebase/auth.service';
 import type { BusinessInfo } from '@/types';
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
@@ -66,12 +70,14 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { profile, isLoading: profileLoading, updateProfile } = useProfile();
   const { settings, updateSettings } = useSettings();
+  const { user } = useAuth();
 
   const [form, setForm] = useState<BusinessInfo>(profile);
   const [defaultGstRate, setDefaultGstRate] = useState(settings.defaultGstRate);
   const [invoicePrefix, setInvoicePrefix] = useState(settings.invoicePrefix);
   const [defaultTerms, setDefaultTerms] = useState(settings.defaultPaymentTerms);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   useEffect(() => {
     setForm(profile);
@@ -123,6 +129,31 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setIsSigningOut(true);
+            try {
+              await signOut();
+              router.replace('/(auth)/login' as never);
+            } catch {
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            } finally {
+              setIsSigningOut(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   if (profileLoading) {
@@ -144,6 +175,28 @@ export default function ProfileScreen() {
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
           Auto-fills every new invoice
         </Text>
+
+        {/* Account info */}
+        {user?.email ? (
+          <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.accountAvatar, { backgroundColor: colors.primary }]}>
+              <Ionicons name="person" size={20} color="#fff" />
+            </View>
+            <View style={styles.accountInfo}>
+              <Text style={[styles.accountName, { color: colors.foreground }]}>
+                {user.displayName || 'Account'}
+              </Text>
+              <Text style={[styles.accountEmail, { color: colors.mutedForeground }]}>
+                {user.email}
+              </Text>
+            </View>
+            {!user.emailVerified && (
+              <View style={styles.unverifiedBadge}>
+                <Text style={styles.unverifiedText}>Unverified</Text>
+              </View>
+            )}
+          </View>
+        ) : null}
 
         {/* Logo */}
         <SectionBox title="Company Logo">
@@ -271,6 +324,25 @@ export default function ProfileScreen() {
             placeholder="Payment due within 30 days."
           />
         </SectionBox>
+
+        {/* Sign Out */}
+        <Pressable
+          onPress={handleSignOut}
+          disabled={isSigningOut}
+          style={({ pressed }) => [
+            styles.signOutBtn,
+            { opacity: pressed || isSigningOut ? 0.7 : 1 },
+          ]}
+        >
+          {isSigningOut ? (
+            <ActivityIndicator color="#DC2626" size="small" />
+          ) : (
+            <>
+              <Ionicons name="log-out-outline" size={20} color="#DC2626" />
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </>
+          )}
+        </Pressable>
       </ScrollView>
 
       {/* Save Button */}
@@ -303,6 +375,21 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 16 },
   title: { fontSize: 24, fontWeight: '800', marginBottom: 4, letterSpacing: -0.5 },
   subtitle: { fontSize: 13, marginBottom: 20 },
+  accountCard: {
+    flexDirection: 'row', alignItems: 'center', borderWidth: 1,
+    borderRadius: 14, padding: 14, marginBottom: 14, gap: 12,
+  },
+  accountAvatar: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  accountInfo: { flex: 1 },
+  accountName: { fontSize: 15, fontWeight: '600' },
+  accountEmail: { fontSize: 13, marginTop: 2 },
+  unverifiedBadge: {
+    backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  unverifiedText: { fontSize: 11, color: '#92400E', fontWeight: '600' },
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   logoBox: {
     width: 72, height: 72, borderRadius: 14, borderWidth: 1.5, borderStyle: 'dashed',
@@ -321,6 +408,13 @@ const styles = StyleSheet.create({
   sigHint: { fontSize: 13 },
   gstRow: { flexDirection: 'row', gap: 8 },
   gstBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 8, borderWidth: 1 },
+  signOutBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 10, borderRadius: 14, paddingVertical: 15,
+    borderWidth: 1.5, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2',
+    marginBottom: 8,
+  },
+  signOutText: { color: '#DC2626', fontSize: 16, fontWeight: '700' },
   saveBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     padding: 16, borderTopWidth: 1,
