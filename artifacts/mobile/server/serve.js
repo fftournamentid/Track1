@@ -65,17 +65,79 @@ function serveManifest(platform, res) {
   res.end(manifest);
 }
 
-function serveLandingPage(req, res, landingPageTemplate, appName) {
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = forwardedProto || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers["host"];
-  const baseUrl = `${protocol}://${host}`;
-  const expsUrl = `${host}`;
+/**
+ * Return a safe canonical host string for building deep links.
+ *
+ * Priority:
+ *  1. REPLIT_DOMAINS env var (first entry) — set by the platform, not attacker-
+ *     controlled even when behind a reverse proxy.
+ *  2. ALLOWED_HOST env var — operator-specified override.
+ *  3. Host request header — validated against a strict allowlist pattern;
+ *     x-forwarded-host is intentionally ignored because it can be set by any
+ *     client and no trusted-proxy boundary is established here.
+ *
+ * If none of the above resolves to a valid hostname, the function returns
+ * "localhost" so the page still renders safely without reflecting attacker
+ * input.
+ */
+const HOST_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?(:\d{1,5})?$/;
 
+function resolveHost(req) {
+  const replitDomains = process.env.REPLIT_DOMAINS;
+  if (replitDomains) {
+    const first = replitDomains.split(",")[0].trim();
+    if (HOST_PATTERN.test(first)) return first;
+  }
+
+  const allowedHost = process.env.ALLOWED_HOST;
+  if (allowedHost && HOST_PATTERN.test(allowedHost.trim())) {
+    return allowedHost.trim();
+  }
+
+  const hostHeader = req.headers["host"] || "";
+  if (HOST_PATTERN.test(hostHeader)) return hostHeader;
+
+  return "localhost";
+}
+
+/** Escape a string for safe insertion into an HTML attribute or text node. */
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
+/** Escape a string for safe insertion inside a JavaScript double-quoted string literal. */
+function escapeJs(str) {
+  return str
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+function serveLandingPage(req, res, landingPageTemplate, appName) {
+  const host = resolveHost(req);
+
+  // EXPS_URL_PLACEHOLDER appears in two contexts:
+  //   1. An HTML href attribute  → escape for HTML
+  //   2. A JS double-quoted string literal → escape for JS
+  // We patch the template in two passes so each context gets the right escaping.
   const html = landingPageTemplate
-    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
-    .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
-    .replace(/APP_NAME_PLACEHOLDER/g, appName);
+    // JS string context: replace inside the script block first
+    .replace(
+      /("exps:\/\/)EXPS_URL_PLACEHOLDER(")/g,
+      (_, pre, post) => pre + escapeJs(host) + post,
+    )
+    // HTML attribute / text context: replace all remaining occurrences
+    .replace(/EXPS_URL_PLACEHOLDER/g, escapeHtml(host))
+    .replace(/APP_NAME_PLACEHOLDER/g, escapeHtml(appName));
 
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
   res.end(html);
