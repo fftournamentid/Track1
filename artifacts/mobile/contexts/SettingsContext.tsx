@@ -32,6 +32,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       return;
     }
+    setSettings(DEFAULT_SETTINGS);
     setIsLoading(true);
     const unsub = subscribeToUserDocument(user.uid, (userDoc) => {
       if (userDoc?.settings) setSettings(userDoc.settings);

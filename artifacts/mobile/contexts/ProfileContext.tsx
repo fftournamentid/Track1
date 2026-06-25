@@ -28,6 +28,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       return;
     }
+    setProfile(DEFAULT_PROFILE);
     setIsLoading(true);
     const unsub = subscribeToUserDocument(user.uid, (userDoc) => {
       if (userDoc?.profile) setProfile(userDoc.profile);

@@ -39,11 +39,12 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       return;
     }
+    setInvoices([]);
     setIsLoading(true);
     const unsub = subscribeToInvoices(
       user.uid,
       (data) => { setInvoices(data); setIsLoading(false); },
-      () => setIsLoading(false)
+      () => { setInvoices([]); setIsLoading(false); }
     );
     return unsub;
   }, [user?.uid]);
