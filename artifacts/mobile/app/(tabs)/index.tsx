@@ -84,7 +84,7 @@ export default function DashboardScreen() {
 
       {/* Create Button */}
       <Pressable
-        onPress={() => router.push('/invoice/create')}
+        onPress={() => router.push('/invoice/template-select' as never)}
         style={({ pressed }) => [
           styles.createBtn,
           { backgroundColor: colors.accent, opacity: pressed ? 0.88 : 1 },
@@ -106,7 +106,7 @@ export default function DashboardScreen() {
           title="No invoices yet"
           subtitle="Create your first invoice and it will appear here."
           actionLabel="Create Invoice"
-          onAction={() => router.push('/invoice/create')}
+          onAction={() => router.push('/invoice/template-select' as never)}
         />
       ) : (
         recentInvoices.map((inv) => (

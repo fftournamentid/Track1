@@ -57,6 +57,7 @@ export interface Invoice {
   createdAt: string;
   updatedAt: string;
   downloadCount: number;
+  templateId?: string;
 }
 
 export interface AppSettings {

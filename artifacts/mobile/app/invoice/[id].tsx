@@ -12,6 +12,7 @@ import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
+import { printInvoice, savePDFToDevice } from '@/services/pdfService';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
@@ -95,7 +96,7 @@ export default function InvoiceDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { invoices, updateInvoice, deleteInvoice, duplicateInvoice, toggleFavorite, archiveInvoice, restoreInvoice } =
     useInvoices();
-  const { generateNextInvoiceNumber } = useSettings();
+  const { settings, generateNextInvoiceNumber } = useSettings();
 
   const invoice: Invoice | undefined = invoices.find((i) => i.id === id);
 
@@ -104,6 +105,7 @@ export default function InvoiceDetailScreen() {
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [dupLoading, setDupLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<'download' | 'print' | null>(null);
 
   const handleSharePDF = useCallback(() => {
     if (!invoice) return;
@@ -116,6 +118,37 @@ export default function InvoiceDetailScreen() {
     setShareAction('whatsapp');
     setTemplatePickerVisible(true);
   }, [invoice]);
+
+  const handleDownload = useCallback(async () => {
+    if (!invoice) return;
+    setActionLoading('download');
+    try {
+      const tplId = invoice.templateId || settings.defaultTemplateId || 'classic';
+      const filename = await savePDFToDevice(invoice, tplId);
+      Alert.alert(
+        'PDF Saved',
+        `Invoice saved to your Files app.\n\n${filename}`,
+        [{ text: 'OK' }]
+      );
+    } catch (err) {
+      Alert.alert('Error', String(err));
+    } finally {
+      setActionLoading(null);
+    }
+  }, [invoice, settings]);
+
+  const handlePrint = useCallback(async () => {
+    if (!invoice) return;
+    setActionLoading('print');
+    try {
+      const tplId = invoice.templateId || settings.defaultTemplateId || 'classic';
+      await printInvoice(invoice, tplId);
+    } catch (err) {
+      Alert.alert('Error', String(err));
+    } finally {
+      setActionLoading(null);
+    }
+  }, [invoice, settings]);
 
   const handleToggleFavorite = async () => {
     if (!invoice) return;
@@ -290,6 +323,38 @@ export default function InvoiceDetailScreen() {
           <View style={styles.actionsRow}>
             <ActionBtn icon="share" label="Share PDF" onPress={handleSharePDF} variant="accent" />
             <ActionBtn icon="message-circle" label="WhatsApp" onPress={handleWhatsApp} variant="success" />
+          </View>
+          <View style={[styles.actionsRow, { marginTop: 8 }]}>
+            <Pressable
+              onPress={handleDownload}
+              disabled={actionLoading !== null}
+              style={({ pressed }) => [
+                abStyles.btn,
+                { backgroundColor: '#EEF3FF', borderColor: colors.border, opacity: pressed || actionLoading !== null ? 0.7 : 1 },
+              ]}
+            >
+              {actionLoading === 'download' ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Feather name="download" size={18} color={colors.primary} />
+              )}
+              <Text style={[abStyles.label, { color: colors.primary }]}>Download PDF</Text>
+            </Pressable>
+            <Pressable
+              onPress={handlePrint}
+              disabled={actionLoading !== null}
+              style={({ pressed }) => [
+                abStyles.btn,
+                { backgroundColor: '#FFF7ED', borderColor: colors.border, opacity: pressed || actionLoading !== null ? 0.7 : 1 },
+              ]}
+            >
+              {actionLoading === 'print' ? (
+                <ActivityIndicator color="#F57C00" size="small" />
+              ) : (
+                <Feather name="printer" size={18} color="#F57C00" />
+              )}
+              <Text style={[abStyles.label, { color: '#F57C00' }]}>Print</Text>
+            </Pressable>
           </View>
         </Card>
 

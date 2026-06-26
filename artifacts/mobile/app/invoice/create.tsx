@@ -7,12 +7,14 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Print from 'expo-print';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import type { LineItem } from '@/types';
+import type { Invoice, LineItem } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
+import { INVOICE_TEMPLATES, buildInvoiceHTML } from '@/services/invoiceTemplates';
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
 
@@ -69,13 +71,14 @@ export default function CreateInvoiceScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id: editId } = useLocalSearchParams<{ id?: string }>();
+  const { id: editId, templateId: tplParam } = useLocalSearchParams<{ id?: string; templateId?: string }>();
   const isEditing = !!editId;
 
-  const { invoices, createInvoice, updateInvoice, getInvoiceById } = useInvoices();
+  const { createInvoice, updateInvoice, getInvoiceById } = useInvoices();
   const { profile } = useProfile();
   const { settings, generateNextInvoiceNumber } = useSettings();
 
+  const [selectedTemplateId, setSelectedTemplateId] = useState(tplParam || settings.defaultTemplateId || 'classic');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [date, setDate] = useState(todayFormatted());
   const [dueDate, setDueDate] = useState('');
@@ -94,6 +97,7 @@ export default function CreateInvoiceScreen() {
   const [paymentTerms, setPaymentTerms] = useState(settings.defaultPaymentTerms);
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
@@ -117,6 +121,7 @@ export default function CreateInvoiceScreen() {
         setGstRate(inv.gstRate);
         setPaymentTerms(inv.paymentTerms ?? '');
         setNotes(inv.notes ?? '');
+        if (inv.templateId) setSelectedTemplateId(inv.templateId);
       }
     } else {
       generateNextInvoiceNumber().then(setInvoiceNumber);
@@ -124,6 +129,7 @@ export default function CreateInvoiceScreen() {
       setDriverName(profile.driverName);
       setGstRate(settings.defaultGstRate);
       setPaymentTerms(settings.defaultPaymentTerms);
+      if (profile.footerNotes) setNotes(profile.footerNotes);
     }
   }, [editId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -160,6 +166,52 @@ export default function CreateInvoiceScreen() {
     setLineItems((prev) => prev.filter((i) => i.id !== id));
   };
 
+  const buildPreviewInvoice = (): Invoice => ({
+    id: 'preview',
+    invoiceNumber: invoiceNumber || 'PREVIEW',
+    date,
+    dueDate: dueDate || undefined,
+    status: 'pending',
+    isFavorite: false,
+    isArchived: false,
+    businessSnapshot: profile,
+    clientName: clientName || 'Preview Client',
+    clientPhone: clientPhone || undefined,
+    clientAddress: clientAddress || undefined,
+    clientGST: clientGST || undefined,
+    fromLocation: fromLocation || 'Origin',
+    toLocation: toLocation || 'Destination',
+    truckNumber: truckNumber || '',
+    driverName: driverName || '',
+    lineItems: lineItems.filter((i) => i.amount > 0).length > 0
+      ? lineItems.filter((i) => i.amount > 0)
+      : lineItems,
+    subtotal,
+    gstRate,
+    gstAmount,
+    grandTotal,
+    currency: settings.defaultCurrency,
+    paymentTerms: paymentTerms || undefined,
+    notes: notes || undefined,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    downloadCount: 0,
+    templateId: selectedTemplateId,
+  });
+
+  const handlePreview = async () => {
+    if (isPreviewing) return;
+    setIsPreviewing(true);
+    try {
+      const html = await buildInvoiceHTML(buildPreviewInvoice(), selectedTemplateId);
+      await Print.printAsync({ html });
+    } catch (err) {
+      Alert.alert('Preview Error', String(err));
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!clientName.trim()) { Alert.alert('Required', 'Client name is required'); return; }
     if (!fromLocation.trim() || !toLocation.trim()) { Alert.alert('Required', 'From and To locations are required'); return; }
@@ -192,6 +244,7 @@ export default function CreateInvoiceScreen() {
         currency: settings.defaultCurrency,
         paymentTerms: paymentTerms.trim() || undefined,
         notes: notes.trim() || undefined,
+        templateId: selectedTemplateId,
       };
 
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -211,6 +264,7 @@ export default function CreateInvoiceScreen() {
   };
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const selectedTemplate = INVOICE_TEMPLATES.find((t) => t.id === selectedTemplateId) || INVOICE_TEMPLATES[0];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -222,17 +276,33 @@ export default function CreateInvoiceScreen() {
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>
           {isEditing ? 'Edit Invoice' : 'New Invoice'}
         </Text>
-        <Pressable
-          onPress={handleSave}
-          disabled={isSaving}
-          style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isSaving ? 0.7 : 1 }]}
-        >
-          {isSaving ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Text style={styles.saveBtnText}>Save</Text>
-          )}
-        </Pressable>
+        <View style={styles.headerRight}>
+          <Pressable
+            onPress={handlePreview}
+            disabled={isPreviewing}
+            style={[styles.previewBtn, { borderColor: colors.border, backgroundColor: colors.secondary }]}
+          >
+            {isPreviewing ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <>
+                <Feather name="eye" size={14} color={colors.primary} />
+                <Text style={[styles.previewBtnTxt, { color: colors.primary }]}>Preview</Text>
+              </>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={handleSave}
+            disabled={isSaving}
+            style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isSaving ? 0.7 : 1 }]}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.saveBtnText}>Save</Text>
+            )}
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -240,6 +310,58 @@ export default function CreateInvoiceScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Template Selector */}
+        <View style={[styles.templateBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.templateBarHeader}>
+            <Feather name="layout" size={12} color={colors.mutedForeground} />
+            <Text style={[styles.templateBarLabel, { color: colors.mutedForeground }]}>Template</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.templateChips}
+          >
+            {INVOICE_TEMPLATES.map((t) => {
+              const active = selectedTemplateId === t.id;
+              return (
+                <Pressable
+                  key={t.id}
+                  onPress={() => t.isPremium ? router.push('/premium' as never) : setSelectedTemplateId(t.id)}
+                  style={[
+                    styles.templateChip,
+                    {
+                      backgroundColor: active ? t.previewColors[0] : colors.secondary,
+                      borderColor: active ? t.previewColors[0] : colors.border,
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.chipDot,
+                      { backgroundColor: active ? '#fff' : t.previewColors[0] },
+                    ]}
+                  />
+                  <Text
+                    style={[
+                      styles.chipName,
+                      { color: active ? '#fff' : colors.foreground },
+                    ]}
+                  >
+                    {t.name}
+                  </Text>
+                  {t.isPremium && (
+                    <Feather
+                      name="lock"
+                      size={10}
+                      color={active ? 'rgba(255,255,255,0.7)' : colors.mutedForeground}
+                    />
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Invoice Info */}
         <Section title="Invoice Info">
           <Field label="Invoice Number" value={invoiceNumber} onChangeText={setInvoiceNumber} placeholder="INV-0001" required />
@@ -256,9 +378,15 @@ export default function CreateInvoiceScreen() {
           <Text style={[styles.billFromText, { color: colors.foreground }]}>
             {profile.companyName || profile.ownerName || 'Set up your profile →'}
           </Text>
-          {profile.address ? (
+          {!!profile.gstNumber && (
+            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]}>GST: {profile.gstNumber}</Text>
+          )}
+          {!!profile.address && (
             <Text style={[styles.billFromSub, { color: colors.mutedForeground }]}>{profile.address}</Text>
-          ) : null}
+          )}
+          {!!profile.mobile && (
+            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]}>📞 {profile.mobile}</Text>
+          )}
         </View>
 
         {/* Client Details */}
@@ -391,6 +519,38 @@ export default function CreateInvoiceScreen() {
           <Field label="Payment Terms" value={paymentTerms} onChangeText={setPaymentTerms} multiline />
           <Field label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Additional notes..." />
         </Section>
+
+        {/* Bottom action row */}
+        <View style={styles.bottomRow}>
+          <Pressable
+            onPress={handlePreview}
+            disabled={isPreviewing}
+            style={[styles.bottomPreviewBtn, { borderColor: colors.primary, backgroundColor: colors.secondary }]}
+          >
+            {isPreviewing ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <>
+                <Feather name="eye" size={16} color={colors.primary} />
+                <Text style={[styles.bottomPreviewTxt, { color: colors.primary }]}>Preview Invoice</Text>
+              </>
+            )}
+          </Pressable>
+          <Pressable
+            onPress={handleSave}
+            disabled={isSaving}
+            style={[styles.bottomSaveBtn, { backgroundColor: colors.primary, opacity: isSaving ? 0.7 : 1 }]}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Feather name="save" size={16} color="#fff" />
+                <Text style={styles.bottomSaveTxt}>{isEditing ? 'Update Invoice' : 'Save Invoice'}</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
       </ScrollView>
     </View>
   );
@@ -402,16 +562,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
   },
-  backBtn: { padding: 4 },
+  backBtn: { padding: 4, width: 36 },
   headerTitle: { fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' },
-  saveBtn: { paddingHorizontal: 18, paddingVertical: 9, borderRadius: 10, minWidth: 64, alignItems: 'center' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  previewBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9, borderWidth: 1, minWidth: 70, justifyContent: 'center',
+  },
+  previewBtnTxt: { fontSize: 12, fontWeight: '700' },
+  saveBtn: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, minWidth: 56, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   content: { padding: 16 },
-  billFrom: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 14 },
-  billFromHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  templateBar: {
+    borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14,
+  },
+  templateBarHeader: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10 },
+  templateBarLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  templateChips: { gap: 8, paddingRight: 4 },
+  templateChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5,
+  },
+  chipDot: { width: 8, height: 8, borderRadius: 4 },
+  chipName: { fontSize: 12.5, fontWeight: '700' },
+  billFrom: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 14, gap: 3 },
+  billFromHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   billFromTitle: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   billFromText: { fontSize: 14, fontWeight: '600' },
-  billFromSub: { fontSize: 12, marginTop: 2 },
+  billFromSub: { fontSize: 12 },
   lineItem: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12 },
   lineItemHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   lineItemNum: { fontSize: 12, fontWeight: '600' },
@@ -431,4 +609,15 @@ const styles = StyleSheet.create({
   grandRow: { borderTopWidth: 1, marginTop: 4, paddingTop: 12 },
   grandLabel: { fontSize: 16, fontWeight: '800' },
   grandVal: { fontSize: 16, fontWeight: '800' },
+  bottomRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  bottomPreviewBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, borderWidth: 1.5, borderRadius: 12, paddingVertical: 15,
+  },
+  bottomPreviewTxt: { fontSize: 14, fontWeight: '700' },
+  bottomSaveBtn: {
+    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, borderRadius: 12, paddingVertical: 15,
+  },
+  bottomSaveTxt: { color: '#fff', fontSize: 14, fontWeight: '800' },
 });
