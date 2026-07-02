@@ -11,3 +11,4 @@
 - [Admin routing — never redirect in login.tsx](admin-login-routing.md) — login.tsx must NOT call router.replace after signIn; let _layout.tsx handle routing after userDoc loads. Otherwise admin lands in /(tabs) instead of /admin because userDoc hasn't arrived yet.
 - [Admin UID auto-promotion](admin-uid-promotion.md) — AuthContext auto-sets role:"admin" in Firestore for UID kaqcXOcHHYU7VeSXdLMUR2E66vB3 on first login using setUserRole(); no manual Firestore Console step needed.
 - [shareService stable-path pattern](share-stable-path.md) — sharePDF/shareViaWhatsApp must copy PDF to documentDirectory before Sharing.shareAsync; always use invoice.templateId (or 'classic') not default generatePDF().
+- [Admin panel — single file with internal tab state](admin-panel-tabs.md) — admin/index.tsx uses internal Tab state ('dashboard'|'users'|'premium'|'analytics'|'more') with a custom bottom tab bar; no expo-router tabs since admin is a Stack screen entry point.

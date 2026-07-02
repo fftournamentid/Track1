@@ -335,7 +335,7 @@ export default function CreateInvoiceScreen() {
               return (
                 <Pressable
                   key={t.id}
-                  onPress={() => t.isPremium ? router.push('/premium' as never) : setSelectedTemplateId(t.id)}
+                  onPress={() => setSelectedTemplateId(t.id)}
                   style={[
                     styles.templateChip,
                     {
@@ -358,13 +358,6 @@ export default function CreateInvoiceScreen() {
                   >
                     {t.name}
                   </Text>
-                  {t.isPremium && (
-                    <Feather
-                      name="lock"
-                      size={10}
-                      color={active ? 'rgba(255,255,255,0.7)' : colors.mutedForeground}
-                    />
-                  )}
                 </Pressable>
               );
             })}
