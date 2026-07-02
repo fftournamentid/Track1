@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Hardcoded bootstrap admin UID — can promote themselves and others
+    function isBootstrapAdmin() {
+      return request.auth != null &&
+        request.auth.uid == 'kaqcXOcHHYU7VeSXdLMUR2E66vB3';
+    }
+
+    // Admin check — reads the caller's own user document
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      // Read: own doc OR admin
+      allow read: if isOwner(userId) || isAdmin() || isBootstrapAdmin();
+
+      // Write own doc: allowed, BUT normal users cannot set role to 'admin'
+      // Bootstrap admin and existing admins can write anything
+      allow write: if isBootstrapAdmin() || isAdmin() ||
+        (isOwner(userId) && (
+          !('role' in request.resource.data) ||
+          request.resource.data.role == resource.data.role
+        ));
+
+      match /invoices/{invoiceId} {
+        allow read, write: if isOwner(userId) || isAdmin() || isBootstrapAdmin();
+      }
+    }
+  }
+}

@@ -116,6 +116,13 @@ export async function updateUserSettings(
   });
 }
 
+export async function setUserRole(uid: string, role: string): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), {
+    role,
+    updatedAt: serverTimestamp(),
+  }).catch(() => {});
+}
+
 export async function updateLastLogin(uid: string): Promise<void> {
   await updateDoc(doc(db, 'users', uid), {
     lastLoginAt: serverTimestamp(),

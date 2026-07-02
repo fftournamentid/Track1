@@ -2,15 +2,13 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
-  Image,
 } from 'react-native';
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { signIn, getAuthErrorMessage, validateEmail, validatePassword } from '@/services/firebase/auth.service';
 
 const NAVY = '#1A3C6E';
 const ORANGE = '#F57C00';
-const LIGHT_NAVY = '#E8EEF7';
 const ERROR = '#DC2626';
 
 export default function LoginScreen() {
@@ -30,11 +28,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await signIn(email.trim().toLowerCase(), password);
-      router.replace('/(tabs)' as never);
+      // Let _layout.tsx handle routing based on role (admin vs normal user)
+      // Do NOT redirect here; wait for userDoc to load so admin gets /admin
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
       setError(getAuthErrorMessage(code));
-    } finally {
       setLoading(false);
     }
   };
@@ -116,7 +114,7 @@ export default function LoginScreen() {
             <Text style={styles.forgotText}>Forgot Password?</Text>
           </TouchableOpacity>
 
-          {/* Sign In */}
+          {/* Login */}
           <TouchableOpacity
             style={[styles.btn, loading && styles.btnDisabled]}
             onPress={handleLogin}

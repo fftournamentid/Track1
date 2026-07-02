@@ -38,7 +38,7 @@ export default function SignupScreen() {
     setLoading(true);
     try {
       await signUp(email.trim().toLowerCase(), password, name.trim());
-      router.replace('/(tabs)' as never);
+      // Let _layout.tsx handle routing after auth state changes
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
       if (code === 'auth/email-already-in-use') {
@@ -47,7 +47,6 @@ export default function SignupScreen() {
       } else {
         setError(getAuthErrorMessage(code));
       }
-    } finally {
       setLoading(false);
     }
   };
@@ -181,7 +180,7 @@ export default function SignupScreen() {
           >
             {loading
               ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.btnText}>Create Account</Text>}
+              : <Text style={styles.btnText}>Sign Up</Text>}
           </TouchableOpacity>
         </View>
 

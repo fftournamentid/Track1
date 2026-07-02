@@ -6,8 +6,11 @@ import { auth } from '@/services/firebase/config';
 import {
   subscribeToUserDocument,
   updateLastLogin,
+  setUserRole,
   type UserDocument,
 } from '@/services/firebase/repositories/user.repository';
+
+const ADMIN_UID = 'kaqcXOcHHYU7VeSXdLMUR2E66vB3';
 
 interface AuthContextType {
   user: User | null;
@@ -30,7 +33,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubAuth = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
 
-      // Tear down previous doc listener
       setDocUnsub((prev) => {
         prev?.();
         return null;
@@ -38,6 +40,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (firebaseUser) {
         const unsubDoc = subscribeToUserDocument(firebaseUser.uid, (doc) => {
+          if (doc && firebaseUser.uid === ADMIN_UID && doc.role !== 'admin') {
+            setUserRole(firebaseUser.uid, 'admin');
+          }
           setUserDoc(doc);
           setIsLoading(false);
         });

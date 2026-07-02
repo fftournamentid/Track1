@@ -287,7 +287,7 @@ export default function ProfileScreen() {
                 )}
                 {!form.mobile && !form.gstNumber && !form.address && !form.truckNumber && !form.upiId && (
                   <Text style={[styles.summaryEmptyText, { color: colors.mutedForeground }]}>
-                    Add your business details so invoices auto-fill correctly.
+                    Complete your profile once to automatically fill invoices and generate PDFs faster.
                   </Text>
                 )}
               </View>
