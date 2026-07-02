@@ -16,6 +16,7 @@ export interface UserDocument {
   email: string;
   emailVerified: boolean;
   displayName: string;
+  role?: string;
   createdAt: unknown;
   updatedAt: unknown;
   lastLoginAt: unknown;

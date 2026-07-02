@@ -37,7 +37,7 @@ export async function sendPasswordReset(email: string): Promise<void> {
 
 export function getAuthErrorMessage(code: string): string {
   const map: Record<string, string> = {
-    'auth/email-already-in-use': 'Something went wrong. Please try again.',
+    'auth/email-already-in-use': 'This account already exists. Please login instead.',
     'auth/invalid-email': 'Please enter a valid email address.',
     'auth/user-not-found': 'Invalid email or password.',
     'auth/wrong-password': 'Invalid email or password.',

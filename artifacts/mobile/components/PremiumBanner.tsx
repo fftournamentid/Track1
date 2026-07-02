@@ -1,32 +1,22 @@
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, StyleSheet } from 'react-native';
 import { Feather } from '@expo/vector-icons';
-import { usePremium } from '@/hooks/usePremium';
 
 const NAVY = '#1A3C6E';
 const ORANGE = '#F57C00';
 
 export default function PremiumBanner() {
-  const router = useRouter();
-  const { isPremium } = usePremium();
-
-  if (isPremium) return null;
-
   return (
-    <Pressable
-      onPress={() => router.push('/premium' as never)}
-      style={({ pressed }) => [styles.wrap, { opacity: pressed ? 0.92 : 1 }]}
-    >
+    <View style={styles.wrap}>
       <View style={styles.iconWrap}>
         <Text style={styles.rocket}>🚀</Text>
       </View>
       <View style={styles.textWrap}>
         <Text style={styles.title}>Early Access Premium</Text>
-        <Text style={styles.subtitle}>Free for First 100,000 Users</Text>
+        <Text style={styles.subtitle}>Free Premium Access for the First 100,000 Users</Text>
       </View>
-      <Feather name="chevron-right" size={18} color="#fff" />
-    </Pressable>
+      <Feather name="check-circle" size={18} color={ORANGE} />
+    </View>
   );
 }
 

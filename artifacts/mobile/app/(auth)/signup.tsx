@@ -41,7 +41,12 @@ export default function SignupScreen() {
       router.replace('/(tabs)' as never);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      setError(getAuthErrorMessage(code));
+      if (code === 'auth/email-already-in-use') {
+        setError('This account already exists. Please login instead.');
+        setTimeout(() => router.replace('/(auth)/login' as never), 2000);
+      } else {
+        setError(getAuthErrorMessage(code));
+      }
     } finally {
       setLoading(false);
     }
@@ -183,8 +188,8 @@ export default function SignupScreen() {
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>Already have an account?</Text>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={styles.footerLink}> Sign In</Text>
+          <TouchableOpacity onPress={() => router.replace('/(auth)/login' as never)}>
+            <Text style={styles.footerLink}> Login</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

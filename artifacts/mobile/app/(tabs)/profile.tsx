@@ -163,23 +163,23 @@ export default function ProfileScreen() {
 
   const handleSignOut = () => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
+      'Logout',
+      'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Sign Out',
+          text: 'Logout',
           style: 'destructive',
           onPress: async () => {
             setIsSigningOut(true);
             try {
               await signOut();
-            } catch {
-              Alert.alert('Error', 'Failed to sign out. Please try again.');
-              setIsSigningOut(false);
+              router.replace('/(auth)/login' as never);
               return;
+            } catch {
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+              setIsSigningOut(false);
             }
-            router.replace('/(auth)/login' as never);
           },
         },
       ]
@@ -318,7 +318,7 @@ export default function ProfileScreen() {
               ) : (
                 <>
                   <Ionicons name="log-out-outline" size={20} color="#DC2626" />
-                  <Text style={styles.signOutText}>Sign Out</Text>
+                  <Text style={styles.signOutText}>Logout</Text>
                 </>
               )}
             </Pressable>

@@ -25,21 +25,33 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootLayoutNav() {
-  const { user, isLoading } = useAuth();
+  const { user, userDoc, isLoading } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = (segments as string[])[0] === "(auth)";
+    const seg = segments as string[];
+    const inAuthGroup = seg[0] === "(auth)";
+    const inAdminGroup = seg[0] === "admin";
+    const isAdmin = userDoc?.role === "admin";
+
+    if (!user && !inAuthGroup) {
+      router.replace("/(auth)/login" as never);
+      return;
+    }
 
     if (user && inAuthGroup) {
-      router.replace("/(tabs)" as never);
-    } else if (!user && !inAuthGroup) {
-      router.replace("/(auth)/login" as never);
+      router.replace(isAdmin ? ("/admin" as never) : ("/(tabs)" as never));
+      return;
     }
-  }, [user, isLoading, segments]);
+
+    if (user && !isAdmin && inAdminGroup) {
+      router.replace("/(tabs)" as never);
+      return;
+    }
+  }, [user, userDoc, isLoading, segments]);
 
   if (isLoading) {
     return (
@@ -53,6 +65,7 @@ function RootLayoutNav() {
     <Stack>
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="admin" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/template-select" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/create" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/[id]" options={{ headerShown: false }} />

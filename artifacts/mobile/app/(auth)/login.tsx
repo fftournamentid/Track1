@@ -61,7 +61,7 @@ export default function LoginScreen() {
         {/* Card */}
         <View style={styles.card}>
           <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Sign in to your account</Text>
+          <Text style={styles.subtitle}>Login to your account</Text>
 
           {error ? (
             <View style={styles.errorBox}>
@@ -125,7 +125,7 @@ export default function LoginScreen() {
           >
             {loading
               ? <ActivityIndicator color="#fff" />
-              : <Text style={styles.btnText}>Sign In</Text>}
+              : <Text style={styles.btnText}>Login</Text>}
           </TouchableOpacity>
         </View>
 

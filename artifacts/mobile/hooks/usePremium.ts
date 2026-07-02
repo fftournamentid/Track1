@@ -7,10 +7,10 @@ export interface PremiumStatus {
 }
 
 export function usePremium(): PremiumStatus {
-  const { userDoc, isLoading } = useAuth();
+  const { isLoading } = useAuth();
   return {
-    isPremium: userDoc?.isPremium ?? false,
+    isPremium: true,
     isLoading,
-    planId: userDoc?.premiumPlanId ?? null,
+    planId: 'early-access',
   };
 }
