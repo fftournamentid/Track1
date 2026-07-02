@@ -254,10 +254,16 @@ export default function CreateInvoiceScreen() {
 
       if (isEditing && editId) {
         await updateInvoice(editId, data);
-        router.back();
+        Alert.alert('✓ Invoice saved successfully', undefined, [
+          { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
+          { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: editId } }) },
+        ]);
       } else {
         const inv = await createInvoice(data);
-        router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } });
+        Alert.alert('✓ Invoice saved successfully', undefined, [
+          { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
+          { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } }) },
+        ]);
       }
     } catch (err) {
       Alert.alert('Error', String(err));
@@ -420,23 +426,28 @@ export default function CreateInvoiceScreen() {
                   </Pressable>
                 )}
               </View>
-              <Field
-                label="Expense Name"
-                value={item.name}
-                onChangeText={(v) => updateExpense(item.id, 'name', v)}
-                placeholder="e.g. Fuel, Toll, Food"
-                required
-              />
-              <View>
-                <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Amount ({settings.defaultCurrency})</Text>
-                <TextInput
-                  value={item.amount === 0 ? '' : String(item.amount)}
-                  onChangeText={(v) => updateExpense(item.id, 'amount', v)}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={colors.mutedForeground}
-                  style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
-                />
+              <View style={styles.expenseRow}>
+                <View style={styles.expenseNameCol}>
+                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Expense Name *</Text>
+                  <TextInput
+                    value={item.name}
+                    onChangeText={(v) => updateExpense(item.id, 'name', v)}
+                    placeholder="e.g. Fuel, Toll, Food"
+                    placeholderTextColor={colors.mutedForeground}
+                    style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
+                  />
+                </View>
+                <View style={styles.expenseAmountCol}>
+                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Amount ({settings.defaultCurrency})</Text>
+                  <TextInput
+                    value={item.amount === 0 ? '' : String(item.amount)}
+                    onChangeText={(v) => updateExpense(item.id, 'amount', v)}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                    placeholderTextColor={colors.mutedForeground}
+                    style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
+                  />
+                </View>
               </View>
             </View>
           ))}
@@ -462,11 +473,39 @@ export default function CreateInvoiceScreen() {
 
           <View style={[styles.summaryBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
             <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>Advance</Text>
+              <Text style={[styles.summaryVal, { color: colors.foreground }]}>
+                {formatCurrency(advanceNum, settings.defaultCurrency)}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
               <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>Total Expenses</Text>
               <Text style={[styles.summaryVal, { color: colors.foreground }]}>
                 {formatCurrency(totalExpenses, settings.defaultCurrency)}
               </Text>
             </View>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>Remaining Balance</Text>
+              <Text style={[styles.summaryVal, { color: colors.foreground }]}>
+                {formatCurrency(balance, settings.defaultCurrency)}
+              </Text>
+            </View>
+            {balance > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: colors.primary }]}>Extra Amount</Text>
+                <Text style={[styles.summaryVal, { color: colors.primary }]}>
+                  {formatCurrency(balance, settings.defaultCurrency)}
+                </Text>
+              </View>
+            )}
+            {balance < 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: colors.destructive }]}>Loss Amount</Text>
+                <Text style={[styles.summaryVal, { color: colors.destructive }]}>
+                  {formatCurrency(Math.abs(balance), settings.defaultCurrency)}
+                </Text>
+              </View>
+            )}
             <View style={[styles.summaryRow, styles.grandRow, { borderTopColor: colors.border }]}>
               <Text style={[styles.grandLabel, { color: colors.primary }]}>Balance</Text>
               <Text style={[styles.grandVal, { color: colors.primary }]}>
@@ -569,6 +608,9 @@ const styles = StyleSheet.create({
   lineItem: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12 },
   lineItemHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   lineItemNum: { fontSize: 12, fontWeight: '600' },
+  expenseRow: { flexDirection: 'row', gap: 10 },
+  expenseNameCol: { flex: 1.6 },
+  expenseAmountCol: { flex: 1 },
   addItemBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12 },
   addItemText: { fontSize: 14, fontWeight: '700' },
   summaryBox: { borderWidth: 1, borderRadius: 12, padding: 14 },

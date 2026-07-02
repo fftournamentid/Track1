@@ -14,6 +14,7 @@ import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/services/firebase/auth.service';
+import PremiumBanner from '@/components/PremiumBanner';
 import type { BusinessInfo } from '@/types';
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
@@ -78,6 +79,7 @@ export default function ProfileScreen() {
   const [defaultTerms, setDefaultTerms] = useState(settings.defaultPaymentTerms);
   const [isSaving, setIsSaving] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userEditedRef = useRef(false);
@@ -151,6 +153,7 @@ export default function ProfileScreen() {
       await updateSettings({ defaultGstRate, invoicePrefix, defaultPaymentTerms: defaultTerms });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Saved', 'Your profile has been updated.');
+      setIsEditingProfile(false);
     } catch {
       Alert.alert('Error', 'Failed to save. Please try again.');
     } finally {
@@ -205,6 +208,8 @@ export default function ProfileScreen() {
           Auto-fills every new invoice
         </Text>
 
+        <PremiumBanner />
+
         {/* Account info */}
         {user?.email ? (
           <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -227,6 +232,99 @@ export default function ProfileScreen() {
           </View>
         ) : null}
 
+        {!isEditingProfile ? (
+          <>
+            {/* Summary Card */}
+            <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.summaryHeaderRow}>
+                <View style={[styles.summaryLogoBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+                  {form.logoUri ? (
+                    <Image source={{ uri: form.logoUri }} style={styles.summaryLogoImg} />
+                  ) : (
+                    <Feather name="briefcase" size={24} color={colors.primary} />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.summaryCompany, { color: colors.foreground }]} numberOfLines={1}>
+                    {form.companyName || form.ownerName || 'Set up your business profile'}
+                  </Text>
+                  {!!form.ownerName && !!form.companyName && (
+                    <Text style={[styles.summarySub, { color: colors.mutedForeground }]}>{form.ownerName}</Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.summaryRows}>
+                {!!form.mobile && (
+                  <View style={styles.summaryInfoRow}>
+                    <Feather name="phone" size={13} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]}>{form.mobile}</Text>
+                  </View>
+                )}
+                {!!form.gstNumber && (
+                  <View style={styles.summaryInfoRow}>
+                    <Feather name="hash" size={13} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]}>GST: {form.gstNumber}</Text>
+                  </View>
+                )}
+                {!!form.address && (
+                  <View style={styles.summaryInfoRow}>
+                    <Feather name="map-pin" size={13} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]} numberOfLines={2}>{form.address}</Text>
+                  </View>
+                )}
+                {!!form.truckNumber && (
+                  <View style={styles.summaryInfoRow}>
+                    <Feather name="truck" size={13} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]}>{form.truckNumber}</Text>
+                  </View>
+                )}
+                {!!form.upiId && (
+                  <View style={styles.summaryInfoRow}>
+                    <Feather name="credit-card" size={13} color={colors.mutedForeground} />
+                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]}>{form.upiId}</Text>
+                  </View>
+                )}
+                {!form.mobile && !form.gstNumber && !form.address && !form.truckNumber && !form.upiId && (
+                  <Text style={[styles.summaryEmptyText, { color: colors.mutedForeground }]}>
+                    Add your business details so invoices auto-fill correctly.
+                  </Text>
+                )}
+              </View>
+
+              <Pressable
+                onPress={() => setIsEditingProfile(true)}
+                style={({ pressed }) => [
+                  styles.editProfileBtn,
+                  { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Feather name="edit-2" size={16} color="#fff" />
+                <Text style={styles.editProfileBtnText}>Edit Profile</Text>
+              </Pressable>
+            </View>
+
+            {/* Sign Out */}
+            <Pressable
+              onPress={handleSignOut}
+              disabled={isSigningOut}
+              style={({ pressed }) => [
+                styles.signOutBtn,
+                { opacity: pressed || isSigningOut ? 0.7 : 1 },
+              ]}
+            >
+              {isSigningOut ? (
+                <ActivityIndicator color="#DC2626" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="log-out-outline" size={20} color="#DC2626" />
+                  <Text style={styles.signOutText}>Sign Out</Text>
+                </>
+              )}
+            </Pressable>
+          </>
+        ) : (
+        <>
         {/* Logo */}
         <SectionBox title="Company Logo">
           <View style={styles.logoRow}>
@@ -354,27 +452,22 @@ export default function ProfileScreen() {
           />
         </SectionBox>
 
-        {/* Sign Out */}
         <Pressable
-          onPress={handleSignOut}
-          disabled={isSigningOut}
+          onPress={() => setIsEditingProfile(false)}
           style={({ pressed }) => [
-            styles.signOutBtn,
-            { opacity: pressed || isSigningOut ? 0.7 : 1 },
+            styles.doneBtn,
+            { borderColor: colors.border, backgroundColor: colors.secondary, opacity: pressed ? 0.8 : 1 },
           ]}
         >
-          {isSigningOut ? (
-            <ActivityIndicator color="#DC2626" size="small" />
-          ) : (
-            <>
-              <Ionicons name="log-out-outline" size={20} color="#DC2626" />
-              <Text style={styles.signOutText}>Sign Out</Text>
-            </>
-          )}
+          <Feather name="chevron-up" size={16} color={colors.primary} />
+          <Text style={[styles.doneBtnText, { color: colors.primary }]}>Back to Summary</Text>
         </Pressable>
+        </>
+        )}
       </ScrollView>
 
       {/* Save Bar */}
+      {isEditingProfile && (
       <View style={[styles.saveBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: insets.bottom + 10 }]}>
         {/* Auto-save status */}
         <View style={styles.autoSaveRow}>
@@ -409,6 +502,7 @@ export default function ProfileScreen() {
           )}
         </Pressable>
       </View>
+      )}
     </View>
   );
 }
@@ -430,6 +524,29 @@ const styles = StyleSheet.create({
   accountInfo: { flex: 1 },
   accountName: { fontSize: 15, fontWeight: '600' },
   accountEmail: { fontSize: 13, marginTop: 2 },
+  summaryCard: { borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 16 },
+  summaryHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
+  summaryLogoBox: {
+    width: 56, height: 56, borderRadius: 14, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+  },
+  summaryLogoImg: { width: 56, height: 56 },
+  summaryCompany: { fontSize: 17, fontWeight: '800' },
+  summarySub: { fontSize: 13, marginTop: 2 },
+  summaryRows: { gap: 8, marginBottom: 16 },
+  summaryInfoRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  summaryInfoText: { fontSize: 13, flex: 1 },
+  summaryEmptyText: { fontSize: 13, fontStyle: 'italic' },
+  editProfileBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderRadius: 12, paddingVertical: 13,
+  },
+  editProfileBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  doneBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, borderRadius: 12, borderWidth: 1, paddingVertical: 12, marginBottom: 8,
+  },
+  doneBtnText: { fontSize: 14, fontWeight: '700' },
   unverifiedBadge: {
     backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
   },

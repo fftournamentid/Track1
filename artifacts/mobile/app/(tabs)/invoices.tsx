@@ -76,14 +76,23 @@ export default function InvoicesScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 12, backgroundColor: colors.background }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Invoices</Text>
-        <Pressable
-          onPress={() => setSortVisible(true)}
-          style={[styles.sortBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
-          hitSlop={8}
-        >
-          <Feather name="sliders" size={15} color={colors.primary} />
-          <Text style={[styles.sortBtnText, { color: colors.primary }]}>Sort</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            onPress={() => router.push('/pdf-history' as never)}
+            style={[styles.iconOnlyBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+            hitSlop={8}
+          >
+            <Feather name="folder" size={16} color={colors.primary} />
+          </Pressable>
+          <Pressable
+            onPress={() => setSortVisible(true)}
+            style={[styles.sortBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
+            hitSlop={8}
+          >
+            <Feather name="sliders" size={15} color={colors.primary} />
+            <Text style={[styles.sortBtnText, { color: colors.primary }]}>Sort</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.inner}>
@@ -217,6 +226,15 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  iconOnlyBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sortBtn: {
     flexDirection: 'row',
     alignItems: 'center',

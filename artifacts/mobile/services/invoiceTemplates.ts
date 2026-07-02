@@ -484,6 +484,17 @@ function renderHTML(
       <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};">
         <span>Total Expenses</span><span>${invoice.currency} ${fmt(invoice.totalExpenses)}</span>
       </div>
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};">
+        <span>Remaining Balance</span><span>${invoice.currency} ${fmt(invoice.balance)}</span>
+      </div>
+      ${invoice.balance > 0 ? `
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};">
+        <span>Extra Amount</span><span>${invoice.currency} ${fmt(invoice.balance)}</span>
+      </div>` : ''}
+      ${invoice.balance < 0 ? `
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};">
+        <span>Loss Amount</span><span>${invoice.currency} ${fmt(Math.abs(invoice.balance))}</span>
+      </div>` : ''}
       <div style="background:${t.grandRowBg};color:${t.grandRowText};padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;font-size:15px;font-weight:800;margin-top:10px;">
         <span>BALANCE</span><span>${invoice.currency} ${fmt(Math.abs(invoice.balance))}</span>
       </div>

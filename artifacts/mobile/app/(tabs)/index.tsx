@@ -10,6 +10,7 @@ import StatCard from '@/components/StatCard';
 import SectionHeader from '@/components/SectionHeader';
 import InvoiceCard from '@/components/InvoiceCard';
 import EmptyState from '@/components/EmptyState';
+import PremiumBanner from '@/components/PremiumBanner';
 import { formatCurrencyCompact, isSameMonth } from '@/utils/formatters';
 
 function getGreeting(): string {
@@ -67,10 +68,21 @@ export default function DashboardScreen() {
           </Text>
           <Text style={[styles.appTitle, { color: colors.foreground }]}>Truck Invoice</Text>
         </View>
-        <View style={[styles.logoMark, { backgroundColor: colors.primary }]}>
-          <Feather name="truck" size={20} color="#fff" />
+        <View style={styles.headerRightRow}>
+          <Pressable
+            onPress={() => router.push('/pdf-history' as never)}
+            style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            hitSlop={8}
+          >
+            <Feather name="folder" size={18} color={colors.primary} />
+          </Pressable>
+          <View style={[styles.logoMark, { backgroundColor: colors.primary }]}>
+            <Feather name="truck" size={20} color="#fff" />
+          </View>
         </View>
       </View>
+
+      <PremiumBanner />
 
       {/* Stats Grid */}
       <View style={styles.gridRow}>
@@ -134,6 +146,15 @@ const styles = StyleSheet.create({
   },
   greeting: { fontSize: 13, fontWeight: '500', marginBottom: 3 },
   appTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pdfHistoryBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   logoMark: {
     width: 46,
     height: 46,

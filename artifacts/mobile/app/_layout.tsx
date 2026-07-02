@@ -56,6 +56,7 @@ function RootLayoutNav() {
       <Stack.Screen name="invoice/template-select" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/create" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="pdf-history" options={{ headerShown: false }} />
     </Stack>
   );
 }

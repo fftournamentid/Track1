@@ -12,7 +12,7 @@ import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
-import { printInvoice, savePDFToDevice } from '@/services/pdfService';
+import { printInvoice, savePDFToDevice, openInvoicePDF } from '@/services/pdfService';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
@@ -105,7 +105,20 @@ export default function InvoiceDetailScreen() {
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [dupLoading, setDupLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<'download' | 'print' | null>(null);
+  const [actionLoading, setActionLoading] = useState<'download' | 'print' | 'open' | null>(null);
+
+  const handleOpenPDF = useCallback(async () => {
+    if (!invoice) return;
+    setActionLoading('open');
+    try {
+      const tplId = invoice.templateId || settings.defaultTemplateId || 'classic';
+      await openInvoicePDF(invoice, tplId);
+    } catch (err) {
+      Alert.alert('Cannot Open PDF', String(err));
+    } finally {
+      setActionLoading(null);
+    }
+  }, [invoice, settings]);
 
   const handleSharePDF = useCallback(() => {
     if (!invoice) return;
@@ -322,6 +335,27 @@ export default function InvoiceDetailScreen() {
         {/* PDF Actions */}
         <Card>
           <STitle title="Export &amp; Share" />
+          <Pressable
+            onPress={handleOpenPDF}
+            disabled={actionLoading !== null}
+            style={({ pressed }) => [
+              styles.pdfPreviewCard,
+              { backgroundColor: colors.secondary, borderColor: colors.border, opacity: pressed || actionLoading !== null ? 0.8 : 1 },
+            ]}
+          >
+            <View style={[styles.pdfPreviewIcon, { backgroundColor: colors.primary }]}>
+              {actionLoading === 'open' ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Feather name="file-text" size={20} color="#fff" />
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.pdfPreviewTitle, { color: colors.foreground }]}>{displayName}.pdf</Text>
+              <Text style={[styles.pdfPreviewSub, { color: colors.mutedForeground }]}>Tap to open PDF</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+          </Pressable>
           <View style={styles.actionsRow}>
             <ActionBtn icon="share" label="Share PDF" onPress={handleSharePDF} variant="accent" />
             <ActionBtn icon="message-circle" label="WhatsApp" onPress={handleWhatsApp} variant="success" />
@@ -443,6 +477,13 @@ export default function InvoiceDetailScreen() {
           <STitle title="Settlement Summary" />
           <Row label="Advance Received" value={formatCurrency(invoice.advanceAmount, invoice.currency)} />
           <Row label="Total Expenses" value={formatCurrency(invoice.totalExpenses, invoice.currency)} />
+          <Row label="Remaining Balance" value={formatCurrency(invoice.balance, invoice.currency)} />
+          {invoice.balance > 0 && (
+            <Row label="Extra Amount" value={formatCurrency(invoice.balance, invoice.currency)} />
+          )}
+          {invoice.balance < 0 && (
+            <Row label="Loss Amount" value={formatCurrency(Math.abs(invoice.balance), invoice.currency)} />
+          )}
           <View style={[styles.totalDivider, { borderTopColor: colors.border }]} />
           <View style={styles.grandRow}>
             <Text style={[styles.grandLabel, { color: colors.primary }]}>Balance</Text>
@@ -575,6 +616,15 @@ const styles = StyleSheet.create({
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
   loadingText: { fontSize: 14 },
   actionsRow: { flexDirection: 'row', gap: 10 },
+  pdfPreviewCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 10,
+  },
+  pdfPreviewIcon: {
+    width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+  },
+  pdfPreviewTitle: { fontSize: 14, fontWeight: '700' },
+  pdfPreviewSub: { fontSize: 12, marginTop: 2 },
   lineItem: { paddingVertical: 10 },
   lineItemTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
   lineDesc: { fontSize: 14, fontWeight: '600', flex: 1 },
