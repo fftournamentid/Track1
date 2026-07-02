@@ -5,9 +5,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { INVOICE_TEMPLATES, generatePDFWithTemplate } from '@/services/invoiceTemplates';
-import { usePremium } from '@/hooks/usePremium';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Invoice } from '@/types';
 
@@ -18,9 +18,12 @@ interface Props {
   onClose: () => void;
 }
 
+function safeName(s: string): string {
+  return s.replace(/[^a-zA-Z0-9-]/g, '_');
+}
+
 export default function TemplatePicker({ visible, invoice, action, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const { isPremium } = usePremium();
   const { settings, updateSettings } = useSettings();
   const [selected, setSelected] = useState(settings.defaultTemplateId || 'classic');
   const [loading, setLoading] = useState(false);
@@ -30,28 +33,33 @@ export default function TemplatePicker({ visible, invoice, action, onClose }: Pr
     setLoading(true);
     try {
       await updateSettings({ defaultTemplateId: selected });
+
       const { uri } = await generatePDFWithTemplate(invoice, selected);
+
+      const filename = `Invoice_${safeName(invoice.invoiceNumber)}.pdf`;
+      const stableUri = `${FileSystem.documentDirectory}${filename}`;
+      await FileSystem.copyAsync({ from: uri, to: stableUri });
+
       const canShare = await Sharing.isAvailableAsync();
       if (!canShare) {
-        Alert.alert('Sharing not available', 'PDF sharing is not supported on this device.');
+        Alert.alert('Not Available', 'PDF sharing is not supported on this device.');
         return;
       }
-      if (action === 'whatsapp') {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Share Invoice via WhatsApp',
-          UTI: 'com.adobe.pdf',
-        });
-      } else {
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Share Invoice PDF',
-          UTI: 'com.adobe.pdf',
-        });
-      }
+
+      const dialogTitle =
+        action === 'whatsapp'
+          ? 'Send Invoice via WhatsApp'
+          : 'Share Invoice PDF';
+
+      await Sharing.shareAsync(stableUri, {
+        mimeType: 'application/pdf',
+        dialogTitle,
+        UTI: 'com.adobe.pdf',
+      });
+
       onClose();
     } catch (err) {
-      Alert.alert('Error', String(err));
+      Alert.alert('Share Failed', String(err));
     } finally {
       setLoading(false);
     }
@@ -80,19 +88,12 @@ export default function TemplatePicker({ visible, invoice, action, onClose }: Pr
           showsVerticalScrollIndicator={false}
         >
           {INVOICE_TEMPLATES.map((tpl) => {
-            const locked = tpl.isPremium && !isPremium;
             const isSelected = selected === tpl.id;
             return (
               <TouchableOpacity
                 key={tpl.id}
-                style={[styles.card, isSelected && styles.cardSelected, locked && styles.cardLocked]}
-                onPress={() => {
-                  if (locked) {
-                    Alert.alert('Premium Template', 'Upgrade to Premium to unlock this template.');
-                    return;
-                  }
-                  setSelected(tpl.id);
-                }}
+                style={[styles.card, isSelected && styles.cardSelected]}
+                onPress={() => setSelected(tpl.id)}
                 activeOpacity={0.85}
               >
                 <View style={styles.preview}>
@@ -122,24 +123,19 @@ export default function TemplatePicker({ visible, invoice, action, onClose }: Pr
                     <Text style={styles.cardName}>{tpl.name}</Text>
                     <Text style={styles.cardDesc} numberOfLines={1}>{tpl.description}</Text>
                   </View>
-                  {locked ? (
-                    <View style={styles.proBadge}>
-                      <Text style={styles.proBadgeTxt}>PRO</Text>
-                    </View>
-                  ) : isSelected ? (
+                  {isSelected ? (
                     <View style={styles.checkBadge}>
                       <Feather name="check" size={12} color="#fff" />
                     </View>
-                  ) : null}
+                  ) : (
+                    <View style={styles.freeBadge}>
+                      <Text style={styles.freeBadgeTxt}>FREE</Text>
+                    </View>
+                  )}
                 </View>
 
                 {isSelected && (
                   <View style={[styles.selectedBorder, { borderColor: '#1A3C6E' }]} />
-                )}
-                {locked && (
-                  <View style={styles.lockOverlay}>
-                    <Feather name="lock" size={18} color="#9CA3AF" />
-                  </View>
                 )}
               </TouchableOpacity>
             );
@@ -147,6 +143,13 @@ export default function TemplatePicker({ visible, invoice, action, onClose }: Pr
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
+          {action === 'whatsapp' && (
+            <View style={styles.whatsappHint}>
+              <Text style={styles.whatsappHintText}>
+                📱 The share sheet will open — select WhatsApp to send directly
+              </Text>
+            </View>
+          )}
           <TouchableOpacity
             style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
             onPress={handleExport}
@@ -187,15 +190,12 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6',
     alignItems: 'center', justifyContent: 'center',
   },
-  grid: {
-    flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 12,
-  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 12 },
   card: {
     width: '47%', backgroundColor: '#fff', borderRadius: 14,
     borderWidth: 2, borderColor: '#E5E7EB', overflow: 'hidden',
   },
   cardSelected: { borderColor: '#1A3C6E' },
-  cardLocked: { opacity: 0.7 },
   preview: { height: 120, overflow: 'hidden' },
   previewHeader: {
     height: 52, flexDirection: 'row', alignItems: 'center',
@@ -215,25 +215,25 @@ const styles = StyleSheet.create({
   },
   cardName: { fontSize: 13, fontWeight: '700', color: '#111827' },
   cardDesc: { fontSize: 11, color: '#6B7280', marginTop: 1 },
-  proBadge: {
-    backgroundColor: '#F59E0B', borderRadius: 4,
+  freeBadge: {
+    backgroundColor: '#D1FAE5', borderRadius: 4,
     paddingHorizontal: 6, paddingVertical: 2,
   },
-  proBadgeTxt: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
+  freeBadgeTxt: { fontSize: 9, fontWeight: '800', color: '#065F46', letterSpacing: 0.5 },
   checkBadge: {
     width: 20, height: 20, borderRadius: 10, backgroundColor: '#1A3C6E',
     alignItems: 'center', justifyContent: 'center',
   },
   selectedBorder: { position: 'absolute', inset: 0, borderRadius: 14, borderWidth: 2 } as never,
-  lockOverlay: {
-    position: 'absolute', top: 8, right: 8, width: 28, height: 28,
-    borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.9)',
-    alignItems: 'center', justifyContent: 'center',
-  },
   footer: {
     padding: 16, backgroundColor: '#fff',
-    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+    borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 10,
   },
+  whatsappHint: {
+    backgroundColor: '#F0FDF4', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: '#BBF7D0',
+  },
+  whatsappHintText: { fontSize: 12, color: '#166534', textAlign: 'center', lineHeight: 18 },
   actionBtn: {
     backgroundColor: '#1A3C6E', borderRadius: 14, paddingVertical: 16,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,

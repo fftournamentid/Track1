@@ -1,64 +1,61 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  Platform, Alert,
+  View, Text, ScrollView, StyleSheet, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
-import { usePremium } from '@/hooks/usePremium';
 
 const NAVY = '#1A3C6E';
 const ORANGE = '#F57C00';
+const GOLD = '#F59E0B';
 
-interface FeatureRow {
-  label: string;
-  free: boolean | string;
-  premium: boolean | string;
+interface Benefit {
+  icon: keyof typeof Feather.glyphMap;
+  title: string;
+  desc: string;
 }
 
-const FEATURES: FeatureRow[] = [
-  { label: 'Invoice Creation', free: true, premium: true },
-  { label: 'PDF Generation', free: true, premium: true },
-  { label: 'WhatsApp Share', free: true, premium: true },
-  { label: 'Profile & Business Info', free: true, premium: true },
-  { label: 'Dashboard Stats', free: true, premium: true },
-  { label: 'Number of Invoices', free: '5', premium: 'Unlimited' },
-  { label: 'Invoice Templates', free: '1 Basic', premium: 'Unlimited' },
-  { label: 'Excel Export', free: false, premium: true },
-  { label: 'Cloud Backup', free: false, premium: true },
-  { label: 'Restore Backup', free: false, premium: true },
-  { label: 'Premium PDF Design', free: false, premium: true },
-  { label: 'Remove Branding', free: false, premium: true },
-  { label: 'Priority Support', free: false, premium: true },
-  { label: 'Multi-device Sync', free: false, premium: true },
+const BENEFITS: Benefit[] = [
+  { icon: 'file-text', title: 'Unlimited Invoices', desc: 'Create as many invoices as you need, no caps.' },
+  { icon: 'layout', title: 'All Premium Templates', desc: 'Access every invoice template, including exclusive designs.' },
+  { icon: 'share-2', title: 'PDF Sharing', desc: 'Share invoices via WhatsApp, email, or any app instantly.' },
+  { icon: 'zap', title: 'Priority Updates', desc: 'Get new features before everyone else.' },
+  { icon: 'star', title: 'Future Premium Features', desc: 'All upcoming features included at no extra cost.' },
 ];
 
-function FeatureCheck({ value }: { value: boolean | string }) {
-  if (value === true) {
-    return <Ionicons name="checkmark-circle" size={20} color="#16A34A" />;
-  }
-  if (value === false) {
-    return <Ionicons name="close-circle" size={20} color="#D1D5DB" />;
-  }
-  return <Text style={styles.featureValue}>{value}</Text>;
+function BenefitRow({ icon, title, desc }: Benefit) {
+  return (
+    <View style={bStyles.row}>
+      <View style={bStyles.iconBox}>
+        <Feather name={icon} size={18} color={ORANGE} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={bStyles.title}>{title}</Text>
+        <Text style={bStyles.desc}>{desc}</Text>
+      </View>
+      <Ionicons name="checkmark-circle" size={20} color="#16A34A" />
+    </View>
+  );
 }
+
+const bStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9',
+  },
+  iconBox: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: '#FFF7ED', alignItems: 'center', justifyContent: 'center',
+  },
+  title: { fontSize: 14, fontWeight: '700', color: NAVY, marginBottom: 2 },
+  desc: { fontSize: 12, color: '#6B7280', lineHeight: 17 },
+});
 
 export default function PremiumScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { isPremium } = usePremium();
-  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
-
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
-
-  const handleUpgrade = () => {
-    Alert.alert(
-      'Coming Soon',
-      'Premium subscription will be available very soon. Stay tuned!',
-      [{ text: 'Got it', style: 'default' }]
-    );
-  };
 
   return (
     <ScrollView
@@ -69,89 +66,81 @@ export default function PremiumScreen() {
       {/* Hero */}
       <View style={styles.hero}>
         <View style={styles.crownCircle}>
-          <Feather name="award" size={36} color="#F57C00" />
+          <Text style={styles.crownEmoji}>🚀</Text>
         </View>
-        <Text style={styles.heroTitle}>Track Invoice Premium</Text>
+
+        <View style={styles.foundersBadge}>
+          <Feather name="award" size={12} color={GOLD} />
+          <Text style={styles.foundersText}>FOUNDERS EDITION</Text>
+        </View>
+
+        <Text style={styles.heroTitle}>Early Access Premium</Text>
         <Text style={styles.heroSub}>
-          Unlock the full power of your trucking business
+          Free Premium Access for the First 100,000 Users
         </Text>
-        {isPremium && (
-          <View style={styles.activeBadge}>
-            <Ionicons name="checkmark-circle" size={16} color="#16A34A" />
-            <Text style={styles.activeBadgeText}>Premium Active</Text>
-          </View>
-        )}
+
+        <View style={styles.activeBadge}>
+          <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+          <Text style={styles.activeBadgeText}>Premium Active — You're In!</Text>
+        </View>
       </View>
 
-      {/* Plan selector */}
-      {!isPremium && (
-        <View style={styles.planSelector}>
-          <TouchableOpacity
-            style={[styles.planCard, selectedPlan === 'monthly' && styles.planCardActive]}
-            onPress={() => setSelectedPlan('monthly')}
-          >
-            <Text style={[styles.planLabel, selectedPlan === 'monthly' && styles.planLabelActive]}>Monthly</Text>
-            <Text style={[styles.planPrice, selectedPlan === 'monthly' && styles.planPriceActive]}>₹99</Text>
-            <Text style={[styles.planPer, selectedPlan === 'monthly' && styles.planPerActive]}>per month</Text>
-          </TouchableOpacity>
-
-          <View style={styles.planDivider} />
-
-          <TouchableOpacity
-            style={[styles.planCard, selectedPlan === 'yearly' && styles.planCardActive]}
-            onPress={() => setSelectedPlan('yearly')}
-          >
-            <View style={styles.bestValueBadge}>
-              <Text style={styles.bestValueText}>BEST VALUE</Text>
-            </View>
-            <Text style={[styles.planLabel, selectedPlan === 'yearly' && styles.planLabelActive]}>Yearly</Text>
-            <Text style={[styles.planPrice, selectedPlan === 'yearly' && styles.planPriceActive]}>₹699</Text>
-            <Text style={[styles.planPer, selectedPlan === 'yearly' && styles.planPerActive]}>₹58/month, billed yearly</Text>
-          </TouchableOpacity>
+      {/* Counter card */}
+      <View style={styles.counterCard}>
+        <View style={styles.counterLeft}>
+          <Text style={styles.counterNum}>100,000</Text>
+          <Text style={styles.counterLabel}>Founder Spots Available</Text>
         </View>
-      )}
-
-      {/* CTA */}
-      {!isPremium && (
-        <TouchableOpacity style={styles.upgradeBtn} onPress={handleUpgrade} activeOpacity={0.85}>
-          <Feather name="award" size={20} color="#fff" />
-          <Text style={styles.upgradeBtnText}>
-            Upgrade to Premium — {selectedPlan === 'yearly' ? '₹699/yr' : '₹99/mo'}
+        <View style={styles.counterDivider} />
+        <View style={styles.counterRight}>
+          <Text style={styles.counterDesc}>
+            You have secured your free lifetime premium access as an early user.
           </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Features table */}
-      <View style={[styles.featuresCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-        {/* Header */}
-        <View style={styles.featureHeader}>
-          <Text style={[styles.featureHeaderCol, { flex: 2, color: colors.foreground }]}>Feature</Text>
-          <Text style={[styles.featureHeaderCol, { color: colors.mutedForeground }]}>Free</Text>
-          <Text style={[styles.featureHeaderCol, { color: ORANGE }]}>Premium</Text>
         </View>
-
-        {FEATURES.map((f, i) => (
-          <View
-            key={f.label}
-            style={[
-              styles.featureRow,
-              i % 2 === 1 && { backgroundColor: colors.secondary },
-              { borderColor: colors.border },
-            ]}
-          >
-            <Text style={[styles.featureLabel, { flex: 2, color: colors.foreground }]}>{f.label}</Text>
-            <View style={styles.featureCell}><FeatureCheck value={f.free} /></View>
-            <View style={styles.featureCell}><FeatureCheck value={f.premium} /></View>
-          </View>
-        ))}
       </View>
 
-      {/* Trust signals */}
+      {/* Benefits */}
+      <View style={[styles.benefitsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.benefitsHeader}>
+          <Feather name="gift" size={16} color={ORANGE} />
+          <Text style={styles.benefitsHeaderText}>What You Get — Completely Free</Text>
+        </View>
+        {BENEFITS.map((b) => (
+          <BenefitRow key={b.title} {...b} />
+        ))}
+        <View style={[bStyles.row, { borderBottomWidth: 0 }]}>
+          <View style={bStyles.iconBox}>
+            <Feather name="shield" size={18} color={ORANGE} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={bStyles.title}>No Credit Card Required</Text>
+            <Text style={bStyles.desc}>Free access, no payment needed now or in the future for founders.</Text>
+          </View>
+          <Ionicons name="checkmark-circle" size={20} color="#16A34A" />
+        </View>
+      </View>
+
+      {/* Info Banner */}
+      <View style={styles.infoBanner}>
+        <Text style={styles.infoIcon}>💎</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.infoTitle}>Founders Edition Guarantee</Text>
+          <Text style={styles.infoDesc}>
+            As a founding user, you will always have premium access — even after we launch paid plans for new users. Thank you for being with us from the start.
+          </Text>
+        </View>
+      </View>
+
+      {/* Trust */}
       <View style={styles.trustRow}>
-        {['Cancel anytime', 'Secure payment', 'Instant activation'].map((t) => (
-          <View key={t} style={styles.trustItem}>
-            <Ionicons name="shield-checkmark" size={14} color={NAVY} />
-            <Text style={[styles.trustText, { color: colors.mutedForeground }]}>{t}</Text>
+        {[
+          { icon: 'shield' as const, text: 'No payment needed' },
+          { icon: 'users' as const, text: 'First 100K users' },
+          { icon: 'lock' as const, text: 'Lifetime access' },
+        ].map((t) => (
+          <View key={t.text} style={styles.trustItem}>
+            <Feather name={t.icon} size={13} color={NAVY} />
+            <Text style={[styles.trustText, { color: colors.mutedForeground }]}>{t.text}</Text>
           </View>
         ))}
       </View>
@@ -162,62 +151,59 @@ export default function PremiumScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { paddingHorizontal: 16 },
-  hero: { alignItems: 'center', marginBottom: 28 },
+
+  hero: { alignItems: 'center', marginBottom: 24 },
   crownCircle: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: '#FFF7ED', borderWidth: 2, borderColor: '#FED7AA',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+    width: 88, height: 88, borderRadius: 44,
+    backgroundColor: NAVY, alignItems: 'center', justifyContent: 'center',
+    marginBottom: 16,
+    shadowColor: NAVY, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35, shadowRadius: 12, elevation: 8,
   },
-  heroTitle: { fontSize: 26, fontWeight: '800', color: NAVY, marginBottom: 8, letterSpacing: -0.5 },
-  heroSub: { fontSize: 15, color: '#6B7280', textAlign: 'center', lineHeight: 22 },
-  activeBadge: {
+  crownEmoji: { fontSize: 40 },
+  foundersBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#451A03', borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 6, marginBottom: 14,
+  },
+  foundersText: { fontSize: 11, fontWeight: '900', color: GOLD, letterSpacing: 1.5 },
+  heroTitle: { fontSize: 28, fontWeight: '900', color: NAVY, marginBottom: 8, letterSpacing: -0.5, textAlign: 'center' },
+  heroSub: { fontSize: 15, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 16 },
+  activeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#DCFCE7', borderRadius: 20,
-    paddingHorizontal: 16, paddingVertical: 8, marginTop: 16,
+    paddingHorizontal: 18, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#BBF7D0',
   },
-  activeBadgeText: { fontSize: 14, fontWeight: '700', color: '#16A34A' },
-  planSelector: {
-    flexDirection: 'row', backgroundColor: '#F9FAFB',
-    borderRadius: 16, padding: 4, marginBottom: 16,
-    borderWidth: 1, borderColor: '#E5E7EB',
+  activeBadgeText: { fontSize: 14, fontWeight: '700', color: '#15803D' },
+
+  counterCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: NAVY, borderRadius: 16, padding: 20,
+    marginBottom: 16,
   },
-  planCard: {
-    flex: 1, alignItems: 'center', padding: 16,
-    borderRadius: 12, position: 'relative',
+  counterLeft: { flex: 1, alignItems: 'center' },
+  counterNum: { fontSize: 28, fontWeight: '900', color: ORANGE, letterSpacing: -1 },
+  counterLabel: { fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 4, textAlign: 'center' },
+  counterDivider: { width: 1, height: 48, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 16 },
+  counterRight: { flex: 1.5 },
+  counterDesc: { fontSize: 12, color: 'rgba(255,255,255,0.85)', lineHeight: 18 },
+
+  benefitsCard: { borderRadius: 16, borderWidth: 1, padding: 16, marginBottom: 16 },
+  benefitsHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4,
   },
-  planCardActive: { backgroundColor: NAVY },
-  planLabel: { fontSize: 13, fontWeight: '600', color: '#6B7280', marginBottom: 4 },
-  planLabelActive: { color: 'rgba(255,255,255,0.8)' },
-  planPrice: { fontSize: 28, fontWeight: '900', color: NAVY },
-  planPriceActive: { color: '#fff' },
-  planPer: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
-  planPerActive: { color: 'rgba(255,255,255,0.7)' },
-  planDivider: { width: 1, backgroundColor: '#E5E7EB', marginVertical: 8 },
-  bestValueBadge: {
-    position: 'absolute', top: -10,
-    backgroundColor: ORANGE, borderRadius: 20,
-    paddingHorizontal: 10, paddingVertical: 3,
+  benefitsHeaderText: { fontSize: 14, fontWeight: '800', color: NAVY },
+
+  infoBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 12,
+    backgroundColor: '#FFF7ED', borderRadius: 14, padding: 16,
+    marginBottom: 20, borderWidth: 1, borderColor: '#FED7AA',
   },
-  bestValueText: { fontSize: 9, fontWeight: '800', color: '#fff', letterSpacing: 0.8 },
-  upgradeBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    backgroundColor: ORANGE, borderRadius: 16, paddingVertical: 16,
-    marginBottom: 24,
-    shadowColor: ORANGE, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3, shadowRadius: 8, elevation: 4,
-  },
-  upgradeBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  featuresCard: { borderRadius: 16, overflow: 'hidden', borderWidth: 1, marginBottom: 20 },
-  featureHeader: {
-    flexDirection: 'row', backgroundColor: '#F3F6FB',
-    paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
-  },
-  featureHeaderCol: { flex: 1, fontSize: 12, fontWeight: '700', textAlign: 'center' },
-  featureRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  featureLabel: { fontSize: 13 },
-  featureCell: { flex: 1, alignItems: 'center' },
-  featureValue: { fontSize: 12, fontWeight: '700', color: ORANGE },
+  infoIcon: { fontSize: 24 },
+  infoTitle: { fontSize: 14, fontWeight: '800', color: '#92400E', marginBottom: 4 },
+  infoDesc: { fontSize: 12, color: '#78350F', lineHeight: 18 },
+
   trustRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 8 },
   trustItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   trustText: { fontSize: 12 },
