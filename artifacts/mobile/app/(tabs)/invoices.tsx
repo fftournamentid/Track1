@@ -61,7 +61,7 @@ export default function InvoicesScreen() {
       let cmp = 0;
       if (sortField === 'date')
         cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      else if (sortField === 'amount') cmp = a.grandTotal - b.grandTotal;
+      else if (sortField === 'amount') cmp = a.balance - b.balance;
       else if (sortField === 'customer') cmp = a.clientName.localeCompare(b.clientName);
       return sortOrder === 'desc' ? -cmp : cmp;
     });

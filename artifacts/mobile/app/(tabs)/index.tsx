@@ -36,9 +36,9 @@ export default function DashboardScreen() {
     const thisMonthPaid = paid.filter((i) => isSameMonth(i.createdAt, now));
     return {
       total: active.length,
-      totalRevenue: paid.reduce((s, i) => s + i.grandTotal, 0),
-      thisMonth: thisMonthPaid.reduce((s, i) => s + i.grandTotal, 0),
-      pending: pending.reduce((s, i) => s + i.grandTotal, 0),
+      totalRevenue: paid.reduce((s, i) => s + i.advanceAmount, 0),
+      thisMonth: thisMonthPaid.reduce((s, i) => s + i.advanceAmount, 0),
+      pending: pending.reduce((s, i) => s + i.advanceAmount, 0),
     };
   }, [invoices]);
 

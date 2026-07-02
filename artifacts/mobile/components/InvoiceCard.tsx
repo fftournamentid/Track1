@@ -41,7 +41,7 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
         </View>
         <View style={styles.rightTop}>
           <Text style={[styles.amount, { color: colors.primary }]}>
-            {formatCurrency(invoice.grandTotal, invoice.currency)}
+            {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
           </Text>
           <View style={[styles.badge, { backgroundColor: sc.bg }]}>
             <Text style={[styles.badgeText, { color: sc.text }]}>{invoice.status.toUpperCase()}</Text>

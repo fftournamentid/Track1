@@ -295,9 +295,11 @@ export default function InvoiceDetailScreen() {
           {invoice.isFavorite && (
             <Feather name="star" size={16} color="#FBBF24" style={styles.starIcon} />
           )}
-          <Text style={styles.heroLabel}>Grand Total</Text>
+          <Text style={styles.heroLabel}>
+            {invoice.settlementStatus === 'return' ? 'Balance to Return' : invoice.settlementStatus === 'receive' ? 'Balance to Receive' : 'Balance'}
+          </Text>
           <Text style={styles.heroAmount}>
-            {formatCurrency(invoice.grandTotal, invoice.currency)}
+            {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
           </Text>
           <View style={styles.heroTagsRow}>
             <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
@@ -412,50 +414,60 @@ export default function InvoiceDetailScreen() {
           <Row label="Driver" value={invoice.driverName} />
         </Card>
 
-        {/* Line Items */}
+        {/* Expenses */}
         <Card>
-          <STitle title="Line Items" />
-          {invoice.lineItems.map((item, idx) => (
+          <STitle title="Expenses" />
+          {invoice.expenses.map((item, idx) => (
             <View
               key={item.id}
               style={[
                 styles.lineItem,
-                idx < invoice.lineItems.length - 1 && {
+                idx < invoice.expenses.length - 1 && {
                   borderBottomWidth: 1,
                   borderBottomColor: colors.border,
                 },
               ]}
             >
               <View style={styles.lineItemTop}>
-                <Text style={[styles.lineDesc, { color: colors.foreground }]}>{item.description}</Text>
+                <Text style={[styles.lineDesc, { color: colors.foreground }]}>{item.name}</Text>
                 <Text style={[styles.lineAmount, { color: colors.primary }]}>
                   {formatCurrency(item.amount, invoice.currency)}
                 </Text>
               </View>
-              <Text style={[styles.lineSub, { color: colors.mutedForeground }]}>
-                {item.quantity} × {formatCurrency(item.rate, invoice.currency)}
-              </Text>
             </View>
           ))}
         </Card>
 
-        {/* Financial Summary */}
+        {/* Settlement Summary */}
         <Card>
-          <STitle title="Financial Summary" />
-          <Row label="Subtotal" value={formatCurrency(invoice.subtotal, invoice.currency)} />
-          {invoice.gstRate > 0 && (
-            <Row
-              label={`GST (${invoice.gstRate}%)`}
-              value={formatCurrency(invoice.gstAmount, invoice.currency)}
-            />
-          )}
+          <STitle title="Settlement Summary" />
+          <Row label="Advance Received" value={formatCurrency(invoice.advanceAmount, invoice.currency)} />
+          <Row label="Total Expenses" value={formatCurrency(invoice.totalExpenses, invoice.currency)} />
           <View style={[styles.totalDivider, { borderTopColor: colors.border }]} />
           <View style={styles.grandRow}>
-            <Text style={[styles.grandLabel, { color: colors.primary }]}>Grand Total</Text>
+            <Text style={[styles.grandLabel, { color: colors.primary }]}>Balance</Text>
             <Text style={[styles.grandValue, { color: colors.primary }]}>
-              {formatCurrency(invoice.grandTotal, invoice.currency)}
+              {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
             </Text>
           </View>
+          <Text
+            style={[
+              styles.settlementStatusText,
+              {
+                color: invoice.settlementStatus === 'receive'
+                  ? colors.destructive
+                  : invoice.settlementStatus === 'return'
+                    ? colors.primary
+                    : colors.mutedForeground,
+              },
+            ]}
+          >
+            {invoice.settlementStatus === 'receive'
+              ? 'Driver has to receive money.'
+              : invoice.settlementStatus === 'return'
+                ? 'Driver has to return money.'
+                : 'Fully settled — no balance due.'}
+          </Text>
         </Card>
 
         {/* Payment Info */}
@@ -572,6 +584,7 @@ const styles = StyleSheet.create({
   grandRow: { flexDirection: 'row', justifyContent: 'space-between' },
   grandLabel: { fontSize: 16, fontWeight: '800' },
   grandValue: { fontSize: 16, fontWeight: '800' },
+  settlementStatusText: { fontSize: 13, fontWeight: '700', marginTop: 12, textAlign: 'center' },
   notesText: { fontSize: 13, lineHeight: 20 },
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',

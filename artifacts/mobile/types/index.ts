@@ -3,13 +3,13 @@ export type SortField = 'date' | 'amount' | 'customer';
 export type SortOrder = 'asc' | 'desc';
 export type FilterStatus = 'all' | 'active' | 'paid' | 'pending' | 'archived' | 'favorites';
 
-export interface LineItem {
+export interface ExpenseItem {
   id: string;
-  description: string;
-  quantity: number;
-  rate: number;
+  name: string;
   amount: number;
 }
+
+export type SettlementStatus = 'receive' | 'return' | 'settled';
 
 export interface BusinessInfo {
   companyName: string;
@@ -46,11 +46,11 @@ export interface Invoice {
   toLocation: string;
   truckNumber: string;
   driverName: string;
-  lineItems: LineItem[];
-  subtotal: number;
-  gstRate: number;
-  gstAmount: number;
-  grandTotal: number;
+  expenses: ExpenseItem[];
+  advanceAmount: number;
+  totalExpenses: number;
+  balance: number;
+  settlementStatus: SettlementStatus;
   currency: string;
   paymentTerms?: string;
   notes?: string;

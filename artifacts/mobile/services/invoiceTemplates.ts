@@ -343,17 +343,22 @@ function renderHTML(
       ? `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);font-size:100px;font-weight:900;color:rgba(128,128,128,0.07);letter-spacing:12px;pointer-events:none;z-index:0;">DRAFT</div>`
       : '';
 
-  const itemRows = invoice.lineItems
+  const itemRows = invoice.expenses
     .map(
       (item, i) => `
     <tr style="${i % 2 === 1 ? `background:${t.rowAlt};` : `background:${t.bodyBg};`}">
-      <td style="padding:11px 14px;font-size:13px;color:${t.bodyText};font-weight:500;">${item.description}</td>
-      <td style="padding:11px 14px;font-size:13px;color:${t.metaTextColor};text-align:center;">${item.quantity}</td>
-      <td style="padding:11px 14px;font-size:13px;color:${t.metaTextColor};text-align:center;">${invoice.currency} ${fmt(item.rate)}</td>
+      <td style="padding:11px 14px;font-size:13px;color:${t.bodyText};font-weight:500;">${item.name}</td>
       <td style="padding:11px 14px;font-size:13px;text-align:right;font-weight:700;color:${t.itemAmtColor};">${invoice.currency} ${fmt(item.amount)}</td>
     </tr>`,
     )
     .join('');
+
+  const settlementLabel =
+    invoice.settlementStatus === 'receive'
+      ? 'Driver has to receive money.'
+      : invoice.settlementStatus === 'return'
+        ? 'Driver has to return money.'
+        : 'Fully settled — no balance due.';
 
   const paymentSection =
     biz.upiId || biz.bankName
@@ -459,28 +464,31 @@ function renderHTML(
     </div>
   </div>
 
-  <!-- LINE ITEMS TABLE -->
+  <!-- EXPENSES TABLE -->
   <table>
     <thead>
       <tr>
-        <th style="width:44%;text-align:left;">Description</th>
-        <th style="width:12%;text-align:center;">Qty</th>
-        <th style="width:22%;text-align:center;">Rate (${invoice.currency})</th>
-        <th style="width:22%;text-align:right;">Amount (${invoice.currency})</th>
+        <th style="width:66%;text-align:left;">Expense Name</th>
+        <th style="width:34%;text-align:right;">Amount (${invoice.currency})</th>
       </tr>
     </thead>
     <tbody>${itemRows}</tbody>
   </table>
 
-  <!-- TOTALS -->
+  <!-- SETTLEMENT SUMMARY -->
   <div style="display:flex;justify-content:flex-end;margin-bottom:24px;">
-    <div style="width:280px;">
+    <div style="width:300px;">
       <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};">
-        <span>Subtotal</span><span>${invoice.currency} ${fmt(invoice.subtotal)}</span>
+        <span>Advance Received</span><span>${invoice.currency} ${fmt(invoice.advanceAmount)}</span>
       </div>
-      ${invoice.gstRate > 0 ? `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};"><span>GST (${invoice.gstRate}%)</span><span>${invoice.currency} ${fmt(invoice.gstAmount)}</span></div>` : ''}
+      <div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};">
+        <span>Total Expenses</span><span>${invoice.currency} ${fmt(invoice.totalExpenses)}</span>
+      </div>
       <div style="background:${t.grandRowBg};color:${t.grandRowText};padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;font-size:15px;font-weight:800;margin-top:10px;">
-        <span>GRAND TOTAL</span><span>${invoice.currency} ${fmt(invoice.grandTotal)}</span>
+        <span>BALANCE</span><span>${invoice.currency} ${fmt(Math.abs(invoice.balance))}</span>
+      </div>
+      <div style="text-align:center;font-size:12px;font-weight:700;color:${t.labelColor};margin-top:10px;">
+        Settlement Status: ${settlementLabel}
       </div>
     </div>
   </div>

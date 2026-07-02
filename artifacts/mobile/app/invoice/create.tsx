@@ -12,11 +12,21 @@ import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import type { Invoice, LineItem } from '@/types';
+import type { Invoice, ExpenseItem, SettlementStatus } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
 import { INVOICE_TEMPLATES, buildInvoiceHTML } from '@/services/invoiceTemplates';
 
-const GST_OPTIONS = [0, 5, 12, 18, 28];
+function computeSettlementStatus(balance: number): SettlementStatus {
+  if (balance < 0) return 'receive';
+  if (balance > 0) return 'return';
+  return 'settled';
+}
+
+function settlementMessage(status: SettlementStatus): string {
+  if (status === 'receive') return 'Driver has to receive money.';
+  if (status === 'return') return 'Driver has to return money.';
+  return 'Fully settled — no balance due.';
+}
 
 function Field({
   label, value, onChangeText, placeholder, keyboardType, multiline, required,
@@ -90,10 +100,10 @@ export default function CreateInvoiceScreen() {
   const [toLocation, setToLocation] = useState('');
   const [truckNumber, setTruckNumber] = useState('');
   const [driverName, setDriverName] = useState('');
-  const [lineItems, setLineItems] = useState<LineItem[]>([
-    { id: generateId(), description: 'Freight Charges', quantity: 1, rate: 0, amount: 0 },
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([
+    { id: generateId(), name: '', amount: 0 },
   ]);
-  const [gstRate, setGstRate] = useState(settings.defaultGstRate);
   const [paymentTerms, setPaymentTerms] = useState(settings.defaultPaymentTerms);
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -117,8 +127,8 @@ export default function CreateInvoiceScreen() {
         setToLocation(inv.toLocation);
         setTruckNumber(inv.truckNumber);
         setDriverName(inv.driverName);
-        setLineItems(inv.lineItems.length > 0 ? inv.lineItems : lineItems);
-        setGstRate(inv.gstRate);
+        setAdvanceAmount(inv.advanceAmount ? String(inv.advanceAmount) : '');
+        setExpenses(inv.expenses.length > 0 ? inv.expenses : expenses);
         setPaymentTerms(inv.paymentTerms ?? '');
         setNotes(inv.notes ?? '');
         if (inv.templateId) setSelectedTemplateId(inv.templateId);
@@ -127,43 +137,35 @@ export default function CreateInvoiceScreen() {
       generateNextInvoiceNumber().then(setInvoiceNumber);
       setTruckNumber(profile.truckNumber);
       setDriverName(profile.driverName);
-      setGstRate(settings.defaultGstRate);
       setPaymentTerms(settings.defaultPaymentTerms);
       if (profile.footerNotes) setNotes(profile.footerNotes);
     }
   }, [editId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const subtotal = useMemo(() => lineItems.reduce((s, i) => s + i.amount, 0), [lineItems]);
-  const gstAmount = useMemo(() => Math.round(subtotal * gstRate * 100) / 10000, [subtotal, gstRate]);
-  const grandTotal = useMemo(() => subtotal + gstAmount, [subtotal, gstAmount]);
+  const totalExpenses = useMemo(() => expenses.reduce((s, i) => s + i.amount, 0), [expenses]);
+  const advanceNum = useMemo(() => Number(advanceAmount) || 0, [advanceAmount]);
+  const balance = useMemo(() => Math.round((advanceNum - totalExpenses) * 100) / 100, [advanceNum, totalExpenses]);
+  const settlementStatus = useMemo(() => computeSettlementStatus(balance), [balance]);
 
-  const updateItem = (id: string, field: keyof LineItem, raw: string | number) => {
-    setLineItems((prev) =>
+  const updateExpense = (id: string, field: keyof ExpenseItem, raw: string | number) => {
+    setExpenses((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
-        const next = { ...item, [field]: raw };
-        if (field === 'quantity' || field === 'rate') {
-          const qty = Number(field === 'quantity' ? raw : item.quantity);
-          const rate = Number(field === 'rate' ? raw : item.rate);
-          next.amount = Math.round(qty * rate * 100) / 100;
-          next.quantity = field === 'quantity' ? Number(raw) : item.quantity;
-          next.rate = field === 'rate' ? Number(raw) : item.rate;
+        if (field === 'amount') {
+          return { ...item, amount: Number(raw) || 0 };
         }
-        return next;
+        return { ...item, [field]: raw };
       })
     );
   };
 
-  const addItem = () => {
-    setLineItems((prev) => [
-      ...prev,
-      { id: generateId(), description: '', quantity: 1, rate: 0, amount: 0 },
-    ]);
+  const addExpense = () => {
+    setExpenses((prev) => [...prev, { id: generateId(), name: '', amount: 0 }]);
   };
 
-  const removeItem = (id: string) => {
-    if (lineItems.length <= 1) return;
-    setLineItems((prev) => prev.filter((i) => i.id !== id));
+  const removeExpense = (id: string) => {
+    if (expenses.length <= 1) return;
+    setExpenses((prev) => prev.filter((i) => i.id !== id));
   };
 
   const buildPreviewInvoice = (): Invoice => ({
@@ -183,13 +185,13 @@ export default function CreateInvoiceScreen() {
     toLocation: toLocation || 'Destination',
     truckNumber: truckNumber || '',
     driverName: driverName || '',
-    lineItems: lineItems.filter((i) => i.amount > 0).length > 0
-      ? lineItems.filter((i) => i.amount > 0)
-      : lineItems,
-    subtotal,
-    gstRate,
-    gstAmount,
-    grandTotal,
+    expenses: expenses.filter((i) => i.amount > 0).length > 0
+      ? expenses.filter((i) => i.amount > 0)
+      : expenses,
+    advanceAmount: advanceNum,
+    totalExpenses,
+    balance,
+    settlementStatus,
     currency: settings.defaultCurrency,
     paymentTerms: paymentTerms || undefined,
     notes: notes || undefined,
@@ -215,8 +217,9 @@ export default function CreateInvoiceScreen() {
   const handleSave = async () => {
     if (!clientName.trim()) { Alert.alert('Required', 'Client name is required'); return; }
     if (!fromLocation.trim() || !toLocation.trim()) { Alert.alert('Required', 'From and To locations are required'); return; }
-    if (lineItems.some((i) => !i.description.trim())) { Alert.alert('Required', 'Fill all line item descriptions'); return; }
-    if (lineItems.some((i) => i.amount <= 0)) { Alert.alert('Required', 'All line item amounts must be greater than zero'); return; }
+    if (advanceNum <= 0) { Alert.alert('Required', 'Advance amount must be greater than zero'); return; }
+    if (expenses.some((i) => !i.name.trim())) { Alert.alert('Required', 'Fill all expense names'); return; }
+    if (expenses.some((i) => i.amount <= 0)) { Alert.alert('Required', 'All expense amounts must be greater than zero'); return; }
 
     setIsSaving(true);
     try {
@@ -236,11 +239,11 @@ export default function CreateInvoiceScreen() {
         toLocation: toLocation.trim(),
         truckNumber: truckNumber.trim(),
         driverName: driverName.trim(),
-        lineItems,
-        subtotal,
-        gstRate,
-        gstAmount,
-        grandTotal,
+        expenses,
+        advanceAmount: advanceNum,
+        totalExpenses,
+        balance,
+        settlementStatus,
         currency: settings.defaultCurrency,
         paymentTerms: paymentTerms.trim() || undefined,
         notes: notes.trim() || undefined,
@@ -405,112 +408,85 @@ export default function CreateInvoiceScreen() {
           <Field label="Driver Name" value={driverName} onChangeText={setDriverName} />
         </Section>
 
-        {/* Line Items */}
-        <Section title="Line Items">
-          {lineItems.map((item, idx) => (
+        {/* Expenses */}
+        <Section title="Expenses">
+          {expenses.map((item, idx) => (
             <View key={item.id} style={[styles.lineItem, { borderColor: colors.border }]}>
               <View style={styles.lineItemHeader}>
-                <Text style={[styles.lineItemNum, { color: colors.mutedForeground }]}>Item {idx + 1}</Text>
-                {lineItems.length > 1 && (
-                  <Pressable onPress={() => removeItem(item.id)} hitSlop={8}>
+                <Text style={[styles.lineItemNum, { color: colors.mutedForeground }]}>Expense {idx + 1}</Text>
+                {expenses.length > 1 && (
+                  <Pressable onPress={() => removeExpense(item.id)} hitSlop={8}>
                     <Feather name="trash-2" size={16} color={colors.destructive} />
                   </Pressable>
                 )}
               </View>
               <Field
-                label="Description"
-                value={item.description}
-                onChangeText={(v) => updateItem(item.id, 'description', v)}
-                placeholder="e.g. Freight Charges"
+                label="Expense Name"
+                value={item.name}
+                onChangeText={(v) => updateExpense(item.id, 'name', v)}
+                placeholder="e.g. Fuel, Toll, Food"
                 required
               />
-              <View style={styles.qtyRateRow}>
-                <View style={styles.qtyWrap}>
-                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Qty</Text>
-                  <TextInput
-                    value={item.quantity === 0 ? '' : String(item.quantity)}
-                    onChangeText={(v) => updateItem(item.id, 'quantity', v)}
-                    keyboardType="decimal-pad"
-                    placeholder="1"
-                    placeholderTextColor={colors.mutedForeground}
-                    style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
-                  />
-                </View>
-                <View style={styles.qtyWrap}>
-                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Rate ({settings.defaultCurrency})</Text>
-                  <TextInput
-                    value={item.rate === 0 ? '' : String(item.rate)}
-                    onChangeText={(v) => updateItem(item.id, 'rate', v)}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor={colors.mutedForeground}
-                    style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
-                  />
-                </View>
-                <View style={styles.amountBox}>
-                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Amount</Text>
-                  <View style={[styles.amountVal, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
-                    <Text style={[styles.amountText, { color: colors.primary }]} numberOfLines={1}>
-                      {formatCurrency(item.amount, settings.defaultCurrency)}
-                    </Text>
-                  </View>
-                </View>
+              <View>
+                <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Amount ({settings.defaultCurrency})</Text>
+                <TextInput
+                  value={item.amount === 0 ? '' : String(item.amount)}
+                  onChangeText={(v) => updateExpense(item.id, 'amount', v)}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={colors.mutedForeground}
+                  style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
+                />
               </View>
             </View>
           ))}
           <Pressable
-            onPress={addItem}
+            onPress={addExpense}
             style={[styles.addItemBtn, { borderColor: colors.primary, backgroundColor: colors.secondary }]}
           >
             <Feather name="plus" size={16} color={colors.primary} />
-            <Text style={[styles.addItemText, { color: colors.primary }]}>Add Line Item</Text>
+            <Text style={[styles.addItemText, { color: colors.primary }]}>Add Expense</Text>
           </Pressable>
         </Section>
 
-        {/* Tax & Summary */}
-        <Section title="Tax &amp; Summary">
-          <Text style={[fStyles.label, { color: colors.mutedForeground, marginBottom: 8 }]}>GST Rate</Text>
-          <View style={styles.gstRow}>
-            {GST_OPTIONS.map((r) => (
-              <Pressable
-                key={r}
-                onPress={() => setGstRate(r)}
-                style={[
-                  styles.gstBtn,
-                  {
-                    backgroundColor: gstRate === r ? colors.primary : colors.secondary,
-                    borderColor: gstRate === r ? colors.primary : colors.border,
-                  },
-                ]}
-              >
-                <Text style={{ color: gstRate === r ? '#fff' : colors.foreground, fontWeight: '700', fontSize: 13 }}>
-                  {r}%
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+        {/* Settlement Summary */}
+        <Section title="Settlement Summary">
+          <Field
+            label="Advance Amount (₹)"
+            value={advanceAmount}
+            onChangeText={setAdvanceAmount}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            required
+          />
 
           <View style={[styles.summaryBox, { backgroundColor: colors.secondary, borderColor: colors.border }]}>
             <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>Subtotal</Text>
+              <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>Total Expenses</Text>
               <Text style={[styles.summaryVal, { color: colors.foreground }]}>
-                {formatCurrency(subtotal, settings.defaultCurrency)}
+                {formatCurrency(totalExpenses, settings.defaultCurrency)}
               </Text>
             </View>
-            {gstRate > 0 && (
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.mutedForeground }]}>GST ({gstRate}%)</Text>
-                <Text style={[styles.summaryVal, { color: colors.foreground }]}>
-                  {formatCurrency(gstAmount, settings.defaultCurrency)}
-                </Text>
-              </View>
-            )}
             <View style={[styles.summaryRow, styles.grandRow, { borderTopColor: colors.border }]}>
-              <Text style={[styles.grandLabel, { color: colors.primary }]}>Grand Total</Text>
+              <Text style={[styles.grandLabel, { color: colors.primary }]}>Balance</Text>
               <Text style={[styles.grandVal, { color: colors.primary }]}>
-                {formatCurrency(grandTotal, settings.defaultCurrency)}
+                {formatCurrency(Math.abs(balance), settings.defaultCurrency)}
               </Text>
             </View>
+            <Text
+              style={[
+                styles.settlementMsg,
+                {
+                  color: settlementStatus === 'receive'
+                    ? colors.destructive
+                    : settlementStatus === 'return'
+                      ? colors.primary
+                      : colors.mutedForeground,
+                },
+              ]}
+            >
+              {settlementMessage(settlementStatus)}
+            </Text>
           </View>
         </Section>
 
@@ -593,15 +569,8 @@ const styles = StyleSheet.create({
   lineItem: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 12 },
   lineItemHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   lineItemNum: { fontSize: 12, fontWeight: '600' },
-  qtyRateRow: { flexDirection: 'row', gap: 8 },
-  qtyWrap: { flex: 1.2 },
-  amountBox: { flex: 1 },
-  amountVal: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 11, justifyContent: 'center' },
-  amountText: { fontSize: 13, fontWeight: '700' },
   addItemBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12 },
   addItemText: { fontSize: 14, fontWeight: '700' },
-  gstRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  gstBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 8, borderWidth: 1 },
   summaryBox: { borderWidth: 1, borderRadius: 12, padding: 14 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7 },
   summaryLabel: { fontSize: 14 },
@@ -609,6 +578,7 @@ const styles = StyleSheet.create({
   grandRow: { borderTopWidth: 1, marginTop: 4, paddingTop: 12 },
   grandLabel: { fontSize: 16, fontWeight: '800' },
   grandVal: { fontSize: 16, fontWeight: '800' },
+  settlementMsg: { fontSize: 13, fontWeight: '700', marginTop: 10, textAlign: 'center' },
   bottomRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   bottomPreviewBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

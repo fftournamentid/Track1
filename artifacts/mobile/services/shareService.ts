@@ -32,7 +32,7 @@ export async function sharePDF(invoice: Invoice, onProgress?: (step: string) => 
 
 export async function shareViaWhatsApp(invoice: Invoice, onProgress?: (step: string) => void): Promise<void> {
   const message = encodeURIComponent(
-    `Invoice #${invoice.invoiceNumber}\nClient: ${invoice.clientName}\nAmount: ${invoice.currency} ${invoice.grandTotal}\nDate: ${invoice.date}\n\nShared via Truck Invoice Manager`
+    `Invoice #${invoice.invoiceNumber}\nClient: ${invoice.clientName}\nBalance: ${invoice.currency} ${Math.abs(invoice.balance)}\nDate: ${invoice.date}\n\nShared via Truck Invoice Manager`
   );
 
   if (Platform.OS !== 'web') {
