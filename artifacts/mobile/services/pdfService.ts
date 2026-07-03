@@ -5,6 +5,29 @@ import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 import { buildInvoiceHTML, generatePDFWithTemplate } from './invoiceTemplates';
 
+function logInvoice(label: string, invoice: Invoice, templateId: string): void {
+  console.log(`[pdfService] ${label}`, JSON.stringify({
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    date: invoice.date,
+    status: invoice.status,
+    clientName: invoice.clientName,
+    clientPhone: invoice.clientPhone,
+    fromLocation: invoice.fromLocation,
+    toLocation: invoice.toLocation,
+    truckNumber: invoice.truckNumber,
+    driverName: invoice.driverName,
+    advanceAmount: invoice.advanceAmount,
+    totalExpenses: invoice.totalExpenses,
+    balance: invoice.balance,
+    settlementStatus: invoice.settlementStatus,
+    currency: invoice.currency,
+    expenseCount: invoice.expenses?.length ?? 0,
+    expenses: invoice.expenses,
+    templateId,
+  }, null, 2));
+}
+
 export interface PDFResult {
   uri: string;
 }
@@ -28,15 +51,48 @@ export async function generatePDF(invoice: Invoice, templateId = 'classic'): Pro
 }
 
 export async function printInvoice(invoice: Invoice, templateId = 'classic'): Promise<void> {
+  logInvoice('printInvoice', invoice, templateId);
   const html = await buildInvoiceHTML(invoice, templateId);
+  console.log('[pdfService] printInvoice HTML length:', html.length, 'chars');
+
+  if (Platform.OS === 'web') {
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      setTimeout(() => { w.focus(); w.print(); }, 400);
+    }
+    return;
+  }
+
   await Print.printAsync({ html });
 }
 
 export async function savePDFToDevice(invoice: Invoice, templateId = 'classic'): Promise<string> {
-  const result = await generatePDFWithTemplate(invoice, templateId);
+  logInvoice('savePDFToDevice', invoice, templateId);
+
   const filename = `Invoice_${safeName(invoice.invoiceNumber)}.pdf`;
+
+  if (Platform.OS === 'web') {
+    const html = await buildInvoiceHTML(invoice, templateId);
+    console.log('[pdfService] Web download — HTML length:', html.length, 'chars');
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace('.pdf', '_invoice.html');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    return filename;
+  }
+
+  const result = await generatePDFWithTemplate(invoice, templateId);
   const dest = `${FileSystem.documentDirectory}${filename}`;
   await FileSystem.copyAsync({ from: result.uri, to: dest });
+  console.log('[pdfService] PDF saved to:', dest);
   return filename;
 }
 
@@ -82,6 +138,17 @@ export async function openPDF(uri: string): Promise<void> {
 
 export async function openInvoicePDF(invoice: Invoice, templateId?: string): Promise<void> {
   const tplId = templateId || invoice.templateId || 'classic';
+  logInvoice('openInvoicePDF', invoice, tplId);
+
+  if (Platform.OS === 'web') {
+    const html = await buildInvoiceHTML(invoice, tplId);
+    console.log('[pdfService] Web preview — HTML length:', html.length, 'chars');
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    return;
+  }
+
   const result = await generatePDFWithTemplate(invoice, tplId);
   const stableUri = await copyToStableLocation(
     result.uri,

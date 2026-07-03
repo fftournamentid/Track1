@@ -1,5 +1,6 @@
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 
 export interface TemplateStyle {
@@ -544,11 +545,47 @@ export interface PDFResult {
 }
 
 export async function generatePDFWithTemplate(invoice: Invoice, templateId: string): Promise<PDFResult> {
+  console.log('[PDF] generatePDFWithTemplate — invoice data:', JSON.stringify({
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    date: invoice.date,
+    status: invoice.status,
+    clientName: invoice.clientName,
+    fromLocation: invoice.fromLocation,
+    toLocation: invoice.toLocation,
+    truckNumber: invoice.truckNumber,
+    driverName: invoice.driverName,
+    advanceAmount: invoice.advanceAmount,
+    totalExpenses: invoice.totalExpenses,
+    balance: invoice.balance,
+    settlementStatus: invoice.settlementStatus,
+    currency: invoice.currency,
+    expenseCount: invoice.expenses?.length ?? 0,
+    expenses: invoice.expenses,
+    businessSnapshot: {
+      companyName: invoice.businessSnapshot?.companyName,
+      ownerName: invoice.businessSnapshot?.ownerName,
+      gstNumber: invoice.businessSnapshot?.gstNumber,
+      mobile: invoice.businessSnapshot?.mobile,
+    },
+    templateId,
+  }, null, 2));
+
   const html = await buildInvoiceHTML(invoice, templateId);
   console.log('[PDF] HTML length:', html.length, 'chars — template:', templateId);
 
   if (html.length < 200) {
     throw new Error('Invoice HTML is empty — check template configuration.');
+  }
+
+  // Web: expo-print.printToFileAsync is not supported on web platform.
+  // Return a blob URL pointing to the HTML so callers can open/download it.
+  if (Platform.OS === 'web') {
+    console.log('[PDF] Web platform — returning HTML blob URL (native PDF not supported on web)');
+    const blob = new Blob([html], { type: 'text/html' });
+    const uri = URL.createObjectURL(blob);
+    console.log('[PDF] Web blob URI created, HTML size:', html.length, 'chars');
+    return { uri };
   }
 
   const tryGenerate = async (): Promise<string> => {

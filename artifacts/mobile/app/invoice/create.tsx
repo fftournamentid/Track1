@@ -14,7 +14,7 @@ import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Invoice, ExpenseItem, SettlementStatus } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
-import { INVOICE_TEMPLATES, buildInvoiceHTML } from '@/services/invoiceTemplates';
+import { INVOICE_TEMPLATES, buildInvoiceHTML, generatePDFWithTemplate } from '@/services/invoiceTemplates';
 
 function computeSettlementStatus(balance: number): SettlementStatus {
   if (balance < 0) return 'receive';
@@ -205,8 +205,18 @@ export default function CreateInvoiceScreen() {
     if (isPreviewing) return;
     setIsPreviewing(true);
     try {
-      const html = await buildInvoiceHTML(buildPreviewInvoice(), selectedTemplateId);
-      await Print.printAsync({ html });
+      const previewInv = buildPreviewInvoice();
+      const html = await buildInvoiceHTML(previewInv, selectedTemplateId);
+      console.log('[Preview] HTML length:', html.length, 'chars — template:', selectedTemplateId);
+      if (Platform.OS === 'web') {
+        // Open full A4 HTML in a new browser tab — not the print dialog
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+      } else {
+        // Native: use system print sheet which renders the HTML
+        await Print.printAsync({ html });
+      }
     } catch (err) {
       Alert.alert('Preview Error', String(err));
     } finally {
@@ -250,6 +260,42 @@ export default function CreateInvoiceScreen() {
         templateId: selectedTemplateId,
       };
 
+      // Build temp invoice object for PDF verification
+      const tempInvoice: Invoice = {
+        id: editId || `temp-${Date.now()}`,
+        ...data,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        downloadCount: 0,
+      };
+
+      console.log('[Save] Invoice data before PDF verification:', JSON.stringify({
+        id: tempInvoice.id,
+        invoiceNumber: tempInvoice.invoiceNumber,
+        date: tempInvoice.date,
+        clientName: tempInvoice.clientName,
+        fromLocation: tempInvoice.fromLocation,
+        toLocation: tempInvoice.toLocation,
+        truckNumber: tempInvoice.truckNumber,
+        advanceAmount: tempInvoice.advanceAmount,
+        totalExpenses: tempInvoice.totalExpenses,
+        balance: tempInvoice.balance,
+        settlementStatus: tempInvoice.settlementStatus,
+        currency: tempInvoice.currency,
+        expenseCount: tempInvoice.expenses.length,
+        expenses: tempInvoice.expenses,
+        templateId: selectedTemplateId,
+        businessSnapshot: {
+          companyName: tempInvoice.businessSnapshot?.companyName,
+          ownerName: tempInvoice.businessSnapshot?.ownerName,
+        },
+      }, null, 2));
+
+      // Verify PDF generation succeeds before saving to Firestore.
+      // On web, printToFileAsync is not supported — skip file-size check but still verify HTML.
+      await generatePDFWithTemplate(tempInvoice, selectedTemplateId);
+      console.log('[Save] PDF verification passed — saving invoice to Firestore...');
+
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       if (isEditing && editId) {
@@ -266,7 +312,7 @@ export default function CreateInvoiceScreen() {
         ]);
       }
     } catch (err) {
-      Alert.alert('Error', String(err));
+      Alert.alert('Error saving invoice', String(err));
     } finally {
       setIsSaving(false);
     }
