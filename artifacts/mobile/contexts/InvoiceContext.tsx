@@ -1,6 +1,7 @@
 import React, {
   createContext, useContext, useState, useEffect, useCallback, ReactNode,
 } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Invoice } from '@/types';
 import { generateId } from '@/utils/formatters';
 import { useAuth } from './AuthContext';
@@ -11,9 +12,39 @@ import {
   deleteInvoiceDoc,
 } from '@/services/firebase/repositories/invoice.repository';
 
+/** User-scoped local cache key — prevents cross-user data leakage on shared devices. */
+function localInvoicesKey(uid: string): string {
+  return `@TruckInvoice:local_invoices_fallback:${uid}`;
+}
+
+async function loadLocalInvoices(uid: string): Promise<Invoice[]> {
+  try {
+    const key = localInvoicesKey(uid);
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return [];
+    const invoices = JSON.parse(raw) as Invoice[];
+    console.log('[InvoiceContext][Local] Loaded', invoices.length, 'invoices from AsyncStorage for uid:', uid);
+    return invoices;
+  } catch (err) {
+    console.error('[InvoiceContext][Local] Failed to load from AsyncStorage:', err);
+    return [];
+  }
+}
+
+async function saveLocalInvoices(uid: string, invoices: Invoice[]): Promise<void> {
+  try {
+    const key = localInvoicesKey(uid);
+    await AsyncStorage.setItem(key, JSON.stringify(invoices));
+    console.log('[InvoiceContext][Local] Cached', invoices.length, 'invoices to AsyncStorage for uid:', uid);
+  } catch (err) {
+    console.error('[InvoiceContext][Local] Failed to cache invoices to AsyncStorage:', err);
+  }
+}
+
 interface InvoiceContextType {
   invoices: Invoice[];
   isLoading: boolean;
+  isOffline: boolean;
   createInvoice: (data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>) => Promise<Invoice>;
   updateInvoice: (id: string, updates: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
@@ -32,40 +63,86 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     if (!user) {
+      console.log('[InvoiceContext] No user — clearing invoices.');
       setInvoices([]);
       setIsLoading(false);
+      setIsOffline(false);
       return;
     }
+
+    console.log('[InvoiceContext] User', user.uid, '— subscribing to Firestore invoices...');
     setInvoices([]);
     setIsLoading(true);
+    setIsOffline(false);
+
+    const uid = user.uid;
     const unsub = subscribeToInvoices(
-      user.uid,
-      (data) => { setInvoices(data); setIsLoading(false); },
-      () => { setInvoices([]); setIsLoading(false); }
+      uid,
+      (data) => {
+        console.log('[InvoiceContext] ✓ Firestore snapshot received —', data.length, 'invoices');
+        setInvoices(data);
+        setIsLoading(false);
+        setIsOffline(false);
+        // Keep local cache in sync for offline fallback
+        saveLocalInvoices(uid, data);
+      },
+      async (err) => {
+        console.error('[InvoiceContext] ✗ Firestore subscription error:', err);
+        console.log('[InvoiceContext] Falling back to AsyncStorage local cache...');
+        setIsOffline(true);
+        const local = await loadLocalInvoices(uid);
+        setInvoices(local);
+        setIsLoading(false);
+        if (local.length === 0) {
+          console.warn('[InvoiceContext] No local invoices found either. Invoices list will be empty.');
+        }
+      }
     );
     return unsub;
   }, [user?.uid]);
 
   const createInvoice = useCallback(
     async (data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>): Promise<Invoice> => {
-      if (!user) throw new Error('Not authenticated');
-      return createInvoiceDoc(user.uid, data);
+      if (!user) {
+        console.error('[InvoiceContext][create] ✗ User is not authenticated!');
+        throw new Error('Not authenticated');
+      }
+      console.log('[InvoiceContext][create] Creating invoice in Firestore for user:', user.uid, '| invoiceNumber:', data.invoiceNumber);
+      try {
+        const result = await createInvoiceDoc(user.uid, data);
+        console.log('[InvoiceContext][create] ✓ Firestore create succeeded. id:', result.id);
+        return result;
+      } catch (err) {
+        console.error('[InvoiceContext][create] ✗ Firestore createInvoiceDoc failed:', err);
+        throw err;
+      }
     },
     [user]
   );
 
   const updateInvoice = useCallback(
     async (id: string, updates: Partial<Invoice>) => {
-      if (!user) return;
+      if (!user) {
+        console.error('[InvoiceContext][update] ✗ User is not authenticated!');
+        return;
+      }
+      console.log('[InvoiceContext][update] Updating invoice', id, 'for user:', user.uid);
       setInvoices((prev) =>
         prev.map((inv) =>
           inv.id === id ? { ...inv, ...updates, updatedAt: new Date().toISOString() } : inv
         )
       );
-      await updateInvoiceDoc(user.uid, id, updates);
+      try {
+        await updateInvoiceDoc(user.uid, id, updates);
+        console.log('[InvoiceContext][update] ✓ Firestore update succeeded for id:', id);
+      } catch (err) {
+        console.error('[InvoiceContext][update] ✗ Firestore updateInvoiceDoc failed:', err);
+        throw err;
+      }
     },
     [user]
   );
@@ -73,8 +150,15 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   const deleteInvoice = useCallback(
     async (id: string) => {
       if (!user) return;
+      console.log('[InvoiceContext][delete] Deleting invoice', id);
       setInvoices((prev) => prev.filter((i) => i.id !== id));
-      await deleteInvoiceDoc(user.uid, id);
+      try {
+        await deleteInvoiceDoc(user.uid, id);
+        console.log('[InvoiceContext][delete] ✓ Firestore delete succeeded for id:', id);
+      } catch (err) {
+        console.error('[InvoiceContext][delete] ✗ Firestore delete failed:', err);
+        throw err;
+      }
     },
     [user]
   );
@@ -107,7 +191,6 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       if (!user) return null;
       const source = invoices.find((i) => i.id === id);
       if (!source) return null;
-      const now = new Date().toISOString();
       const dupData: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'> = {
         ...source,
         invoiceNumber: newNumber,
@@ -146,7 +229,8 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   return (
     <InvoiceContext.Provider
       value={{
-        invoices, isLoading, createInvoice, updateInvoice, deleteInvoice,
+        invoices, isLoading, isOffline,
+        createInvoice, updateInvoice, deleteInvoice,
         toggleFavorite, archiveInvoice, restoreInvoice, duplicateInvoice,
         renameInvoice, getInvoiceById, incrementDownloadCount,
       }}

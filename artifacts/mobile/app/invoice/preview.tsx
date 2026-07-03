@@ -1,9 +1,17 @@
 /**
  * Invoice Preview Screen
- * 
+ *
  * Loaded after the user taps "Preview" in create.tsx.
  * Reads the invoice object from AsyncStorage (PREVIEW_KEY) so data survives
  * navigation. Provides Save, Download PDF, and Share PDF actions.
+ *
+ * Save flow:
+ *   1. Try Firestore (createInvoice / updateInvoice)
+ *   2. On Firestore failure → fall back to AsyncStorage
+ *
+ * PDF flow:
+ *   - Native: generate real PDF → upload to Supabase → share / download
+ *   - Web:    generate HTML → trigger browser download (native PDF not supported on web)
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -14,6 +22,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
@@ -21,8 +30,18 @@ import { useAuth } from '@/contexts/AuthContext';
 import { formatCurrency } from '@/utils/formatters';
 import Toast from '@/components/Toast';
 import { loadPreviewData, clearPreviewData, clearDraft } from '@/services/draftService';
-import { generateAndSaveInvoicePDF, sharePDF, savePDFToDownloads } from '@/services/pdfService';
+import {
+  generateAndSaveInvoicePDF,
+  sharePDF,
+  savePDFToDownloads,
+  downloadForWeb,
+} from '@/services/pdfService';
 import type { Invoice } from '@/types';
+
+/** Build a user-scoped AsyncStorage key so one user's data never leaks to another. */
+function localInvoicesKey(uid: string): string {
+  return `@TruckInvoice:local_invoices_fallback:${uid}`;
+}
 
 interface PreviewPayload {
   invoice: Invoice;
@@ -60,6 +79,51 @@ const cardS = StyleSheet.create({
   title: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
 });
 
+/**
+ * Save invoice to AsyncStorage as a local fallback when Firestore is unavailable.
+ * Returns the ID used for the saved invoice so the caller can navigate to it.
+ * Key is user-scoped to prevent cross-user data leakage on shared devices.
+ */
+async function saveLocalFallback(invoice: Invoice, uid: string, editId?: string): Promise<string> {
+  const key = localInvoicesKey(uid);
+  console.log('[Save][LocalFallback] Saving invoice to AsyncStorage, key:', key);
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    const existing: Invoice[] = raw ? JSON.parse(raw) : [];
+
+    const now = new Date().toISOString();
+    let savedId: string;
+    let updated: Invoice[];
+
+    if (editId) {
+      savedId = editId;
+      updated = existing.map((inv) =>
+        inv.id === editId ? { ...inv, ...invoice, id: editId, updatedAt: now } : inv
+      );
+      if (!updated.find((i) => i.id === editId)) {
+        // Not found locally — insert
+        updated.push({ ...invoice, id: editId, updatedAt: now });
+      }
+    } else {
+      savedId = invoice.id || `local_${Date.now()}`;
+      const newInvoice: Invoice = {
+        ...invoice,
+        id: savedId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      updated = [newInvoice, ...existing];
+    }
+
+    await AsyncStorage.setItem(key, JSON.stringify(updated));
+    console.log('[Save][LocalFallback] ✓ Saved', updated.length, 'invoices locally. savedId:', savedId);
+    return savedId;
+  } catch (err) {
+    console.error('[Save][LocalFallback] AsyncStorage write failed:', err);
+    throw err;
+  }
+}
+
 export default function InvoicePreviewScreen() {
   const colors = useColors();
   const router = useRouter();
@@ -87,12 +151,18 @@ export default function InvoicePreviewScreen() {
     setToastType(type);
     setToastVisible(true);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastVisible(false), 3500);
+    toastTimer.current = setTimeout(() => setToastVisible(false), 4000);
   }
 
   useEffect(() => {
+    console.log('[Preview] Mounting — loading preview data from AsyncStorage...');
     loadPreviewData<PreviewPayload>().then((data) => {
-      if (data) setPayload(data);
+      if (data) {
+        console.log('[Preview] ✓ Loaded preview payload. invoiceNumber:', data.invoice?.invoiceNumber, '| editId:', data.editId);
+        setPayload(data);
+      } else {
+        console.warn('[Preview] No preview data found in AsyncStorage.');
+      }
       setLoading(false);
     });
   }, []);
@@ -100,53 +170,129 @@ export default function InvoicePreviewScreen() {
   const invoice = payload?.invoice;
   const editId = payload?.editId;
 
-  /** Save invoice to Firestore (create or update). */
+  /** Save invoice to Firestore (create or update). Falls back to AsyncStorage on failure. */
   const handleSave = useCallback(async () => {
-    if (!invoice) return;
+    console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId);
+
+    if (!invoice) {
+      console.warn('[Save] No invoice in payload — aborting.');
+      return;
+    }
+
+    const uid = user?.uid;
+    console.log('[Save] Current user uid:', uid ?? 'NOT AUTHENTICATED');
+
     setSaving(true);
+    let savedId: string | null = null;
+    let firestoreOk = false;
+
     try {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, ...data } = invoice;
 
-      let savedId: string;
       if (editId) {
+        console.log('[Save] Updating existing invoice in Firestore, id:', editId);
         await updateInvoice(editId, data);
         savedId = editId;
+        console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
       } else {
+        console.log('[Save] Creating new invoice in Firestore...');
         const saved = await createInvoice({ ...data, status: data.status || 'pending' });
         savedId = saved.id;
+        console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
+      }
+      firestoreOk = true;
+    } catch (firestoreErr) {
+      console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
+      console.log('[Save] Attempting AsyncStorage fallback...');
+
+      if (!uid) {
+        console.error('[Save] Cannot save locally — user not authenticated, no uid for key scoping');
+        showToast('Save failed: not signed in', 'error');
+        setSaving(false);
+        return;
       }
 
+      try {
+        savedId = await saveLocalFallback(invoice, uid, editId);
+        console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
+        showToast('Saved locally (offline — will sync when online)', 'success');
+      } catch (localErr) {
+        console.error('[Save] ✗ AsyncStorage fallback also FAILED:', localErr);
+        const msg = localErr instanceof Error ? localErr.message : String(localErr);
+        showToast(`Save failed: ${msg}`, 'error');
+        setSaving(false);
+        return;
+      }
+    }
+
+    try {
       await clearDraft();
       await clearPreviewData();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      Alert.alert('✓ Invoice saved', undefined, [
-        { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
-        { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: savedId } }) },
-      ]);
-    } catch (err) {
-      showToast('Save failed. Please try again.', 'error');
-    } finally {
-      setSaving(false);
+      console.log('[Save] Draft and preview data cleared.');
+    } catch (clearErr) {
+      console.warn('[Save] Failed to clear draft/preview data:', clearErr);
     }
-  }, [invoice, editId, createInvoice, updateInvoice, router]);
 
-  /** Generate PDF and save to Supabase, then save locally to Downloads. */
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+
+    const finalId = savedId ?? invoice.id;
+
+    Alert.alert(
+      firestoreOk ? '✓ Invoice saved' : '✓ Saved locally',
+      firestoreOk ? undefined : 'Saved to device. Will sync to cloud when back online.',
+      [
+        { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
+        {
+          text: 'View Invoice',
+          onPress: () => {
+            if (finalId) {
+              router.replace({ pathname: '/invoice/[id]', params: { id: finalId } });
+            } else {
+              router.replace('/(tabs)/invoices' as never);
+            }
+          },
+        },
+      ]
+    );
+
+    setSaving(false);
+  }, [invoice, editId, createInvoice, updateInvoice, router, user?.uid]);
+
+  /** Generate PDF and save / download. */
   const handleDownloadPDF = useCallback(async () => {
     if (!invoice) return;
+
+    console.log('[PDF][Download] handleDownloadPDF called — platform:', Platform.OS);
+
     setDownloadingPDF(true);
     try {
+      // Web: expo-print PDF not supported; trigger HTML browser download instead
+      if (Platform.OS === 'web') {
+        console.log('[PDF][Download] Web platform — triggering HTML file download...');
+        await downloadForWeb(invoice, invoice.templateId ?? 'classic');
+        showToast('Invoice downloaded as HTML. Open in browser and print to save as PDF.');
+        return;
+      }
+
       const templateId = invoice.templateId ?? 'classic';
-      const { uri, filename } = await generateAndSaveInvoicePDF(
+      console.log('[PDF][Download] Generating PDF, templateId:', templateId, '| userId:', user?.uid);
+
+      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(
         invoice, templateId, false, user?.uid
       );
+      console.log('[PDF][Download] ✓ PDF ready. uri:', uri, '| filename:', filename, '| publicUrl:', publicUrl);
+
       await savePDFToDownloads(uri, filename);
+      console.log('[PDF][Download] ✓ savePDFToDownloads completed.');
       showToast('PDF saved to Downloads.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-      console.error('[Preview] Download PDF error:', err);
-      showToast('PDF generation failed. Please try again.', 'error');
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[PDF][Download] ✗ Error:', err);
+      showToast(`Download failed: ${msg}`, 'error');
     } finally {
       setDownloadingPDF(false);
     }
@@ -155,16 +301,37 @@ export default function InvoicePreviewScreen() {
   /** Generate PDF and share via system share sheet. */
   const handleSharePDF = useCallback(async () => {
     if (!invoice) return;
+
+    console.log('[PDF][Share] handleSharePDF called — platform:', Platform.OS);
+
     setSharingPDF(true);
     try {
+      // Web: expo sharing not available; trigger download as best alternative
+      if (Platform.OS === 'web') {
+        console.log('[PDF][Share] Web platform — triggering HTML download as share fallback...');
+        await downloadForWeb(invoice, invoice.templateId ?? 'classic');
+        showToast('Invoice downloaded. Share the file manually.');
+        return;
+      }
+
       const templateId = invoice.templateId ?? 'classic';
-      const { uri, filename } = await generateAndSaveInvoicePDF(
+      console.log('[PDF][Share] Generating PDF, templateId:', templateId, '| userId:', user?.uid);
+
+      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(
         invoice, templateId, false, user?.uid
       );
-      await sharePDF(uri, `Invoice — ${filename}`);
+      console.log('[PDF][Share] ✓ PDF ready. uri:', uri, '| filename:', filename, '| publicUrl:', publicUrl);
+
+      // Share the Supabase public URL if available (better for WhatsApp etc.), else local file
+      const shareUri = publicUrl ?? uri;
+      console.log('[PDF][Share] Sharing URI:', shareUri);
+
+      await sharePDF(shareUri, `Invoice — ${filename}`);
+      console.log('[PDF][Share] ✓ Share dialog opened.');
     } catch (err) {
-      console.error('[Preview] Share PDF error:', err);
-      showToast('Share failed. Please try again.', 'error');
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[PDF][Share] ✗ Error:', err);
+      showToast(`Share failed: ${msg}`, 'error');
     } finally {
       setSharingPDF(false);
     }
@@ -360,7 +527,9 @@ export default function InvoicePreviewScreen() {
           ) : (
             <>
               <Feather name="download" size={16} color={colors.primary} />
-              <Text style={[styles.outlineBtnText, { color: colors.primary }]}>Download PDF</Text>
+              <Text style={[styles.outlineBtnText, { color: colors.primary }]}>
+                {Platform.OS === 'web' ? 'Download' : 'Download PDF'}
+              </Text>
             </>
           )}
         </Pressable>
