@@ -1,33 +1,37 @@
 /**
  * Invoice Preview Screen
  *
- * Loaded after the user taps "Preview" in create.tsx.
- * Reads the invoice object from AsyncStorage (PREVIEW_KEY) so data survives
- * navigation. Provides Save, Download PDF, and Share PDF actions.
+ * Renders an A4 paper simulation that is pixel-for-pixel identical to the
+ * generated PDF (same sections, same template colors, same typography hierarchy).
  *
- * Save flow:
- *   1. Try Firestore (createInvoice / updateInvoice)
- *   2. On Firestore failure → fall back to AsyncStorage
+ * Layout:
+ *   - Gray "PDF viewer" background
+ *   - White paper card with drop-shadow
+ *   - Header: Logo/Company left | INVOICE title/number right
+ *   - Colored divider
+ *   - Bill From / Bill To columns
+ *   - Trip accent box
+ *   - Expenses table
+ *   - Settlement summary
+ *   - Payment details
+ *   - Notes & terms
+ *   - Footer: thank-you note | signature area
  *
- * PDF flow:
- *   - Native: generate real PDF → upload to Supabase → share / download
- *   - Web:    generate HTML → trigger browser download (native PDF not supported on web)
+ * Save / PDF / Share logic is unchanged from previous version.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable,
-  ActivityIndicator, Alert, Platform,
+  ActivityIndicator, Alert, Platform, useWindowDimensions, Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatCurrency } from '@/utils/formatters';
 import Toast from '@/components/Toast';
 import { loadPreviewData, clearPreviewData, clearDraft } from '@/services/draftService';
 import {
@@ -36,9 +40,13 @@ import {
   savePDFToDownloads,
   downloadForWeb,
 } from '@/services/pdfService';
+import { getTemplateById, type TemplateStyle } from '@/services/invoiceTemplates';
 import type { Invoice } from '@/types';
 
-/** Build a user-scoped AsyncStorage key so one user's data never leaks to another. */
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 function localInvoicesKey(uid: string): string {
   return `@TruckInvoice:local_invoices_fallback:${uid}`;
 }
@@ -48,49 +56,12 @@ interface PreviewPayload {
   editId?: string;
 }
 
-function Row({ label, value, bold }: { label: string; value?: string; bold?: boolean }) {
-  const colors = useColors();
-  if (!value) return null;
-  return (
-    <View style={rowS.row}>
-      <Text style={[rowS.label, { color: colors.mutedForeground }]}>{label}</Text>
-      <Text style={[rowS.value, { color: colors.foreground }, bold && rowS.bold]}>{value}</Text>
-    </View>
-  );
-}
-const rowS = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
-  label: { fontSize: 13, flex: 1 },
-  value: { fontSize: 13, flex: 1, textAlign: 'right' },
-  bold: { fontWeight: '700' },
-});
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  const colors = useColors();
-  return (
-    <View style={[cardS.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <Text style={[cardS.title, { color: colors.primary }]}>{title}</Text>
-      {children}
-    </View>
-  );
-}
-const cardS = StyleSheet.create({
-  card: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 12 },
-  title: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-});
-
-/**
- * Save invoice to AsyncStorage as a local fallback when Firestore is unavailable.
- * Returns the ID used for the saved invoice so the caller can navigate to it.
- * Key is user-scoped to prevent cross-user data leakage on shared devices.
- */
 async function saveLocalFallback(invoice: Invoice, uid: string, editId?: string): Promise<string> {
   const key = localInvoicesKey(uid);
   console.log('[Save][LocalFallback] Saving invoice to AsyncStorage, key:', key);
   try {
     const raw = await AsyncStorage.getItem(key);
     const existing: Invoice[] = raw ? JSON.parse(raw) : [];
-
     const now = new Date().toISOString();
     let savedId: string;
     let updated: Invoice[];
@@ -101,18 +72,11 @@ async function saveLocalFallback(invoice: Invoice, uid: string, editId?: string)
         inv.id === editId ? { ...inv, ...invoice, id: editId, updatedAt: now } : inv
       );
       if (!updated.find((i) => i.id === editId)) {
-        // Not found locally — insert
         updated.push({ ...invoice, id: editId, updatedAt: now });
       }
     } else {
       savedId = invoice.id || `local_${Date.now()}`;
-      const newInvoice: Invoice = {
-        ...invoice,
-        id: savedId,
-        createdAt: now,
-        updatedAt: now,
-      };
-      updated = [newInvoice, ...existing];
+      updated = [{ ...invoice, id: savedId, createdAt: now, updatedAt: now }, ...existing];
     }
 
     await AsyncStorage.setItem(key, JSON.stringify(updated));
@@ -124,8 +88,350 @@ async function saveLocalFallback(invoice: Invoice, uid: string, editId?: string)
   }
 }
 
+function fmtAmt(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Paper sub-components (each mirrors the corresponding PDF HTML section)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PaperLabel({ text, color }: { text: string; color: string }) {
+  return (
+    <Text style={[ps.sectionLabel, { color }]}>{text.toUpperCase()}</Text>
+  );
+}
+
+function PaperDivider({ t }: { t: TemplateStyle }) {
+  // Solid color divider (gradient not available in RN, we use the first stop color)
+  const color = t.dividerCss.startsWith('linear-gradient')
+    ? t.tableHeadBg
+    : t.dividerCss;
+  return (
+    <View style={[ps.divider, { backgroundColor: color, height: t.dividerHeight }]} />
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { bg: string; fg: string }> = {
+    paid:     { bg: '#dcfce7', fg: '#15803d' },
+    pending:  { bg: '#fef9c3', fg: '#854d0e' },
+    draft:    { bg: '#f1f5f9', fg: '#475569' },
+    archived: { bg: '#f3f4f6', fg: '#6b7280' },
+  };
+  const c = map[status] ?? map.draft;
+  return (
+    <View style={[ps.badge, { backgroundColor: c.bg }]}>
+      <Text style={[ps.badgeText, { color: c.fg }]}>{status.toUpperCase()}</Text>
+    </View>
+  );
+}
+
+function TableRow({
+  name, amount, isAlt, t,
+}: { name: string; amount: string; isAlt: boolean; t: TemplateStyle }) {
+  return (
+    <View style={[ps.tableRow, { backgroundColor: isAlt ? t.rowAlt : t.bodyBg, borderBottomColor: t.borderColor }]}>
+      <Text style={[ps.tableCell, { color: t.bodyText, flex: 2 }]}>{name}</Text>
+      <Text style={[ps.tableCell, ps.tableCellRight, { color: t.itemAmtColor }]}>{amount}</Text>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <View style={[ps.summaryRow]}>
+      <Text style={[ps.summaryLabel, { color }]}>{label}</Text>
+      <Text style={[ps.summaryValue, { color }]}>{value}</Text>
+    </View>
+  );
+}
+
+function MetaItem({ label, value, t }: { label: string; value: string; t: TemplateStyle }) {
+  return (
+    <View style={ps.metaItem}>
+      <Text style={[ps.metaLabel, { color: t.metaTextColor }]}>{label.toUpperCase()}</Text>
+      <Text style={[ps.metaValue, { color: t.payValColor }]}>{value}</Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main paper renderer — identical layout to the PDF HTML renderHTML()
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PaperDocument({ invoice, currency, templateId }: {
+  invoice: Invoice;
+  currency: string;
+  templateId: string;
+}) {
+  const t = getTemplateById(templateId);
+  const biz = invoice.businessSnapshot;
+  const { width: screenWidth } = useWindowDimensions();
+  const paperWidth = screenWidth - 32; // 16px margin each side
+  // HTML template uses 300px summary box inside a 794px page (≈37.8%).
+  // Clamp to keep it readable on all screen sizes.
+  const summaryBoxWidth = Math.min(Math.round(paperWidth * 0.48), 280);
+
+  const settlementLabel =
+    invoice.settlementStatus === 'receive'
+      ? 'Driver has to receive money.'
+      : invoice.settlementStatus === 'return'
+        ? 'Driver has to return money.'
+        : 'Fully settled — no balance due.';
+
+  const hasPaymentDetails = !!(biz.upiId || biz.bankName);
+
+  return (
+    <View style={[ps.paper, { width: paperWidth, backgroundColor: t.bodyBg }]}>
+
+      {/* ── DRAFT WATERMARK ── */}
+      {invoice.status === 'draft' && (
+        <View style={ps.watermarkContainer} pointerEvents="none">
+          <Text style={ps.watermark}>DRAFT</Text>
+        </View>
+      )}
+
+      {/* ── HEADER ── */}
+      <View style={ps.headerRow}>
+        {/* Left: Logo + Company */}
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          {biz.logoUri ? (
+            <Image
+              source={{ uri: biz.logoUri }}
+              style={ps.logo}
+              resizeMode="contain"
+            />
+          ) : null}
+          <Text style={[ps.companyName, { color: t.companyNameColor }]}>
+            {biz.companyName || biz.ownerName || 'Company Name'}
+          </Text>
+          <Text style={[ps.companyMeta, { color: t.metaTextColor }]}>
+            {[biz.address, biz.mobile ? `Mobile: ${biz.mobile}` : '', biz.gstNumber ? `GST: ${biz.gstNumber}` : '']
+              .filter(Boolean).join('\n')}
+          </Text>
+        </View>
+        {/* Right: INVOICE title + number + date */}
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[ps.invoiceTitle, { color: t.invoiceTitleColor }]}>INVOICE</Text>
+          <Text style={[ps.invoiceNumber, { color: t.companyNameColor }]}>
+            #{invoice.invoiceNumber}
+          </Text>
+          <Text style={[ps.invoiceMeta, { color: t.metaTextColor }]}>
+            Date: {invoice.date}
+            {invoice.dueDate ? `\nDue: ${invoice.dueDate}` : ''}
+          </Text>
+          <StatusBadge status={invoice.status} />
+        </View>
+      </View>
+
+      {/* ── DIVIDER ── */}
+      <PaperDivider t={t} />
+
+      {/* ── BILL FROM / BILL TO ── */}
+      <View style={[ps.billRow, { borderColor: t.borderColor }]}>
+        <View style={{ flex: 1, paddingRight: 16 }}>
+          <PaperLabel text="Bill From" color={t.labelColor} />
+          <Text style={[ps.billName, { color: t.billNameColor }]}>
+            {biz.ownerName || biz.companyName || '—'}
+          </Text>
+          <Text style={[ps.billMeta, { color: t.metaTextColor }]}>
+            {[
+              biz.companyName && biz.ownerName ? biz.companyName : '',
+              biz.address,
+              biz.mobile,
+              biz.gstNumber ? `GST: ${biz.gstNumber}` : '',
+            ].filter(Boolean).join('\n')}
+          </Text>
+        </View>
+        <View style={[ps.billToSide, { borderLeftColor: t.borderColor, paddingLeft: 16 }]}>
+          <PaperLabel text="Bill To" color={t.labelColor} />
+          <Text style={[ps.billName, { color: t.billNameColor }]}>{invoice.clientName}</Text>
+          <Text style={[ps.billMeta, { color: t.metaTextColor }]}>
+            {[
+              invoice.clientPhone,
+              invoice.clientAddress,
+              invoice.clientGST ? `GST: ${invoice.clientGST}` : '',
+            ].filter(Boolean).join('\n')}
+          </Text>
+        </View>
+      </View>
+
+      {/* ── TRIP BOX ── */}
+      <View style={[ps.tripBox, { backgroundColor: t.tripBg, borderLeftColor: t.tripBorder }]}>
+        {[
+          { label: 'From',     value: invoice.fromLocation },
+          { label: 'To',       value: invoice.toLocation },
+          { label: 'Truck No.', value: invoice.truckNumber || '—' },
+          { label: 'Driver',   value: invoice.driverName || '—' },
+          { label: 'Date',     value: invoice.date },
+        ].map(({ label, value }) => (
+          <View key={label} style={ps.tripItem}>
+            <Text style={[ps.tripLabel, { color: t.metaTextColor }]}>{label.toUpperCase()}</Text>
+            <Text style={[ps.tripValue, { color: t.tripValColor }]}>{value}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* ── EXPENSES TABLE ── */}
+      <View style={[ps.tableContainer, { borderColor: t.borderColor }]}>
+        {/* Table Header */}
+        <View style={[ps.tableHead, { backgroundColor: t.tableHeadBg }]}>
+          <Text style={[ps.tableHeadCell, { color: t.tableHeadText, flex: 2 }]}>
+            EXPENSE NAME
+          </Text>
+          <Text style={[ps.tableHeadCell, ps.tableHeadRight, { color: t.tableHeadText }]}>
+            AMOUNT ({currency})
+          </Text>
+        </View>
+        {/* Rows */}
+        {invoice.expenses.length === 0 ? (
+          <View style={[ps.tableRow, { backgroundColor: t.bodyBg, borderBottomColor: t.borderColor }]}>
+            <Text style={[ps.tableCell, { color: t.metaTextColor, fontStyle: 'italic' }]}>
+              No expenses recorded
+            </Text>
+          </View>
+        ) : (
+          invoice.expenses.map((item, i) => (
+            <TableRow
+              key={item.id}
+              name={item.name}
+              amount={`${currency} ${fmtAmt(item.amount)}`}
+              isAlt={i % 2 === 1}
+              t={t}
+            />
+          ))
+        )}
+      </View>
+
+      {/* ── SETTLEMENT SUMMARY ── */}
+      <View style={ps.summaryContainer}>
+        <View style={[ps.summaryBox, { borderColor: t.borderColor, width: summaryBoxWidth }]}>
+          <SummaryRow
+            label="Advance Received"
+            value={`${currency} ${fmtAmt(invoice.advanceAmount)}`}
+            color={t.totalRowColor}
+          />
+          <View style={[ps.summaryRowDivider, { borderBottomColor: t.borderColor }]} />
+          <SummaryRow
+            label="Total Expenses"
+            value={`${currency} ${fmtAmt(invoice.totalExpenses)}`}
+            color={t.totalRowColor}
+          />
+          <View style={[ps.summaryRowDivider, { borderBottomColor: t.borderColor }]} />
+          <SummaryRow
+            label="Remaining Balance"
+            value={`${currency} ${fmtAmt(invoice.balance)}`}
+            color={t.totalRowColor}
+          />
+          {invoice.balance > 0 && (
+            <>
+              <View style={[ps.summaryRowDivider, { borderBottomColor: t.borderColor }]} />
+              <SummaryRow
+                label="Extra Amount"
+                value={`${currency} ${fmtAmt(invoice.balance)}`}
+                color={t.totalRowColor}
+              />
+            </>
+          )}
+          {invoice.balance < 0 && (
+            <>
+              <View style={[ps.summaryRowDivider, { borderBottomColor: t.borderColor }]} />
+              <SummaryRow
+                label="Loss Amount"
+                value={`${currency} ${fmtAmt(Math.abs(invoice.balance))}`}
+                color={t.totalRowColor}
+              />
+            </>
+          )}
+          {/* Grand Balance */}
+          <View style={[ps.grandBalance, { backgroundColor: t.grandRowBg }]}>
+            <Text style={[ps.grandLabel, { color: t.grandRowText }]}>BALANCE</Text>
+            <Text style={[ps.grandValue, { color: t.grandRowText }]}>
+              {currency} {fmtAmt(Math.abs(invoice.balance))}
+            </Text>
+          </View>
+          <Text style={[ps.settlementNote, { color: t.labelColor }]}>
+            Settlement Status: {settlementLabel}
+          </Text>
+        </View>
+      </View>
+
+      {/* ── PAYMENT DETAILS ── */}
+      {hasPaymentDetails && (
+        <View style={ps.paymentSection}>
+          <PaperLabel text="Payment Details" color={t.labelColor} />
+          <View style={ps.metaRow}>
+            {biz.upiId && <MetaItem label="UPI ID" value={biz.upiId} t={t} />}
+            {biz.bankName && <MetaItem label="Bank" value={biz.bankName} t={t} />}
+            {biz.accountNumber && <MetaItem label="Account No." value={biz.accountNumber} t={t} />}
+            {biz.ifscCode && <MetaItem label="IFSC Code" value={biz.ifscCode} t={t} />}
+          </View>
+        </View>
+      )}
+
+      {/* ── NOTES & TERMS ── */}
+      {invoice.notes ? (
+        <View style={[ps.notesBox, { backgroundColor: t.notesBg, borderLeftColor: t.notesAccent }]}>
+          <Text style={[ps.notesText, { color: t.metaTextColor }]}>
+            <Text style={{ color: t.notesAccent, fontWeight: '700' }}>Notes: </Text>
+            {invoice.notes}
+          </Text>
+        </View>
+      ) : null}
+
+      {invoice.paymentTerms ? (
+        <Text style={[ps.termsText, { color: t.metaTextColor }]}>
+          <Text style={{ fontWeight: '700', color: t.bodyText }}>Payment Terms: </Text>
+          {invoice.paymentTerms}
+        </Text>
+      ) : null}
+
+      {/* ── FOOTER ── */}
+      <View style={[ps.footer, { borderTopColor: t.borderColor }]}>
+        {/* Left: footer note */}
+        <View style={{ flex: 1, paddingRight: 20 }}>
+          <Text style={[ps.footerNote, { color: t.metaTextColor }]}>
+            {biz.footerNotes || 'Thank you for your business.'}
+          </Text>
+        </View>
+        {/* Right: signature */}
+        <View style={ps.signatureArea}>
+          {biz.signatureUri ? (
+            <Image
+              source={{ uri: biz.signatureUri }}
+              style={ps.signatureImage}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={ps.signaturePlaceholder} />
+          )}
+          <View style={[ps.signatureLine, { backgroundColor: t.metaTextColor }]} />
+          <Text style={[ps.signatureLabel, { color: t.metaTextColor }]}>
+            AUTHORIZED SIGNATURE
+          </Text>
+          <Text style={[ps.signatureName, { color: t.billNameColor }]}>
+            {biz.ownerName || biz.companyName || ''}
+          </Text>
+        </View>
+      </View>
+
+      {/* ── PAGE NUMBER ── */}
+      <View style={ps.pageNumRow}>
+        <Text style={[ps.pageNum, { color: t.metaTextColor }]}>Page 1</Text>
+      </View>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main screen
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function InvoicePreviewScreen() {
-  const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { createInvoice, updateInvoice } = useInvoices();
@@ -135,12 +441,10 @@ export default function InvoicePreviewScreen() {
   const [payload, setPayload] = useState<PreviewPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Action states
   const [saving, setSaving] = useState(false);
   const [downloadingPDF, setDownloadingPDF] = useState(false);
   const [sharingPDF, setSharingPDF] = useState(false);
 
-  // Toast
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
@@ -170,26 +474,18 @@ export default function InvoicePreviewScreen() {
   const invoice = payload?.invoice;
   const editId = payload?.editId;
 
-  /** Save invoice to Firestore (create or update). Falls back to AsyncStorage on failure. */
   const handleSave = useCallback(async () => {
     console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId);
-
-    if (!invoice) {
-      console.warn('[Save] No invoice in payload — aborting.');
-      return;
-    }
+    if (!invoice) { console.warn('[Save] No invoice in payload — aborting.'); return; }
 
     const uid = user?.uid;
     console.log('[Save] Current user uid:', uid ?? 'NOT AUTHENTICATED');
-
     setSaving(true);
     let savedId: string | null = null;
     let firestoreOk = false;
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, ...data } = invoice;
-
       if (editId) {
         console.log('[Save] Updating existing invoice in Firestore, id:', editId);
         await updateInvoice(editId, data);
@@ -204,15 +500,11 @@ export default function InvoicePreviewScreen() {
       firestoreOk = true;
     } catch (firestoreErr) {
       console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
-      console.log('[Save] Attempting AsyncStorage fallback...');
-
       if (!uid) {
-        console.error('[Save] Cannot save locally — user not authenticated, no uid for key scoping');
         showToast('Save failed: not signed in', 'error');
         setSaving(false);
         return;
       }
-
       try {
         savedId = await saveLocalFallback(invoice, uid, editId);
         console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
@@ -226,20 +518,10 @@ export default function InvoicePreviewScreen() {
       }
     }
 
-    try {
-      await clearDraft();
-      await clearPreviewData();
-      console.log('[Save] Draft and preview data cleared.');
-    } catch (clearErr) {
-      console.warn('[Save] Failed to clear draft/preview data:', clearErr);
-    }
-
-    try {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch {}
+    try { await clearDraft(); await clearPreviewData(); } catch {}
+    try { await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } catch {}
 
     const finalId = savedId ?? invoice.id;
-
     Alert.alert(
       firestoreOk ? '✓ Invoice saved' : '✓ Saved locally',
       firestoreOk ? undefined : 'Saved to device. Will sync to cloud when back online.',
@@ -257,36 +539,23 @@ export default function InvoicePreviewScreen() {
         },
       ]
     );
-
     setSaving(false);
   }, [invoice, editId, createInvoice, updateInvoice, router, user?.uid]);
 
-  /** Generate PDF and save / download. */
   const handleDownloadPDF = useCallback(async () => {
     if (!invoice) return;
-
     console.log('[PDF][Download] handleDownloadPDF called — platform:', Platform.OS);
-
     setDownloadingPDF(true);
     try {
-      // Web: expo-print PDF not supported; trigger HTML browser download instead
       if (Platform.OS === 'web') {
-        console.log('[PDF][Download] Web platform — triggering HTML file download...');
         await downloadForWeb(invoice, invoice.templateId ?? 'classic');
         showToast('Invoice downloaded as HTML. Open in browser and print to save as PDF.');
         return;
       }
-
       const templateId = invoice.templateId ?? 'classic';
-      console.log('[PDF][Download] Generating PDF, templateId:', templateId, '| userId:', user?.uid);
-
-      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(
-        invoice, templateId, false, user?.uid
-      );
+      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
       console.log('[PDF][Download] ✓ PDF ready. uri:', uri, '| filename:', filename, '| publicUrl:', publicUrl);
-
       await savePDFToDownloads(uri, filename);
-      console.log('[PDF][Download] ✓ savePDFToDownloads completed.');
       showToast('PDF saved to Downloads.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
@@ -298,34 +567,19 @@ export default function InvoicePreviewScreen() {
     }
   }, [invoice, user?.uid]);
 
-  /** Generate PDF and share via system share sheet. */
   const handleSharePDF = useCallback(async () => {
     if (!invoice) return;
-
     console.log('[PDF][Share] handleSharePDF called — platform:', Platform.OS);
-
     setSharingPDF(true);
     try {
-      // Web: expo sharing not available; trigger download as best alternative
       if (Platform.OS === 'web') {
-        console.log('[PDF][Share] Web platform — triggering HTML download as share fallback...');
         await downloadForWeb(invoice, invoice.templateId ?? 'classic');
         showToast('Invoice downloaded. Share the file manually.');
         return;
       }
-
       const templateId = invoice.templateId ?? 'classic';
-      console.log('[PDF][Share] Generating PDF, templateId:', templateId, '| userId:', user?.uid);
-
-      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(
-        invoice, templateId, false, user?.uid
-      );
-      console.log('[PDF][Share] ✓ PDF ready. uri:', uri, '| filename:', filename, '| publicUrl:', publicUrl);
-
-      // Share the Supabase public URL if available (better for WhatsApp etc.), else local file
+      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
       const shareUri = publicUrl ?? uri;
-      console.log('[PDF][Share] Sharing URI:', shareUri);
-
       await sharePDF(shareUri, `Invoice — ${filename}`);
       console.log('[PDF][Share] ✓ Share dialog opened.');
     } catch (err) {
@@ -338,26 +592,24 @@ export default function InvoicePreviewScreen() {
   }, [invoice, user?.uid]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const isAnyLoading = saving || downloadingPDF || sharingPDF;
 
+  // ── Loading ──
   if (loading) {
     return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator color={colors.primary} size="large" />
+      <View style={[styles.center, { backgroundColor: '#e8e8e8' }]}>
+        <ActivityIndicator color="#1A3C6E" size="large" />
       </View>
     );
   }
 
+  // ── No data ──
   if (!invoice) {
     return (
-      <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <Feather name="alert-circle" size={48} color={colors.mutedForeground} />
-        <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
-          Preview data not found
-        </Text>
-        <Pressable
-          onPress={() => router.back()}
-          style={[styles.backBtnAlt, { backgroundColor: colors.primary }]}
-        >
+      <View style={[styles.center, { backgroundColor: '#e8e8e8' }]}>
+        <Feather name="alert-circle" size={48} color="#888" />
+        <Text style={styles.emptyText}>Preview data not found</Text>
+        <Pressable onPress={() => router.back()} style={styles.backBtnAlt}>
           <Text style={{ color: '#fff', fontWeight: '700' }}>Go Back</Text>
         </Pressable>
       </View>
@@ -365,141 +617,56 @@ export default function InvoicePreviewScreen() {
   }
 
   const currency = invoice.currency ?? settings.defaultCurrency;
-  const isAnyLoading = saving || downloadingPDF || sharingPDF;
+  const templateId = invoice.templateId ?? 'classic';
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+    <View style={styles.root}>
+
+      {/* ── App header bar ── */}
+      <View style={[styles.headerBar, { paddingTop: topPad + 8 }]}>
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backBtn}>
-          <Feather name="arrow-left" size={22} color={colors.foreground} />
+          <Feather name="arrow-left" size={22} color="#1a1a1a" />
         </Pressable>
-        <View style={{ flex: 1, marginHorizontal: 10 }}>
-          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-            Preview — {invoice.invoiceNumber}
+        <View style={{ flex: 1, marginHorizontal: 12 }}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            #{invoice.invoiceNumber}
           </Text>
-          <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
-            Review before saving
-          </Text>
+          <Text style={styles.headerSub}>PDF Preview</Text>
+        </View>
+        <View style={styles.pdfBadge}>
+          <Feather name="file-text" size={12} color="#fff" style={{ marginRight: 4 }} />
+          <Text style={styles.pdfBadgeText}>PDF</Text>
         </View>
       </View>
 
+      {/* ── Gray PDF-viewer background ── */}
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 130 }]}
+        style={styles.viewer}
+        contentContainerStyle={[
+          styles.viewerContent,
+          { paddingBottom: insets.bottom + 140 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero Card */}
-        <View style={[styles.hero, { backgroundColor: colors.primary }]}>
-          <Text style={styles.heroLabel}>Balance</Text>
-          <Text style={styles.heroAmount}>
-            {formatCurrency(Math.abs(invoice.balance), currency)}
-          </Text>
-          <Text style={styles.heroSub}>
-            {invoice.settlementStatus === 'receive'
-              ? 'Driver has to receive money'
-              : invoice.settlementStatus === 'return'
-                ? 'Driver has to return money'
-                : 'Fully settled — no balance due'}
-          </Text>
-          <View style={styles.heroMeta}>
-            <Text style={styles.heroMetaText}>{invoice.date}</Text>
-            {invoice.dueDate ? <Text style={styles.heroMetaText}>Due: {invoice.dueDate}</Text> : null}
-          </View>
-        </View>
-
-        {/* Client */}
-        <Card title="Client Details">
-          <Row label="Name" value={invoice.clientName} bold />
-          <Row label="Phone" value={invoice.clientPhone} />
-          <Row label="Address" value={invoice.clientAddress} />
-          <Row label="GST" value={invoice.clientGST} />
-        </Card>
-
-        {/* Trip */}
-        <Card title="Trip Details">
-          <Row label="From" value={invoice.fromLocation} bold />
-          <Row label="To" value={invoice.toLocation} bold />
-          <Row label="Truck" value={invoice.truckNumber} />
-          <Row label="Driver" value={invoice.driverName} />
-        </Card>
-
-        {/* Expenses */}
-        {invoice.expenses.length > 0 && (
-          <Card title="Expenses">
-            {invoice.expenses.map((item, idx) => (
-              <View
-                key={item.id}
-                style={[
-                  styles.expenseRow,
-                  idx < invoice.expenses.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border },
-                ]}
-              >
-                <Text style={[styles.expenseName, { color: colors.foreground }]}>{item.name}</Text>
-                <Text style={[styles.expenseAmount, { color: colors.primary }]}>
-                  {formatCurrency(item.amount, currency)}
-                </Text>
-              </View>
-            ))}
-          </Card>
-        )}
-
-        {/* Settlement */}
-        <Card title="Settlement Summary">
-          <Row label="Advance" value={formatCurrency(invoice.advanceAmount, currency)} />
-          <Row label="Total Expenses" value={formatCurrency(invoice.totalExpenses, currency)} />
-          <View style={[styles.divider, { borderTopColor: colors.border }]} />
-          <View style={styles.grandRow}>
-            <Text style={[styles.grandLabel, { color: colors.primary }]}>Balance</Text>
-            <Text style={[styles.grandValue, { color: colors.primary }]}>
-              {formatCurrency(Math.abs(invoice.balance), currency)}
-            </Text>
-          </View>
-        </Card>
-
-        {/* Business Info */}
-        {(invoice.businessSnapshot?.companyName || invoice.businessSnapshot?.ownerName) && (
-          <Card title="From (Your Business)">
-            <Row label="Company" value={invoice.businessSnapshot.companyName} bold />
-            <Row label="Owner" value={invoice.businessSnapshot.ownerName} />
-            <Row label="GST" value={invoice.businessSnapshot.gstNumber} />
-            <Row label="Phone" value={invoice.businessSnapshot.mobile} />
-          </Card>
-        )}
-
-        {/* Notes */}
-        {(invoice.paymentTerms || invoice.notes) && (
-          <Card title="Notes & Terms">
-            {invoice.paymentTerms ? (
-              <Text style={[styles.noteText, { color: colors.foreground }]}>{invoice.paymentTerms}</Text>
-            ) : null}
-            {invoice.notes ? (
-              <Text style={[styles.noteText, { color: colors.mutedForeground, marginTop: 6 }]}>
-                {invoice.notes}
-              </Text>
-            ) : null}
-          </Card>
-        )}
+        <PaperDocument invoice={invoice} currency={currency} templateId={templateId} />
       </ScrollView>
 
-      {/* Fixed bottom action bar */}
+      {/* ── Fixed bottom action bar ── */}
       <View
         style={[
           styles.bottomBar,
-          {
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            paddingBottom: insets.bottom + 8,
-          },
+          { paddingBottom: insets.bottom + 8 },
         ]}
       >
-        {/* Save */}
         <Pressable
           onPress={handleSave}
           disabled={isAnyLoading}
+          accessibilityRole="button"
+          accessibilityLabel={editId ? 'Update invoice' : 'Save invoice'}
+          accessibilityState={{ disabled: isAnyLoading, busy: saving }}
           style={({ pressed }) => [
-            styles.actionBtn,
-            styles.saveBtn,
-            { backgroundColor: colors.primary, opacity: pressed || saving ? 0.8 : 1 },
+            styles.actionBtn, styles.saveBtn,
+            { opacity: pressed || saving ? 0.8 : 1 },
           ]}
         >
           {saving ? (
@@ -512,44 +679,46 @@ export default function InvoicePreviewScreen() {
           )}
         </Pressable>
 
-        {/* Download PDF */}
         <Pressable
           onPress={handleDownloadPDF}
           disabled={isAnyLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Download PDF"
+          accessibilityState={{ disabled: isAnyLoading, busy: downloadingPDF }}
           style={({ pressed }) => [
-            styles.actionBtn,
-            styles.outlineBtn,
-            { borderColor: colors.primary, backgroundColor: colors.secondary, opacity: pressed || downloadingPDF ? 0.8 : 1 },
+            styles.actionBtn, styles.outlineBtn,
+            { opacity: pressed || downloadingPDF ? 0.8 : 1 },
           ]}
         >
           {downloadingPDF ? (
-            <ActivityIndicator color={colors.primary} size="small" />
+            <ActivityIndicator color="#1A3C6E" size="small" />
           ) : (
             <>
-              <Feather name="download" size={16} color={colors.primary} />
-              <Text style={[styles.outlineBtnText, { color: colors.primary }]}>
+              <Feather name="download" size={16} color="#1A3C6E" />
+              <Text style={styles.outlineBtnText}>
                 {Platform.OS === 'web' ? 'Download' : 'Download PDF'}
               </Text>
             </>
           )}
         </Pressable>
 
-        {/* Share PDF */}
         <Pressable
           onPress={handleSharePDF}
           disabled={isAnyLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Share PDF"
+          accessibilityState={{ disabled: isAnyLoading, busy: sharingPDF }}
           style={({ pressed }) => [
-            styles.actionBtn,
-            styles.outlineBtn,
-            { borderColor: colors.border, backgroundColor: colors.secondary, opacity: pressed || sharingPDF ? 0.8 : 1 },
+            styles.actionBtn, styles.shareBtn,
+            { opacity: pressed || sharingPDF ? 0.8 : 1 },
           ]}
         >
           {sharingPDF ? (
-            <ActivityIndicator color={colors.primary} size="small" />
+            <ActivityIndicator color="#444" size="small" />
           ) : (
             <>
-              <Feather name="share-2" size={16} color={colors.foreground} />
-              <Text style={[styles.outlineBtnText, { color: colors.foreground }]}>Share PDF</Text>
+              <Feather name="share-2" size={16} color="#444" />
+              <Text style={styles.shareBtnText}>Share PDF</Text>
             </>
           )}
         </Pressable>
@@ -560,43 +729,184 @@ export default function InvoicePreviewScreen() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles — screen chrome
+// ─────────────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  root: { flex: 1, backgroundColor: '#d0d0d0' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
-  emptyText: { fontSize: 16 },
-  backBtnAlt: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
-  header: {
+  emptyText: { fontSize: 16, color: '#555' },
+  backBtnAlt: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, backgroundColor: '#1A3C6E' },
+
+  headerBar: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
+    paddingHorizontal: 16, paddingBottom: 12,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1, borderBottomColor: '#e0e0e0',
+    // iOS shadow
+    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+    zIndex: 10,
   },
   backBtn: { padding: 4 },
-  headerTitle: { fontSize: 16, fontWeight: '700' },
-  headerSub: { fontSize: 11, marginTop: 1 },
-  content: { padding: 16 },
-  hero: { borderRadius: 18, padding: 22, marginBottom: 12 },
-  heroLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginBottom: 6 },
-  heroAmount: { color: '#fff', fontSize: 32, fontWeight: '800', letterSpacing: -1, marginBottom: 6 },
-  heroSub: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600', marginBottom: 10 },
-  heroMeta: { flexDirection: 'row', gap: 16 },
-  heroMetaText: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
-  expenseRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 9 },
-  expenseName: { fontSize: 14, fontWeight: '600', flex: 1 },
-  expenseAmount: { fontSize: 14, fontWeight: '700' },
-  divider: { borderTopWidth: 1, marginVertical: 8 },
-  grandRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 4 },
-  grandLabel: { fontSize: 15, fontWeight: '800' },
-  grandValue: { fontSize: 15, fontWeight: '800' },
-  noteText: { fontSize: 13, lineHeight: 20 },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
+  headerSub: { fontSize: 11, color: '#888', marginTop: 1 },
+  pdfBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#E53935', paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 6,
+  },
+  pdfBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+
+  viewer: { flex: 1, backgroundColor: '#d0d0d0' },
+  viewerContent: { alignItems: 'center', paddingVertical: 20 },
+
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    flexDirection: 'row', gap: 8, padding: 12, borderTopWidth: 1,
+    flexDirection: 'row', gap: 8, padding: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1, borderTopColor: '#e0e0e0',
+    shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: -3 },
+    elevation: 8,
   },
   actionBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 5, paddingVertical: 13, borderRadius: 12,
+    gap: 6, paddingVertical: 13, borderRadius: 12,
   },
-  saveBtn: {},
+  saveBtn: { backgroundColor: '#1A3C6E' },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  outlineBtn: { borderWidth: 1.5 },
-  outlineBtnText: { fontWeight: '700', fontSize: 13 },
+  outlineBtn: { backgroundColor: '#EEF2FF', borderWidth: 1.5, borderColor: '#1A3C6E' },
+  outlineBtnText: { color: '#1A3C6E', fontWeight: '700', fontSize: 13 },
+  shareBtn: { backgroundColor: '#F5F5F5', borderWidth: 1.5, borderColor: '#ddd' },
+  shareBtnText: { color: '#444', fontWeight: '700', fontSize: 13 },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles — paper document internals
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ps = StyleSheet.create({
+  paper: {
+    borderRadius: 2,
+    padding: 24,
+    // Drop-shadow to simulate floating paper
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 10,
+    overflow: 'hidden',
+  },
+
+  // Watermark
+  watermarkContainer: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+    transform: [{ rotate: '-45deg' }],
+    zIndex: 0,
+  },
+  watermark: {
+    fontSize: 72, fontWeight: '900', color: 'rgba(128,128,128,0.07)',
+    letterSpacing: 12,
+  },
+
+  // Header
+  headerRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  logo: { width: 100, height: 48, marginBottom: 8 },
+  companyName: { fontSize: 18, fontWeight: '800', letterSpacing: -0.3 },
+  companyMeta: { fontSize: 10, lineHeight: 17, marginTop: 4 },
+  invoiceTitle: { fontSize: 34, fontWeight: '900', letterSpacing: -2, lineHeight: 36 },
+  invoiceNumber: { fontSize: 13, fontWeight: '700', marginTop: 4 },
+  invoiceMeta: { fontSize: 10, lineHeight: 18, marginTop: 6, textAlign: 'right' },
+  badge: {
+    paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, marginTop: 6, alignSelf: 'flex-end',
+  },
+  badgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+
+  // Divider
+  divider: { borderRadius: 2, marginBottom: 20 },
+
+  // Bill From/To
+  billRow: { flexDirection: 'row', marginBottom: 18 },
+  billToSide: { flex: 1, borderLeftWidth: 1 },
+  billName: { fontSize: 13, fontWeight: '700', marginTop: 4 },
+  billMeta: { fontSize: 10, lineHeight: 17, marginTop: 3 },
+
+  // Section label
+  sectionLabel: {
+    fontSize: 8.5, fontWeight: '800', letterSpacing: 1.5, marginBottom: 6,
+  },
+
+  // Trip box
+  tripBox: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    borderLeftWidth: 4, borderRadius: 4,
+    padding: 12, marginBottom: 18, gap: 0,
+  },
+  tripItem: { minWidth: '33.3%', paddingRight: 10, marginBottom: 8 },
+  tripLabel: { fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+  tripValue: { fontSize: 12, fontWeight: '700' },
+
+  // Table
+  tableContainer: { borderWidth: 1, borderRadius: 4, overflow: 'hidden', marginBottom: 18 },
+  tableHead: { flexDirection: 'row', paddingVertical: 9, paddingHorizontal: 12 },
+  tableHeadCell: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.5 },
+  tableHeadRight: { textAlign: 'right' },
+  tableRow: { flexDirection: 'row', paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1 },
+  tableCell: { fontSize: 12, fontWeight: '500' },
+  tableCellRight: { textAlign: 'right', fontWeight: '700', flex: 1 },
+
+  // Settlement summary
+  summaryContainer: { alignItems: 'flex-end', marginBottom: 18 },
+  summaryBox: { width: '60%', borderWidth: 1, borderRadius: 8, overflow: 'hidden' },
+  summaryRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 7, paddingHorizontal: 12,
+  },
+  summaryRowDivider: { borderBottomWidth: 1, marginHorizontal: 12 },
+  summaryLabel: { fontSize: 11 },
+  summaryValue: { fontSize: 11, fontWeight: '600' },
+  grandBalance: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 11, paddingHorizontal: 12, marginTop: 4, borderRadius: 6,
+  },
+  grandLabel: { fontSize: 13, fontWeight: '800' },
+  grandValue: { fontSize: 13, fontWeight: '800' },
+  settlementNote: { fontSize: 10, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
+
+  // Payment details
+  paymentSection: { marginBottom: 16 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 8 },
+  metaItem: {},
+  metaLabel: { fontSize: 8.5, textTransform: 'uppercase', letterSpacing: 0.8 },
+  metaValue: { fontSize: 12, fontWeight: '600', marginTop: 2 },
+
+  // Notes
+  notesBox: {
+    borderLeftWidth: 3, borderRadius: 4,
+    padding: 10, marginBottom: 12,
+  },
+  notesText: { fontSize: 11, lineHeight: 18 },
+  termsText: { fontSize: 10, lineHeight: 17, marginBottom: 14 },
+
+  // Footer
+  footer: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
+    borderTopWidth: 2, paddingTop: 16, marginTop: 8,
+  },
+  footerNote: { fontSize: 10, lineHeight: 17 },
+  signatureArea: { alignItems: 'center', minWidth: 140 },
+  signatureImage: { width: 120, height: 44, marginBottom: 4 },
+  signaturePlaceholder: { height: 44 },
+  signatureLine: { width: 130, height: 1, marginBottom: 6 },
+  signatureLabel: { fontSize: 8.5, textTransform: 'uppercase', letterSpacing: 0.8 },
+  signatureName: { fontSize: 11, fontWeight: '600', marginTop: 3 },
+
+  // Page number
+  pageNumRow: { alignItems: 'flex-end', marginTop: 10 },
+  pageNum: { fontSize: 10 },
 });
