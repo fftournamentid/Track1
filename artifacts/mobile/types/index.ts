@@ -58,6 +58,9 @@ export interface Invoice {
   updatedAt: string;
   downloadCount: number;
   templateId?: string;
+  pdfUrl?: string;
+  pdfName?: string;
+  pdfCreatedAt?: string;
 }
 
 export interface AppSettings {

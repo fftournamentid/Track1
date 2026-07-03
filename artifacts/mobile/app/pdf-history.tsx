@@ -1,308 +1,227 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, Alert,
-  Modal, TextInput, ActivityIndicator,
+  View, Text, FlatList, StyleSheet, Pressable, Modal, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
-import { useSettings } from '@/contexts/SettingsContext';
-import EmptyState from '@/components/EmptyState';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import {
-  openInvoicePDF, savePDFToDevice, printInvoice,
-} from '@/services/pdfService';
-import { sharePDF, shareViaWhatsApp } from '@/services/shareService';
+import Toast from '@/components/Toast';
+import PDFActionModal from '@/components/PDFActionModal';
+import { openPDF, sharePDF } from '@/services/pdfService';
 import type { Invoice } from '@/types';
-
-type LoadingAction = 'share' | 'whatsapp' | 'download' | 'print' | 'open' | null;
 
 export default function PDFHistoryScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { invoices, deleteInvoice, renameInvoice } = useInvoices();
-  const { settings } = useSettings();
+  const { invoices, updateInvoice } = useInvoices();
 
-  const [menuFor, setMenuFor] = useState<Invoice | null>(null);
-  const [loadingId, setLoadingId] = useState<string | null>(null);
-  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
-  const [renameVisible, setRenameVisible] = useState(false);
-  const [renameValue, setRenameValue] = useState('');
-  const [renameTarget, setRenameTarget] = useState<Invoice | null>(null);
+  // All invoices that have a generated PDF
+  const pdfInvoices = invoices.filter((i) => !!i.pdfUrl);
 
-  const sorted = useMemo(
-    () => [...invoices].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
-    [invoices]
-  );
+  // PDF action modal
+  const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [selectedUri, setSelectedUri] = useState('');
+  const [selectedFilename, setSelectedFilename] = useState('');
 
-  const templateFor = useCallback(
-    (inv: Invoice) => inv.templateId || settings.defaultTemplateId || 'classic',
-    [settings]
-  );
+  // Three-dot menu
+  const [menuInvoice, setMenuInvoice] = useState<Invoice | null>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
 
-  const handleOpen = useCallback(async (inv: Invoice) => {
-    setLoadingId(inv.id);
-    setLoadingAction('open');
+  // Toast
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error'>('success');
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(message: string, type: 'success' | 'error' = 'success') {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastVisible(false), 3000);
+  }
+
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  async function handleOpenPDF(invoice: Invoice) {
+    if (!invoice.pdfUrl) return;
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      await openInvoicePDF(inv, templateFor(inv));
-    } catch (err) {
-      Alert.alert('Cannot Open PDF', String(err));
-    } finally {
-      setLoadingId(null);
-      setLoadingAction(null);
+      await openPDF(invoice.pdfUrl);
+    } catch {
+      showToast('Could not open PDF. Try regenerating it.', 'error');
     }
-  }, [templateFor]);
+  }
 
-  const handleShare = useCallback(async (inv: Invoice) => {
-    setMenuFor(null);
-    setLoadingId(inv.id);
-    setLoadingAction('share');
+  async function handleMenuShare() {
+    if (!menuInvoice?.pdfUrl) return;
+    setMenuVisible(false);
     try {
-      await sharePDF(inv);
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setLoadingId(null);
-      setLoadingAction(null);
+      await sharePDF(menuInvoice.pdfUrl, `Invoice — ${menuInvoice.pdfName}`);
+    } catch {
+      showToast('Share failed. Please try again.', 'error');
     }
-  }, []);
+  }
 
-  const handleWhatsApp = useCallback(async (inv: Invoice) => {
-    setMenuFor(null);
-    setLoadingId(inv.id);
-    setLoadingAction('whatsapp');
-    try {
-      await shareViaWhatsApp(inv);
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setLoadingId(null);
-      setLoadingAction(null);
-    }
-  }, []);
+  function handleMenuOpen() {
+    if (!menuInvoice?.pdfUrl) return;
+    setMenuVisible(false);
+    setSelectedUri(menuInvoice.pdfUrl);
+    setSelectedFilename(menuInvoice.pdfName ?? `Invoice_${menuInvoice.invoiceNumber}.pdf`);
+    setPdfModalVisible(true);
+  }
 
-  const handleDownload = useCallback(async (inv: Invoice) => {
-    setMenuFor(null);
-    setLoadingId(inv.id);
-    setLoadingAction('download');
-    try {
-      const filename = await savePDFToDevice(inv, templateFor(inv));
-      Alert.alert('PDF Saved', `Invoice saved to your Files app.\n\n${filename}`);
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setLoadingId(null);
-      setLoadingAction(null);
-    }
-  }, [templateFor]);
+  async function handleMenuDownloadAgain() {
+    if (!menuInvoice) return;
+    setMenuVisible(false);
+    router.push({ pathname: '/invoice/[id]', params: { id: menuInvoice.id } });
+  }
 
-  const handlePrint = useCallback(async (inv: Invoice) => {
-    setMenuFor(null);
-    setLoadingId(inv.id);
-    setLoadingAction('print');
-    try {
-      await printInvoice(inv, templateFor(inv));
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setLoadingId(null);
-      setLoadingAction(null);
-    }
-  }, [templateFor]);
-
-  const openRename = useCallback((inv: Invoice) => {
-    setMenuFor(null);
-    setRenameTarget(inv);
-    setRenameValue(inv.customName || inv.invoiceNumber);
-    setRenameVisible(true);
-  }, []);
-
-  const confirmRename = useCallback(async () => {
-    if (!renameTarget || !renameValue.trim()) {
-      setRenameVisible(false);
-      return;
-    }
-    await renameInvoice(renameTarget.id, renameValue.trim());
-    setRenameVisible(false);
-    setRenameTarget(null);
-  }, [renameTarget, renameValue, renameInvoice]);
-
-  const handleDelete = useCallback((inv: Invoice) => {
-    setMenuFor(null);
-    Alert.alert(
-      'Delete Invoice',
-      `Delete "${inv.customName || inv.invoiceNumber}"? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteInvoice(inv.id);
-          },
-        },
-      ]
-    );
-  }, [deleteInvoice]);
+  async function handleMenuDeletePDF() {
+    if (!menuInvoice) return;
+    setMenuVisible(false);
+    await updateInvoice(menuInvoice.id, {
+      pdfUrl: undefined,
+      pdfName: undefined,
+      pdfCreatedAt: undefined,
+    });
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    showToast('PDF removed from history.');
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 12, borderBottomColor: colors.border }]}>
-        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backBtn}>
+      {/* Header */}
+      <View
+        style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}
+      >
+        <Pressable onPress={() => router.back()} hitSlop={10} style={styles.iconBtn}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </Pressable>
-        <Text style={[styles.title, { color: colors.foreground }]}>PDF History</Text>
-        <View style={{ width: 22 }} />
+        <Text style={[styles.headerTitle, { color: colors.foreground }]}>PDF History</Text>
+        <View style={{ width: 34 }} />
       </View>
 
-      {sorted.length === 0 ? (
-        <EmptyState
-          icon="folder"
-          title="No PDFs Yet"
-          subtitle="Invoices you create will show up here so you can quickly open, share, or print their PDFs."
-        />
+      {pdfInvoices.length === 0 ? (
+        <View style={styles.empty}>
+          <Feather name="folder" size={52} color={colors.mutedForeground} />
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No PDFs yet</Text>
+          <Text style={[styles.emptySubtitle, { color: colors.mutedForeground }]}>
+            Generate a PDF from any invoice and it will appear here.
+          </Text>
+        </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}
+        <FlatList
+          data={pdfInvoices}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
-        >
-          {sorted.map((inv) => {
-            const isBusy = loadingId === inv.id;
+          renderItem={({ item }) => {
+            const displayName = item.customName ?? item.invoiceNumber;
             return (
-              <View
-                key={inv.id}
-                style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+              <Pressable
+                onPress={() => handleOpenPDF(item)}
+                style={({ pressed }) => [
+                  styles.card,
+                  { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
+                ]}
               >
-                <Pressable
-                  style={styles.cardMain}
-                  onPress={() => handleOpen(inv)}
-                  disabled={isBusy}
-                >
-                  <View style={[styles.pdfIcon, { backgroundColor: colors.secondary }]}>
-                    {isBusy && loadingAction === 'open' ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Feather name="file-text" size={20} color={colors.primary} />
+                {/* PDF icon */}
+                <View style={[styles.pdfIcon, { backgroundColor: '#EEF3FF' }]}>
+                  <Feather name="file-text" size={22} color="#1A3C6E" />
+                </View>
+
+                {/* Info */}
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.invoiceName, { color: colors.foreground }]} numberOfLines={1}>
+                    {displayName}
+                  </Text>
+                  <Text style={[styles.clientName, { color: colors.mutedForeground }]} numberOfLines={1}>
+                    {item.clientName}
+                  </Text>
+                  <View style={styles.metaRow}>
+                    <Text style={[styles.amount, { color: colors.primary }]}>
+                      {formatCurrency(Math.abs(item.balance), item.currency)}
+                    </Text>
+                    {item.pdfCreatedAt && (
+                      <Text style={[styles.date, { color: colors.mutedForeground }]}>
+                        · {formatDate(item.pdfCreatedAt)}
+                      </Text>
                     )}
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.cardTitle, { color: colors.foreground }]} numberOfLines={1}>
-                      {inv.customName || inv.invoiceNumber}
-                    </Text>
-                    <Text style={[styles.cardSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-                      {inv.clientName} • {formatDate(inv.createdAt)}
-                    </Text>
-                    <Text style={[styles.cardAmount, { color: colors.primary }]}>
-                      {formatCurrency(Math.abs(inv.balance), inv.currency)}
-                    </Text>
-                  </View>
-                </Pressable>
+                </View>
 
+                {/* Three-dot menu */}
                 <Pressable
-                  onPress={() => setMenuFor(inv)}
                   hitSlop={10}
+                  onPress={() => {
+                    setMenuInvoice(item);
+                    setMenuVisible(true);
+                  }}
                   style={styles.menuBtn}
-                  disabled={isBusy}
                 >
                   <Feather name="more-vertical" size={18} color={colors.mutedForeground} />
                 </Pressable>
-              </View>
+              </Pressable>
             );
-          })}
-        </ScrollView>
+          }}
+        />
       )}
 
-      {/* Action menu */}
+      {/* Three-dot menu modal */}
       <Modal
-        visible={!!menuFor}
+        visible={menuVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setMenuFor(null)}
+        onRequestClose={() => setMenuVisible(false)}
       >
-        <Pressable style={styles.overlay} onPress={() => setMenuFor(null)}>
-          <Pressable style={[styles.menuSheet, { backgroundColor: colors.card }]} onPress={() => {}}>
-            <Text style={[styles.menuTitle, { color: colors.foreground }]} numberOfLines={1}>
-              {menuFor?.customName || menuFor?.invoiceNumber}
-            </Text>
-            {menuFor && (
-              <>
-                <MenuItem icon="share" label="Share PDF" onPress={() => handleShare(menuFor)} colors={colors} />
-                <MenuItem icon="message-circle" label="Share via WhatsApp" onPress={() => handleWhatsApp(menuFor)} colors={colors} />
-                <MenuItem icon="download" label="Download" onPress={() => handleDownload(menuFor)} colors={colors} />
-                <MenuItem icon="printer" label="Print" onPress={() => handlePrint(menuFor)} colors={colors} />
-                <MenuItem icon="edit-2" label="Rename" onPress={() => openRename(menuFor)} colors={colors} />
-                <MenuItem icon="trash-2" label="Delete" onPress={() => handleDelete(menuFor)} colors={colors} danger />
-              </>
+        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
+          <View style={[styles.menuSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {menuInvoice && (
+              <Text style={[styles.menuHeader, { color: colors.mutedForeground }]} numberOfLines={1}>
+                {menuInvoice.customName ?? menuInvoice.invoiceNumber}
+              </Text>
             )}
-          </Pressable>
+
+            {[
+              { icon: 'eye' as const, label: 'Open', onPress: handleMenuOpen, color: colors.primary },
+              { icon: 'share-2' as const, label: 'Share', onPress: handleMenuShare, color: '#0891B2' },
+              { icon: 'download' as const, label: 'Download Again', onPress: handleMenuDownloadAgain, color: '#7C3AED' },
+              { icon: 'trash-2' as const, label: 'Delete PDF', onPress: handleMenuDeletePDF, color: '#DC2626' },
+            ].map((action) => (
+              <Pressable
+                key={action.label}
+                onPress={action.onPress}
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  { borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Feather name={action.icon} size={18} color={action.color} />
+                <Text style={[styles.menuItemText, { color: action.color }]}>{action.label}</Text>
+              </Pressable>
+            ))}
+          </View>
         </Pressable>
       </Modal>
 
-      {/* Rename modal */}
-      <Modal
-        visible={renameVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRenameVisible(false)}
-      >
-        <Pressable style={styles.overlay} onPress={() => setRenameVisible(false)}>
-          <Pressable style={[styles.renameSheet, { backgroundColor: colors.card }]} onPress={() => {}}>
-            <Text style={[styles.menuTitle, { color: colors.foreground }]}>Rename Invoice</Text>
-            <TextInput
-              value={renameValue}
-              onChangeText={setRenameValue}
-              style={[
-                styles.renameInput,
-                { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background },
-              ]}
-              autoFocus
-              selectTextOnFocus
-              returnKeyType="done"
-              onSubmitEditing={confirmRename}
-            />
-            <View style={styles.renameBtns}>
-              <Pressable
-                onPress={() => setRenameVisible(false)}
-                style={[styles.renameBtn, { backgroundColor: colors.secondary }]}
-              >
-                <Text style={{ color: colors.mutedForeground, fontWeight: '600' }}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={confirmRename}
-                style={[styles.renameBtn, { backgroundColor: colors.primary }]}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Save</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {/* PDF Action Modal */}
+      <PDFActionModal
+        visible={pdfModalVisible}
+        uri={selectedUri}
+        filename={selectedFilename}
+        onClose={() => setPdfModalVisible(false)}
+        onError={(msg) => showToast(msg, 'error')}
+      />
+
+      {/* Toast */}
+      <Toast visible={toastVisible} message={toastMessage} type={toastType} />
     </View>
-  );
-}
-
-function MenuItem({
-  icon, label, onPress, colors, danger,
-}: {
-  icon: keyof typeof Feather.glyphMap;
-  label: string;
-  onPress: () => void;
-  colors: ReturnType<typeof useColors>;
-  danger?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
-    >
-      <Feather name={icon} size={18} color={danger ? colors.destructive : colors.foreground} />
-      <Text style={[styles.menuItemText, { color: danger ? colors.destructive : colors.foreground }]}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -310,32 +229,42 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: 14, borderBottomWidth: 1,
+    paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1,
   },
-  backBtn: { width: 22 },
-  title: { fontSize: 18, fontWeight: '800' },
+  iconBtn: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700' },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  emptySubtitle: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  list: { padding: 16 },
   card: {
-    flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 14,
-    padding: 14, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14, marginBottom: 10,
   },
-  cardMain: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 },
   pdfIcon: {
-    width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    width: 46, height: 46, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
   },
-  cardTitle: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  cardSub: { fontSize: 12, marginBottom: 4 },
-  cardAmount: { fontSize: 14, fontWeight: '700' },
-  menuBtn: { paddingLeft: 10, paddingVertical: 6 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  menuSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 34 },
-  menuTitle: { fontSize: 15, fontWeight: '700', marginBottom: 12 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12 },
-  menuItemText: { fontSize: 15, fontWeight: '500' },
-  renameSheet: { borderRadius: 16, padding: 20, marginHorizontal: 24, alignSelf: 'center', width: '85%' },
-  renameInput: {
-    borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
-    fontSize: 15, marginBottom: 16,
+  invoiceName: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  clientName: { fontSize: 13, marginBottom: 4 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  amount: { fontSize: 13, fontWeight: '700' },
+  date: { fontSize: 12 },
+  menuBtn: { padding: 4 },
+  menuOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center', alignItems: 'center', padding: 40,
   },
-  renameBtns: { flexDirection: 'row', gap: 10 },
-  renameBtn: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: 10 },
+  menuSheet: {
+    width: '100%', borderRadius: 18, borderWidth: 1, overflow: 'hidden',
+  },
+  menuHeader: {
+    fontSize: 12, fontWeight: '600', paddingHorizontal: 16, paddingVertical: 10,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14, borderTopWidth: 1,
+  },
+  menuItemText: { fontSize: 15, fontWeight: '600' },
 });

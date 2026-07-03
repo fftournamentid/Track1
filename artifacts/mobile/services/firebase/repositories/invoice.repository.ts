@@ -4,6 +4,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   serverTimestamp,
   query,
   orderBy,
@@ -70,8 +71,16 @@ export async function updateInvoiceDoc(
 ): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id: _id, createdAt: _ca, updatedAt: _ua, ...rest } = updates;
+
+  // Replace undefined values with deleteField() so Firestore removes those fields.
+  // Passing undefined to Firestore throws if ignoreUndefinedProperties is not set.
+  const sanitized: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rest)) {
+    sanitized[k] = v === undefined ? deleteField() : v;
+  }
+
   await updateDoc(doc(db, 'users', uid, 'invoices', invoiceId), {
-    ...rest,
+    ...sanitized,
     updatedAt: serverTimestamp(),
   });
 }

@@ -1,68 +1,33 @@
 import React, { useState } from 'react';
 import {
-  View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert, Platform,
+  View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
-import { INVOICE_TEMPLATES, generatePDFWithTemplate } from '@/services/invoiceTemplates';
+import { INVOICE_TEMPLATES } from '@/services/invoiceTemplates';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Invoice } from '@/types';
 
 interface Props {
   visible: boolean;
   invoice: Invoice | null;
-  action: 'pdf' | 'whatsapp';
   onClose: () => void;
+  /** Called with the selected template ID — caller handles PDF generation. */
+  onGenerate: (templateId: string) => void;
 }
 
-function safeName(s: string): string {
-  return s.replace(/[^a-zA-Z0-9-]/g, '_');
-}
-
-export default function TemplatePicker({ visible, invoice, action, onClose }: Props) {
+export default function TemplatePicker({ visible, invoice, onClose, onGenerate }: Props) {
   const insets = useSafeAreaInsets();
   const { settings, updateSettings } = useSettings();
-  const [selected, setSelected] = useState(settings.defaultTemplateId || 'classic');
-  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(
+    invoice?.templateId || settings.defaultTemplateId || 'classic'
+  );
 
-  const handleExport = async () => {
+  const handleGenerate = async () => {
     if (!invoice) return;
-    setLoading(true);
-    try {
-      await updateSettings({ defaultTemplateId: selected });
-
-      const { uri } = await generatePDFWithTemplate(invoice, selected);
-
-      const filename = `Invoice_${safeName(invoice.invoiceNumber)}.pdf`;
-      const stableUri = `${FileSystem.documentDirectory}${filename}`;
-      await FileSystem.copyAsync({ from: uri, to: stableUri });
-
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) {
-        Alert.alert('Not Available', 'PDF sharing is not supported on this device.');
-        return;
-      }
-
-      const dialogTitle =
-        action === 'whatsapp'
-          ? 'Send Invoice via WhatsApp'
-          : 'Share Invoice PDF';
-
-      await Sharing.shareAsync(stableUri, {
-        mimeType: 'application/pdf',
-        dialogTitle,
-        UTI: 'com.adobe.pdf',
-      });
-
-      onClose();
-    } catch (err) {
-      Alert.alert('Share Failed', String(err));
-    } finally {
-      setLoading(false);
-    }
+    await updateSettings({ defaultTemplateId: selected });
+    onGenerate(selected);
+    onClose();
   };
 
   return (
@@ -143,33 +108,13 @@ export default function TemplatePicker({ visible, invoice, action, onClose }: Pr
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
-          {action === 'whatsapp' && (
-            <View style={styles.whatsappHint}>
-              <Text style={styles.whatsappHintText}>
-                📱 The share sheet will open — select WhatsApp to send directly
-              </Text>
-            </View>
-          )}
           <TouchableOpacity
-            style={[styles.actionBtn, loading && styles.actionBtnDisabled]}
-            onPress={handleExport}
-            disabled={loading}
+            style={styles.actionBtn}
+            onPress={handleGenerate}
             activeOpacity={0.85}
           >
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Feather
-                  name={action === 'whatsapp' ? 'message-circle' : 'share-2'}
-                  size={18}
-                  color="#fff"
-                />
-                <Text style={styles.actionBtnTxt}>
-                  {action === 'whatsapp' ? 'Send via WhatsApp' : 'Share PDF'}
-                </Text>
-              </>
-            )}
+            <Feather name="file-text" size={18} color="#fff" />
+            <Text style={styles.actionBtnTxt}>Generate PDF</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -227,17 +172,11 @@ const styles = StyleSheet.create({
   selectedBorder: { position: 'absolute', inset: 0, borderRadius: 14, borderWidth: 2 } as never,
   footer: {
     padding: 16, backgroundColor: '#fff',
-    borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 10,
+    borderTopWidth: 1, borderTopColor: '#E5E7EB',
   },
-  whatsappHint: {
-    backgroundColor: '#F0FDF4', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
-    borderWidth: 1, borderColor: '#BBF7D0',
-  },
-  whatsappHintText: { fontSize: 12, color: '#166534', textAlign: 'center', lineHeight: 18 },
   actionBtn: {
     backgroundColor: '#1A3C6E', borderRadius: 14, paddingVertical: 16,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
   },
-  actionBtnDisabled: { opacity: 0.6 },
   actionBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
 });

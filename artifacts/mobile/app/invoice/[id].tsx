@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, Alert,
   Modal, TextInput, ActivityIndicator, Platform,
@@ -12,7 +12,9 @@ import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
-import { printInvoice, savePDFToDevice, openInvoicePDF } from '@/services/pdfService';
+import PDFActionModal from '@/components/PDFActionModal';
+import Toast from '@/components/Toast';
+import { generateAndSaveInvoicePDF, openPDF } from '@/services/pdfService';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
@@ -63,20 +65,31 @@ const stStyles = StyleSheet.create({
 });
 
 function ActionBtn({
-  icon, label, onPress, variant = 'default',
-}: { icon: keyof typeof Feather.glyphMap; label: string; onPress: () => void; variant?: 'default' | 'danger' | 'success' | 'accent' }) {
+  icon, label, onPress, variant = 'default', loading,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  onPress: () => void;
+  variant?: 'default' | 'danger' | 'success' | 'accent';
+  loading?: boolean;
+}) {
   const colors = useColors();
   const bgMap = { default: colors.secondary, danger: '#FEE2E2', success: '#D1FAE5', accent: colors.primary };
   const fgMap = { default: colors.primary, danger: colors.destructive, success: '#065F46', accent: '#fff' };
   return (
     <Pressable
       onPress={onPress}
+      disabled={loading}
       style={({ pressed }) => [
         abStyles.btn,
-        { backgroundColor: bgMap[variant], borderColor: colors.border, opacity: pressed ? 0.8 : 1 },
+        { backgroundColor: bgMap[variant], borderColor: colors.border, opacity: pressed || loading ? 0.7 : 1 },
       ]}
     >
-      <Feather name={icon} size={18} color={fgMap[variant]} />
+      {loading ? (
+        <ActivityIndicator color={fgMap[variant]} size="small" />
+      ) : (
+        <Feather name={icon} size={18} color={fgMap[variant]} />
+      )}
       <Text style={[abStyles.label, { color: fgMap[variant] }]}>{label}</Text>
     </Pressable>
   );
@@ -100,68 +113,93 @@ export default function InvoiceDetailScreen() {
 
   const invoice: Invoice | undefined = invoices.find((i) => i.id === id);
 
+  // Template picker state
   const [templatePickerVisible, setTemplatePickerVisible] = useState(false);
-  const [shareAction, setShareAction] = useState<'pdf' | 'whatsapp'>('pdf');
+  const forceRegenerate = useRef(false);
+
+  // PDF action modal state
+  const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [pdfUri, setPdfUri] = useState('');
+  const [pdfFilename, setPdfFilename] = useState('');
+
+  // Generation loading
+  const [generating, setGenerating] = useState(false);
+
+  // Toast
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState<'success' | 'error'>('success');
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(message: string, type: 'success' | 'error' = 'success') {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastVisible(false), 3000);
+  }
+
+  // Rename state
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const [dupLoading, setDupLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState<'download' | 'print' | 'open' | null>(null);
 
-  const handleOpenPDF = useCallback(async () => {
+  /**
+   * Triggered when user picks a template from TemplatePicker.
+   * Generates the PDF, saves the URI to Firestore, then shows the action modal.
+   */
+  const handleTemplateSelected = useCallback(async (templateId: string) => {
     if (!invoice) return;
-    setActionLoading('open');
+    setGenerating(true);
+    const shouldForce = forceRegenerate.current;
+    forceRegenerate.current = false;
     try {
-      const tplId = invoice.templateId || settings.defaultTemplateId || 'classic';
-      await openInvoicePDF(invoice, tplId);
-    } catch (err) {
-      Alert.alert('Cannot Open PDF', String(err));
-    } finally {
-      setActionLoading(null);
-    }
-  }, [invoice, settings]);
+      const { uri, filename } = await generateAndSaveInvoicePDF(invoice, templateId, shouldForce);
 
-  const handleSharePDF = useCallback(() => {
+      // Persist PDF metadata to Firestore
+      await updateInvoice(invoice.id, {
+        pdfUrl: uri,
+        pdfName: filename,
+        pdfCreatedAt: new Date().toISOString(),
+        templateId,
+      });
+
+      setPdfUri(uri);
+      setPdfFilename(filename);
+      setPdfModalVisible(true);
+      showToast('PDF generated successfully.');
+    } catch (err) {
+      console.error('[PDF] generation error:', err);
+      showToast('PDF generation failed. Please try again.', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }, [invoice, updateInvoice]);
+
+  /**
+   * Open existing PDF or trigger generation.
+   * If a cached pdfUrl exists on the invoice, open it directly.
+   */
+  const handleOpenOrGeneratePDF = useCallback(async () => {
     if (!invoice) return;
-    setShareAction('pdf');
+
+    // If we already have a cached PDF, open it directly
+    if (invoice.pdfUrl) {
+      setGenerating(true);
+      try {
+        await openPDF(invoice.pdfUrl);
+      } catch {
+        // File might have been deleted — regenerate
+        setTemplatePickerVisible(true);
+      } finally {
+        setGenerating(false);
+      }
+      return;
+    }
+
+    // No cached PDF — show template picker to generate
     setTemplatePickerVisible(true);
   }, [invoice]);
-
-  const handleWhatsApp = useCallback(() => {
-    if (!invoice) return;
-    setShareAction('whatsapp');
-    setTemplatePickerVisible(true);
-  }, [invoice]);
-
-  const handleDownload = useCallback(async () => {
-    if (!invoice) return;
-    setActionLoading('download');
-    try {
-      const tplId = invoice.templateId || settings.defaultTemplateId || 'classic';
-      const filename = await savePDFToDevice(invoice, tplId);
-      Alert.alert(
-        'PDF Saved',
-        `Invoice saved to your Files app.\n\n${filename}`,
-        [{ text: 'OK' }]
-      );
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setActionLoading(null);
-    }
-  }, [invoice, settings]);
-
-  const handlePrint = useCallback(async () => {
-    if (!invoice) return;
-    setActionLoading('print');
-    try {
-      const tplId = invoice.templateId || settings.defaultTemplateId || 'classic';
-      await printInvoice(invoice, tplId);
-    } catch (err) {
-      Alert.alert('Error', String(err));
-    } finally {
-      setActionLoading(null);
-    }
-  }, [invoice, settings]);
 
   const handleToggleFavorite = async () => {
     if (!invoice) return;
@@ -272,6 +310,7 @@ export default function InvoiceDetailScreen() {
 
   const statusStyle = STATUS_COLORS[invoice.status] ?? STATUS_COLORS.pending;
   const displayName = invoice.customName ?? invoice.invoiceNumber;
+  const hasCachedPDF = !!invoice.pdfUrl;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -309,7 +348,11 @@ export default function InvoiceDetailScreen() {
             <Feather name="star" size={16} color="#FBBF24" style={styles.starIcon} />
           )}
           <Text style={styles.heroLabel}>
-            {invoice.settlementStatus === 'return' ? 'Balance to Return' : invoice.settlementStatus === 'receive' ? 'Balance to Receive' : 'Balance'}
+            {invoice.settlementStatus === 'return'
+              ? 'Balance to Return'
+              : invoice.settlementStatus === 'receive'
+                ? 'Balance to Receive'
+                : 'Balance'}
           </Text>
           <Text style={styles.heroAmount}>
             {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
@@ -334,64 +377,85 @@ export default function InvoiceDetailScreen() {
 
         {/* PDF Actions */}
         <Card>
-          <STitle title="Export &amp; Share" />
+          <STitle title="PDF &amp; Export" />
+
+          {/* Generate / Open PDF — primary CTA */}
           <Pressable
-            onPress={handleOpenPDF}
-            disabled={actionLoading !== null}
+            onPress={handleOpenOrGeneratePDF}
+            disabled={generating}
             style={({ pressed }) => [
-              styles.pdfPreviewCard,
-              { backgroundColor: colors.secondary, borderColor: colors.border, opacity: pressed || actionLoading !== null ? 0.8 : 1 },
+              styles.generateBtn,
+              { backgroundColor: colors.primary, opacity: pressed || generating ? 0.8 : 1 },
             ]}
           >
-            <View style={[styles.pdfPreviewIcon, { backgroundColor: colors.primary }]}>
-              {actionLoading === 'open' ? (
+            {generating ? (
+              <>
                 <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Feather name="file-text" size={20} color="#fff" />
-              )}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.pdfPreviewTitle, { color: colors.foreground }]}>{displayName}.pdf</Text>
-              <Text style={[styles.pdfPreviewSub, { color: colors.mutedForeground }]}>Tap to open PDF</Text>
-            </View>
-            <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
+                <Text style={styles.generateBtnText}>Generating PDF…</Text>
+              </>
+            ) : hasCachedPDF ? (
+              <>
+                <Feather name="eye" size={18} color="#fff" />
+                <Text style={styles.generateBtnText}>Open PDF</Text>
+              </>
+            ) : (
+              <>
+                <Feather name="file-text" size={18} color="#fff" />
+                <Text style={styles.generateBtnText}>Generate PDF</Text>
+              </>
+            )}
           </Pressable>
-          <View style={styles.actionsRow}>
-            <ActionBtn icon="share" label="Share PDF" onPress={handleSharePDF} variant="accent" />
-            <ActionBtn icon="message-circle" label="WhatsApp" onPress={handleWhatsApp} variant="success" />
-          </View>
-          <View style={[styles.actionsRow, { marginTop: 8 }]}>
+
+          {/* Secondary: re-generate if already cached */}
+          {hasCachedPDF && (
             <Pressable
-              onPress={handleDownload}
-              disabled={actionLoading !== null}
+              onPress={() => { forceRegenerate.current = true; setTemplatePickerVisible(true); }}
+              disabled={generating}
               style={({ pressed }) => [
-                abStyles.btn,
-                { backgroundColor: '#EEF3FF', borderColor: colors.border, opacity: pressed || actionLoading !== null ? 0.7 : 1 },
+                styles.regenBtn,
+                { borderColor: colors.border, backgroundColor: colors.secondary, opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              {actionLoading === 'download' ? (
-                <ActivityIndicator color={colors.primary} size="small" />
-              ) : (
-                <Feather name="download" size={18} color={colors.primary} />
-              )}
-              <Text style={[abStyles.label, { color: colors.primary }]}>Download PDF</Text>
+              <Feather name="refresh-cw" size={14} color={colors.mutedForeground} />
+              <Text style={[styles.regenBtnText, { color: colors.mutedForeground }]}>
+                Regenerate with different template
+              </Text>
             </Pressable>
-            <Pressable
-              onPress={handlePrint}
-              disabled={actionLoading !== null}
-              style={({ pressed }) => [
-                abStyles.btn,
-                { backgroundColor: '#FFF7ED', borderColor: colors.border, opacity: pressed || actionLoading !== null ? 0.7 : 1 },
-              ]}
-            >
-              {actionLoading === 'print' ? (
-                <ActivityIndicator color="#F57C00" size="small" />
-              ) : (
-                <Feather name="printer" size={18} color="#F57C00" />
-              )}
-              <Text style={[abStyles.label, { color: '#F57C00' }]}>Print</Text>
-            </Pressable>
-          </View>
+          )}
+
+          {/* Share / WhatsApp quick actions — only after PDF generated */}
+          {hasCachedPDF && (
+            <View style={[styles.actionsRow, { marginTop: 10 }]}>
+              <ActionBtn
+                icon="share-2"
+                label="Share PDF"
+                onPress={async () => {
+                  if (!invoice.pdfUrl) return;
+                  const { sharePDF: doShare } = await import('@/services/pdfService');
+                  try {
+                    await doShare(invoice.pdfUrl, `Invoice — ${invoice.pdfName}`);
+                  } catch (err) {
+                    showToast('Share failed. Please try again.', 'error');
+                  }
+                }}
+                variant="accent"
+              />
+              <ActionBtn
+                icon="message-circle"
+                label="WhatsApp"
+                onPress={async () => {
+                  if (!invoice.pdfUrl) return;
+                  const { sharePDF: doShare } = await import('@/services/pdfService');
+                  try {
+                    await doShare(invoice.pdfUrl, 'Send Invoice via WhatsApp');
+                  } catch (err) {
+                    showToast('Share failed. Please try again.', 'error');
+                  }
+                }}
+                variant="success"
+              />
+            </View>
+          )}
         </Card>
 
         {/* Manage */}
@@ -581,12 +645,25 @@ export default function InvoiceDetailScreen() {
         </Pressable>
       </Modal>
 
+      {/* Template Picker — triggers PDF generation */}
       <TemplatePicker
         visible={templatePickerVisible}
         invoice={invoice}
-        action={shareAction}
         onClose={() => setTemplatePickerVisible(false)}
+        onGenerate={handleTemplateSelected}
       />
+
+      {/* PDF Action Modal */}
+      <PDFActionModal
+        visible={pdfModalVisible}
+        uri={pdfUri}
+        filename={pdfFilename}
+        onClose={() => setPdfModalVisible(false)}
+        onError={(msg) => showToast(msg, 'error')}
+      />
+
+      {/* Toast */}
+      <Toast visible={toastVisible} message={toastMessage} type={toastType} />
     </View>
   );
 }
@@ -613,23 +690,21 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   heroMeta: { flexDirection: 'row', gap: 16, marginTop: 4 },
   heroMetaText: { color: 'rgba(255,255,255,0.7)', fontSize: 12 },
-  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-  loadingText: { fontSize: 14 },
   actionsRow: { flexDirection: 'row', gap: 10 },
-  pdfPreviewCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 10,
+  generateBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 10, paddingVertical: 16, borderRadius: 14, marginBottom: 10,
   },
-  pdfPreviewIcon: {
-    width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+  generateBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  regenBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 10, borderRadius: 10, borderWidth: 1, marginBottom: 4,
   },
-  pdfPreviewTitle: { fontSize: 14, fontWeight: '700' },
-  pdfPreviewSub: { fontSize: 12, marginTop: 2 },
+  regenBtnText: { fontSize: 13, fontWeight: '500' },
   lineItem: { paddingVertical: 10 },
   lineItemTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
   lineDesc: { fontSize: 14, fontWeight: '600', flex: 1 },
   lineAmount: { fontSize: 14, fontWeight: '700' },
-  lineSub: { fontSize: 12 },
   totalDivider: { borderTopWidth: 1, marginVertical: 8 },
   grandRow: { flexDirection: 'row', justifyContent: 'space-between' },
   grandLabel: { fontSize: 16, fontWeight: '800' },
