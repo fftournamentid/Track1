@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, TextInput,
   Alert, ActivityIndicator, Platform,
@@ -7,14 +7,14 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import * as Print from 'expo-print';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import type { Invoice, ExpenseItem, SettlementStatus } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
-import { INVOICE_TEMPLATES, buildInvoiceHTML, generatePDFWithTemplate } from '@/services/invoiceTemplates';
+import { INVOICE_TEMPLATES } from '@/services/invoiceTemplates';
+import { saveDraft, loadDraft, clearDraft, savePreviewData } from '@/services/draftService';
 
 function computeSettlementStatus(balance: number): SettlementStatus {
   if (balance < 0) return 'receive';
@@ -110,10 +110,23 @@ export default function CreateInvoiceScreen() {
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
+  // Auto-save debounce timer
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether initial field population is done (prevents auto-save on first fill)
+  const initializedRef = useRef(false);
+
+  const totalExpenses = useMemo(() => expenses.reduce((s, i) => s + i.amount, 0), [expenses]);
+  const advanceNum = useMemo(() => Number(advanceAmount) || 0, [advanceAmount]);
+  const balance = useMemo(() => Math.round((advanceNum - totalExpenses) * 100) / 100, [advanceNum, totalExpenses]);
+  const settlementStatus = useMemo(() => computeSettlementStatus(balance), [balance]);
+
+  // ─── Initialise fields (edit mode OR load draft) ───────────────────────────
   useEffect(() => {
     if (initialized) return;
     setInitialized(true);
+
     if (isEditing && editId) {
+      // Edit mode: always load from Firestore (via context)
       const inv = getInvoiceById(editId);
       if (inv) {
         setInvoiceNumber(inv.invoiceNumber);
@@ -128,53 +141,109 @@ export default function CreateInvoiceScreen() {
         setTruckNumber(inv.truckNumber);
         setDriverName(inv.driverName);
         setAdvanceAmount(inv.advanceAmount ? String(inv.advanceAmount) : '');
-        setExpenses(inv.expenses.length > 0 ? inv.expenses : expenses);
+        setExpenses(inv.expenses.length > 0 ? inv.expenses : [{ id: generateId(), name: '', amount: 0 }]);
         setPaymentTerms(inv.paymentTerms ?? '');
         setNotes(inv.notes ?? '');
         if (inv.templateId) setSelectedTemplateId(inv.templateId);
       }
+      initializedRef.current = true;
     } else {
-      generateNextInvoiceNumber().then(setInvoiceNumber);
-      setTruckNumber(profile.truckNumber);
-      setDriverName(profile.driverName);
-      setPaymentTerms(settings.defaultPaymentTerms);
-      if (profile.footerNotes) setNotes(profile.footerNotes);
+      // New invoice: check for a saved draft first
+      loadDraft().then((draft) => {
+        if (draft && !draft.editId) {
+          // Auto-restore draft (silent — no confirm dialog per requirements)
+          setInvoiceNumber(draft.invoiceNumber);
+          setDate(draft.date || todayFormatted());
+          setDueDate(draft.dueDate);
+          setClientName(draft.clientName);
+          setClientPhone(draft.clientPhone);
+          setClientAddress(draft.clientAddress);
+          setClientGST(draft.clientGST);
+          setFromLocation(draft.fromLocation);
+          setToLocation(draft.toLocation);
+          setTruckNumber(draft.truckNumber || profile.truckNumber);
+          setDriverName(draft.driverName || profile.driverName);
+          setAdvanceAmount(draft.advanceAmount);
+          setExpenses(draft.expenses.length > 0 ? draft.expenses : [{ id: generateId(), name: '', amount: 0 }]);
+          setPaymentTerms(draft.paymentTerms);
+          setNotes(draft.notes);
+          if (draft.selectedTemplateId) setSelectedTemplateId(draft.selectedTemplateId);
+          initializedRef.current = true;
+        } else {
+          // No draft — fresh form
+          generateNextInvoiceNumber().then(setInvoiceNumber);
+          setTruckNumber(profile.truckNumber);
+          setDriverName(profile.driverName);
+          setPaymentTerms(settings.defaultPaymentTerms);
+          if (profile.footerNotes) setNotes(profile.footerNotes);
+          initializedRef.current = true;
+        }
+      });
     }
   }, [editId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const totalExpenses = useMemo(() => expenses.reduce((s, i) => s + i.amount, 0), [expenses]);
-  const advanceNum = useMemo(() => Number(advanceAmount) || 0, [advanceAmount]);
-  const balance = useMemo(() => Math.round((advanceNum - totalExpenses) * 100) / 100, [advanceNum, totalExpenses]);
-  const settlementStatus = useMemo(() => computeSettlementStatus(balance), [balance]);
+  // ─── Auto-save effect (debounced 2 s) ──────────────────────────────────────
+  useEffect(() => {
+    if (!initializedRef.current) return;
 
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      saveDraft({
+        invoiceNumber,
+        date,
+        dueDate,
+        clientName,
+        clientPhone,
+        clientAddress,
+        clientGST,
+        fromLocation,
+        toLocation,
+        truckNumber,
+        driverName,
+        advanceAmount,
+        expenses,
+        paymentTerms,
+        notes,
+        selectedTemplateId,
+        editId: editId ?? undefined,
+      });
+    }, 2000);
+
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, [
+    invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
+    clientGST, fromLocation, toLocation, truckNumber, driverName,
+    advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Expense helpers ────────────────────────────────────────────────────────
   const updateExpense = (id: string, field: keyof ExpenseItem, raw: string | number) => {
     setExpenses((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
-        if (field === 'amount') {
-          return { ...item, amount: Number(raw) || 0 };
-        }
+        if (field === 'amount') return { ...item, amount: Number(raw) || 0 };
         return { ...item, [field]: raw };
       })
     );
   };
 
-  const addExpense = () => {
-    setExpenses((prev) => [...prev, { id: generateId(), name: '', amount: 0 }]);
-  };
+  const addExpense = () => setExpenses((prev) => [...prev, { id: generateId(), name: '', amount: 0 }]);
 
   const removeExpense = (id: string) => {
     if (expenses.length <= 1) return;
     setExpenses((prev) => prev.filter((i) => i.id !== id));
   };
 
-  const buildPreviewInvoice = (): Invoice => ({
-    id: 'preview',
+  // ─── Build invoice object from current form state ───────────────────────────
+  const buildInvoiceObject = useCallback((): Invoice => ({
+    id: editId ?? 'preview',
     invoiceNumber: invoiceNumber || 'PREVIEW',
     date,
     dueDate: dueDate || undefined,
-    status: 'pending',
-    isFavorite: false,
+    status: isEditing ? (getInvoiceById(editId!)?.status ?? 'pending') : 'pending',
+    isFavorite: isEditing ? (getInvoiceById(editId!)?.isFavorite ?? false) : false,
     isArchived: false,
     businessSnapshot: profile,
     clientName: clientName || 'Preview Client',
@@ -185,9 +254,9 @@ export default function CreateInvoiceScreen() {
     toLocation: toLocation || 'Destination',
     truckNumber: truckNumber || '',
     driverName: driverName || '',
-    expenses: expenses.filter((i) => i.amount > 0).length > 0
-      ? expenses.filter((i) => i.amount > 0)
-      : expenses,
+    expenses: expenses.filter((i) => i.amount > 0 || i.name).length > 0
+      ? expenses
+      : [{ id: generateId(), name: 'Expense', amount: 0 }],
     advanceAmount: advanceNum,
     totalExpenses,
     balance,
@@ -199,24 +268,31 @@ export default function CreateInvoiceScreen() {
     updatedAt: new Date().toISOString(),
     downloadCount: 0,
     templateId: selectedTemplateId,
-  });
+  }), [
+    editId, invoiceNumber, date, dueDate, isEditing, getInvoiceById, profile,
+    clientName, clientPhone, clientAddress, clientGST, fromLocation, toLocation,
+    truckNumber, driverName, expenses, advanceNum, totalExpenses, balance,
+    settlementStatus, settings.defaultCurrency, paymentTerms, notes, selectedTemplateId,
+  ]);
 
+  // ─── Preview: save draft + invoice data then navigate ───────────────────────
   const handlePreview = async () => {
     if (isPreviewing) return;
     setIsPreviewing(true);
     try {
-      const previewInv = buildPreviewInvoice();
-      const html = await buildInvoiceHTML(previewInv, selectedTemplateId);
-      console.log('[Preview] HTML length:', html.length, 'chars — template:', selectedTemplateId);
-      if (Platform.OS === 'web') {
-        // Open full A4 HTML in a new browser tab — not the print dialog
-        const blob = new Blob([html], { type: 'text/html' });
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-      } else {
-        // Native: use system print sheet which renders the HTML
-        await Print.printAsync({ html });
-      }
+      // Flush draft immediately
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      await saveDraft({
+        invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
+        clientGST, fromLocation, toLocation, truckNumber, driverName,
+        advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
+        editId: editId ?? undefined,
+      });
+
+      const invoice = buildInvoiceObject();
+      await savePreviewData({ invoice, editId: editId ?? undefined });
+
+      router.push('/invoice/preview' as never);
     } catch (err) {
       Alert.alert('Preview Error', String(err));
     } finally {
@@ -224,6 +300,42 @@ export default function CreateInvoiceScreen() {
     }
   };
 
+  // ─── Clear form (explicit "New Invoice") ────────────────────────────────────
+  const handleClearForm = () => {
+    Alert.alert(
+      'Start New Invoice',
+      'This will clear all fields and start a fresh invoice. Any unsaved data will be lost.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await clearDraft();
+            const newNum = await generateNextInvoiceNumber();
+            setInvoiceNumber(newNum);
+            setDate(todayFormatted());
+            setDueDate('');
+            setClientName('');
+            setClientPhone('');
+            setClientAddress('');
+            setClientGST('');
+            setFromLocation('');
+            setToLocation('');
+            setTruckNumber(profile.truckNumber);
+            setDriverName(profile.driverName);
+            setAdvanceAmount('');
+            setExpenses([{ id: generateId(), name: '', amount: 0 }]);
+            setPaymentTerms(settings.defaultPaymentTerms);
+            setNotes(profile.footerNotes ?? '');
+            setSelectedTemplateId(tplParam || settings.defaultTemplateId || 'classic');
+          },
+        },
+      ]
+    );
+  };
+
+  // ─── Save to Firestore ──────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!clientName.trim()) { Alert.alert('Required', 'Client name is required'); return; }
     if (!fromLocation.trim() || !toLocation.trim()) { Alert.alert('Required', 'From and To locations are required'); return; }
@@ -260,52 +372,18 @@ export default function CreateInvoiceScreen() {
         templateId: selectedTemplateId,
       };
 
-      // Build temp invoice object for PDF verification
-      const tempInvoice: Invoice = {
-        id: editId || `temp-${Date.now()}`,
-        ...data,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        downloadCount: 0,
-      };
-
-      console.log('[Save] Invoice data before PDF verification:', JSON.stringify({
-        id: tempInvoice.id,
-        invoiceNumber: tempInvoice.invoiceNumber,
-        date: tempInvoice.date,
-        clientName: tempInvoice.clientName,
-        fromLocation: tempInvoice.fromLocation,
-        toLocation: tempInvoice.toLocation,
-        truckNumber: tempInvoice.truckNumber,
-        advanceAmount: tempInvoice.advanceAmount,
-        totalExpenses: tempInvoice.totalExpenses,
-        balance: tempInvoice.balance,
-        settlementStatus: tempInvoice.settlementStatus,
-        currency: tempInvoice.currency,
-        expenseCount: tempInvoice.expenses.length,
-        expenses: tempInvoice.expenses,
-        templateId: selectedTemplateId,
-        businessSnapshot: {
-          companyName: tempInvoice.businessSnapshot?.companyName,
-          ownerName: tempInvoice.businessSnapshot?.ownerName,
-        },
-      }, null, 2));
-
-      // Verify PDF generation succeeds before saving to Firestore.
-      // On web, printToFileAsync is not supported — skip file-size check but still verify HTML.
-      await generatePDFWithTemplate(tempInvoice, selectedTemplateId);
-      console.log('[Save] PDF verification passed — saving invoice to Firestore...');
-
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       if (isEditing && editId) {
         await updateInvoice(editId, data);
+        await clearDraft();
         Alert.alert('✓ Invoice saved successfully', undefined, [
           { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
           { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: editId } }) },
         ]);
       } else {
         const inv = await createInvoice(data);
+        await clearDraft();
         Alert.alert('✓ Invoice saved successfully', undefined, [
           { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
           { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } }) },
@@ -332,6 +410,16 @@ export default function CreateInvoiceScreen() {
           {isEditing ? 'Edit Invoice' : 'New Invoice'}
         </Text>
         <View style={styles.headerRight}>
+          {/* Clear / New Invoice (only for new invoices) */}
+          {!isEditing && (
+            <Pressable
+              onPress={handleClearForm}
+              hitSlop={8}
+              style={[styles.clearBtn, { borderColor: colors.border, backgroundColor: colors.secondary }]}
+            >
+              <Feather name="refresh-cw" size={13} color={colors.mutedForeground} />
+            </Pressable>
+          )}
           <Pressable
             onPress={handlePreview}
             disabled={isPreviewing}
@@ -390,18 +478,8 @@ export default function CreateInvoiceScreen() {
                     },
                   ]}
                 >
-                  <View
-                    style={[
-                      styles.chipDot,
-                      { backgroundColor: active ? '#fff' : t.previewColors[0] },
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.chipName,
-                      { color: active ? '#fff' : colors.foreground },
-                    ]}
-                  >
+                  <View style={[styles.chipDot, { backgroundColor: active ? '#fff' : t.previewColors[0] }]} />
+                  <Text style={[styles.chipName, { color: active ? '#fff' : colors.foreground }]}>
                     {t.name}
                   </Text>
                 </Pressable>
@@ -618,18 +696,21 @@ const styles = StyleSheet.create({
   },
   backBtn: { padding: 4, width: 36 },
   headerTitle: { fontSize: 17, fontWeight: '700', flex: 1, textAlign: 'center' },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  clearBtn: {
+    width: 34, height: 34, borderRadius: 9, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
   previewBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9, borderWidth: 1, minWidth: 70, justifyContent: 'center',
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9, borderWidth: 1,
+    minWidth: 70, justifyContent: 'center',
   },
   previewBtnTxt: { fontSize: 12, fontWeight: '700' },
   saveBtn: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, minWidth: 56, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   content: { padding: 16 },
-  templateBar: {
-    borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14,
-  },
+  templateBar: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14 },
   templateBarHeader: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 10 },
   templateBarLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   templateChips: { gap: 8, paddingRight: 4 },
@@ -650,7 +731,10 @@ const styles = StyleSheet.create({
   expenseRow: { flexDirection: 'row', gap: 10 },
   expenseNameCol: { flex: 1.6 },
   expenseAmountCol: { flex: 1 },
-  addItemBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12 },
+  addItemBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 10, paddingVertical: 12,
+  },
   addItemText: { fontSize: 14, fontWeight: '700' },
   summaryBox: { borderWidth: 1, borderRadius: 12, padding: 14 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7 },
@@ -663,12 +747,12 @@ const styles = StyleSheet.create({
   bottomRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   bottomPreviewBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, borderWidth: 1.5, borderRadius: 12, paddingVertical: 15,
+    gap: 8, borderWidth: 1.5, borderRadius: 12, paddingVertical: 14,
   },
   bottomPreviewTxt: { fontSize: 14, fontWeight: '700' },
   bottomSaveBtn: {
-    flex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, borderRadius: 12, paddingVertical: 15,
+    flex: 1.3, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, borderRadius: 12, paddingVertical: 14,
   },
-  bottomSaveTxt: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  bottomSaveTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

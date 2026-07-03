@@ -15,6 +15,7 @@ import TemplatePicker from '@/components/TemplatePicker';
 import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
 import { generateAndSaveInvoicePDF, openPDF } from '@/services/pdfService';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
@@ -107,6 +108,7 @@ export default function InvoiceDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
   const { invoices, updateInvoice, deleteInvoice, duplicateInvoice, toggleFavorite, archiveInvoice, restoreInvoice } =
     useInvoices();
   const { settings, generateNextInvoiceNumber } = useSettings();
@@ -154,11 +156,13 @@ export default function InvoiceDetailScreen() {
     const shouldForce = forceRegenerate.current;
     forceRegenerate.current = false;
     try {
-      const { uri, filename } = await generateAndSaveInvoicePDF(invoice, templateId, shouldForce);
+      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(
+        invoice, templateId, shouldForce, user?.uid
+      );
 
-      // Persist PDF metadata to Firestore
+      // Persist PDF metadata to Firestore (prefer Supabase public URL, fall back to local URI)
       await updateInvoice(invoice.id, {
-        pdfUrl: uri,
+        pdfUrl: publicUrl ?? uri,
         pdfName: filename,
         pdfCreatedAt: new Date().toISOString(),
         templateId,
