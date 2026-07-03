@@ -182,3 +182,13 @@ export interface LocaleStrings {
   locale: SupportedLocale;
   translations: Record<string, string>;
 }
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  updatedAt?: string;
+  active: boolean;
+  priority: number; // 1 = high (red), 2 = medium (orange), 3 = low (blue)
+}

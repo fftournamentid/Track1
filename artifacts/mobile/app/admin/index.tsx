@@ -7,18 +7,20 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import {
-  collection, getDocs, query, orderBy, doc, updateDoc, serverTimestamp,
+  collection, collectionGroup, getDocs, query, orderBy, limit,
+  doc, updateDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/services/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/services/firebase/auth.service';
 import type { UserDocument } from '@/services/firebase/repositories/user.repository';
+import type { Invoice } from '@/types';
 
 const NAVY = '#1A3C6E';
 const ORANGE = '#F57C00';
 const BG = '#F3F6FB';
 
-type Tab = 'dashboard' | 'users' | 'premium' | 'analytics' | 'more';
+type Tab = 'dashboard' | 'users' | 'invoices' | 'premium' | 'analytics' | 'more';
 
 interface UserWithInvoices extends UserDocument {
   invoiceTotal?: number;
@@ -28,7 +30,7 @@ function fmtCurrency(n: number) {
   return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 0 });
 }
 
-// ─── Dashboard Tab ─────────────────────────────────────────────────────────
+// ─── Dashboard Tab ──────────────────────────────────────────────────────────
 
 function DashboardTab({ users, loading, onRefresh }: {
   users: UserWithInvoices[];
@@ -55,10 +57,12 @@ function DashboardTab({ users, loading, onRefresh }: {
     { icon: 'alert-circle', label: 'Bug Reports', value: '0' },
   ];
 
-  const quickActions: { icon: keyof typeof Feather.glyphMap; label: string; color: string; onPress: () => void }[] = [
+  const quickActions: {
+    icon: keyof typeof Feather.glyphMap; label: string; color: string; onPress: () => void
+  }[] = [
     {
-      icon: 'bell', label: 'Send Notification', color: NAVY,
-      onPress: () => Alert.alert('Send Notification', 'Push notification system coming soon.'),
+      icon: 'bell', label: 'Announcements', color: NAVY,
+      onPress: () => router.push('/admin/announcements' as never),
     },
     {
       icon: 'star', label: 'Grant Premium', color: ORANGE,
@@ -66,7 +70,7 @@ function DashboardTab({ users, loading, onRefresh }: {
     },
     {
       icon: 'tool', label: 'Maintenance', color: '#DC2626',
-      onPress: () => Alert.alert('Maintenance Mode', 'Toggle maintenance mode? This will show a maintenance banner to all users.', [
+      onPress: () => Alert.alert('Maintenance Mode', 'Toggle maintenance mode?', [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Enable', style: 'destructive', onPress: () => Alert.alert('Done', 'Maintenance mode enabled.') },
       ]),
@@ -91,7 +95,6 @@ function DashboardTab({ users, loading, onRefresh }: {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
     >
-      {/* Stats grid */}
       <Text style={styles.sectionTitle}>Overview</Text>
       <View style={styles.statsGrid}>
         {cards.map((c) => (
@@ -105,14 +108,12 @@ function DashboardTab({ users, loading, onRefresh }: {
         ))}
       </View>
 
-      {/* Revenue hero */}
       <View style={styles.revenueCard}>
         <Text style={styles.revenueLabel}>Total Revenue Tracked</Text>
         <Text style={styles.revenueValue}>{fmtCurrency(stats.revenue)}</Text>
         <Text style={styles.revenueSub}>{stats.invoices} invoices across {stats.total} users</Text>
       </View>
 
-      {/* Quick Actions */}
       <Text style={styles.sectionTitle}>Quick Actions</Text>
       <View style={styles.actionsGrid}>
         {quickActions.map((a) => (
@@ -140,7 +141,7 @@ function DashboardTab({ users, loading, onRefresh }: {
   );
 }
 
-// ─── Users Tab ─────────────────────────────────────────────────────────────
+// ─── Users Tab ──────────────────────────────────────────────────────────────
 
 function UsersTab({ users, onGrantPremium }: {
   users: UserWithInvoices[];
@@ -160,11 +161,8 @@ function UsersTab({ users, onGrantPremium }: {
 
   const handleGrant = async (uid: string, current: boolean) => {
     setGrantingId(uid);
-    try {
-      await onGrantPremium(uid, current);
-    } finally {
-      setGrantingId(null);
-    }
+    try { await onGrantPremium(uid, current); }
+    finally { setGrantingId(null); }
   };
 
   return (
@@ -254,7 +252,133 @@ function UsersTab({ users, onGrantPremium }: {
   );
 }
 
-// ─── Premium Tab ────────────────────────────────────────────────────────────
+// ─── Invoices Tab ────────────────────────────────────────────────────────────
+
+interface AdminInvoice extends Invoice {
+  userId?: string;
+  ownerName?: string;
+}
+
+function InvoicesTab() {
+  const insets = useSafeAreaInsets();
+  const [invoices, setInvoices] = useState<AdminInvoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const snap = await getDocs(
+          query(collectionGroup(db, 'invoices'), orderBy('createdAt', 'desc'), limit(200))
+        );
+        const list: AdminInvoice[] = snap.docs.map((d) => {
+          const pathParts = d.ref.path.split('/');
+          const userId = pathParts[1] ?? '';
+          return { id: d.id, userId, ...d.data() } as AdminInvoice;
+        });
+        setInvoices(list);
+      } catch (err: unknown) {
+        const msg = (err as Error).message ?? String(err);
+        setError(msg.includes('permission') ? 'Deploy Firestore rules to enable admin invoice access.' : msg);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const filtered = search.trim()
+    ? invoices.filter(
+        (i) =>
+          (i.invoiceNumber ?? '').toLowerCase().includes(search.toLowerCase()) ||
+          (i.clientName ?? '').toLowerCase().includes(search.toLowerCase())
+      )
+    : invoices;
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={ORANGE} size="large" />
+        <Text style={styles.loadingText}>Loading invoices…</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Feather name="alert-triangle" size={36} color="#F59E0B" />
+        <Text style={[styles.emptyText, { textAlign: 'center', paddingHorizontal: 32 }]}>{error}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={[styles.searchBox, { marginHorizontal: 16, marginTop: 12, marginBottom: 8 }]}>
+        <Feather name="search" size={15} color="#9CA3AF" />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by invoice # or client…"
+          placeholderTextColor="#9CA3AF"
+          style={styles.searchInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch('')} hitSlop={8}>
+            <Feather name="x" size={14} color="#9CA3AF" />
+          </Pressable>
+        )}
+      </View>
+      <Text style={[styles.sectionTitle, { marginHorizontal: 16 }]}>
+        {filtered.length} Invoice{filtered.length !== 1 ? 's' : ''} (last 200)
+      </Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
+      >
+        {filtered.map((inv, idx) => {
+          const status = inv.status ?? 'draft';
+          const statusColors: Record<string, string> = {
+            paid: '#16A34A', pending: '#D97706', draft: '#6B7280', archived: '#9CA3AF',
+          };
+          const col = statusColors[status] ?? '#6B7280';
+          return (
+            <View key={inv.id ?? idx} style={styles.invCard}>
+              <View style={[styles.invIcon, { backgroundColor: col + '18' }]}>
+                <Feather name="file-text" size={16} color={col} />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={styles.invNumber} numberOfLines={1}>{inv.invoiceNumber}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: col + '18' }]}>
+                    <Text style={[styles.statusText, { color: col }]}>{status.toUpperCase()}</Text>
+                  </View>
+                </View>
+                <Text style={styles.invClient} numberOfLines={1}>{inv.clientName}</Text>
+                <Text style={styles.invMeta}>
+                  {inv.currency} {Math.abs(inv.balance ?? 0).toLocaleString('en-IN')} · {inv.date}
+                </Text>
+              </View>
+            </View>
+          );
+        })}
+        {filtered.length === 0 && (
+          <View style={styles.empty}>
+            <Feather name="file-text" size={36} color="#D1D5DB" />
+            <Text style={styles.emptyText}>No invoices found</Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ─── Premium Tab ─────────────────────────────────────────────────────────────
 
 function PremiumTab({ users }: { users: UserWithInvoices[] }) {
   const insets = useSafeAreaInsets();
@@ -265,21 +389,17 @@ function PremiumTab({ users }: { users: UserWithInvoices[] }) {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
     >
-      {/* FOUNDERS EDITION banner */}
       <View style={styles.foundersBanner}>
-        <View style={styles.foundersRocket}>
-          <Text style={{ fontSize: 28 }}>🚀</Text>
-        </View>
+        <Text style={{ fontSize: 28 }}>🚀</Text>
         <Text style={styles.foundersTitle}>FOUNDERS EDITION</Text>
         <Text style={styles.foundersSubtitle}>Early Access Premium</Text>
         <Text style={styles.foundersDesc}>Free for First 100,000 Users</Text>
         <View style={styles.foundersProgress}>
-          <View style={[styles.foundersProgressFill, { width: `${(users.length / 100000) * 100}%` }]} />
+          <View style={[styles.foundersProgressFill, { width: `${Math.min((users.length / 100000) * 100, 100)}%` }]} />
         </View>
         <Text style={styles.foundersCount}>{users.length.toLocaleString()} / 100,000 members</Text>
       </View>
 
-      {/* Premium stats */}
       <View style={styles.premiumStats}>
         <View style={styles.premiumStatItem}>
           <Text style={styles.premiumStatNum}>{premiumUsers.length}</Text>
@@ -297,7 +417,6 @@ function PremiumTab({ users }: { users: UserWithInvoices[] }) {
         </View>
       </View>
 
-      {/* Premium users list */}
       <Text style={styles.sectionTitle}>Premium Members ({premiumUsers.length})</Text>
       {premiumUsers.map((u, idx) => (
         <View key={u.uid ?? idx} style={styles.userCard}>
@@ -307,9 +426,7 @@ function PremiumTab({ users }: { users: UserWithInvoices[] }) {
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.userName} numberOfLines={1}>{u.displayName || 'Unnamed'}</Text>
             <Text style={styles.userEmail} numberOfLines={1}>{u.email}</Text>
-            <Text style={styles.userMeta}>
-              Plan: {u.premiumPlanId ?? 'founders'} · {u.invoiceCount ?? 0} invoices
-            </Text>
+            <Text style={styles.userMeta}>Plan: {u.premiumPlanId ?? 'founders'} · {u.invoiceCount ?? 0} invoices</Text>
           </View>
           <View style={[styles.premiumTag, { paddingHorizontal: 8, paddingVertical: 4 }]}>
             <Feather name="star" size={10} color={ORANGE} />
@@ -327,7 +444,7 @@ function PremiumTab({ users }: { users: UserWithInvoices[] }) {
   );
 }
 
-// ─── Analytics Tab ──────────────────────────────────────────────────────────
+// ─── Analytics Tab ───────────────────────────────────────────────────────────
 
 function AnalyticsTab({ users }: { users: UserWithInvoices[] }) {
   const insets = useSafeAreaInsets();
@@ -361,18 +478,17 @@ function AnalyticsTab({ users }: { users: UserWithInvoices[] }) {
           <Text style={[styles.metricValue, { color: m.color }]}>{m.value}</Text>
         </View>
       ))}
-
       <View style={styles.analyticsNote}>
         <Feather name="info" size={14} color="#6B7280" />
         <Text style={styles.analyticsNoteText}>
-          Advanced analytics charts (DAU/MAU, revenue trends, template usage) will appear here in a future update.
+          Advanced charts (DAU/MAU, revenue trends, template usage) will appear here in a future update.
         </Text>
       </View>
     </ScrollView>
   );
 }
 
-// ─── More Tab ───────────────────────────────────────────────────────────────
+// ─── More Tab ────────────────────────────────────────────────────────────────
 
 function MoreTab({ user, onLogout, isSigningOut }: {
   user: ReturnType<typeof useAuth>['user'];
@@ -383,7 +499,13 @@ function MoreTab({ user, onLogout, isSigningOut }: {
 
   const menuGroups: {
     title: string;
-    items: { icon: keyof typeof Feather.glyphMap; label: string; desc?: string; onPress: () => void; danger?: boolean }[];
+    items: {
+      icon: keyof typeof Feather.glyphMap;
+      label: string;
+      desc?: string;
+      onPress: () => void;
+      danger?: boolean;
+    }[];
   }[] = [
     {
       title: 'Content',
@@ -391,13 +513,13 @@ function MoreTab({ user, onLogout, isSigningOut }: {
         {
           icon: 'bell',
           label: 'Announcements',
-          desc: 'Send app-wide notices',
-          onPress: () => Alert.alert('Announcements', 'Announcement management coming soon.'),
+          desc: 'Create and manage app-wide notices',
+          onPress: () => router.push('/admin/announcements' as never),
         },
         {
           icon: 'message-square',
           label: 'User Feedback',
-          desc: 'Review bugs and requests',
+          desc: 'Review bugs and feature requests',
           onPress: () => Alert.alert('Feedback', 'Feedback inbox coming soon.'),
         },
       ],
@@ -408,8 +530,12 @@ function MoreTab({ user, onLogout, isSigningOut }: {
         {
           icon: 'shield',
           label: 'Security',
-          desc: 'Firestore rules and auth',
-          onPress: () => Alert.alert('Security', 'Review firestore.rules in the project and deploy via Firebase CLI:\n\nfirebase deploy --only firestore:rules'),
+          desc: 'Firestore rules and auth config',
+          onPress: () =>
+            Alert.alert(
+              'Security',
+              'Deploy Firestore rules:\n\nfirebase deploy --only firestore:rules\n\nRules file: artifacts/mobile/firestore.rules'
+            ),
         },
         {
           icon: 'settings',
@@ -426,7 +552,11 @@ function MoreTab({ user, onLogout, isSigningOut }: {
           icon: 'user',
           label: 'Admin Profile',
           desc: user?.email ?? '',
-          onPress: () => Alert.alert('Admin Profile', `Signed in as:\n${user?.displayName ?? 'Admin'}\n${user?.email ?? ''}\n\nUID: ${user?.uid ?? ''}`),
+          onPress: () =>
+            Alert.alert(
+              'Admin Profile',
+              `Signed in as:\n${user?.displayName ?? 'Admin'}\n${user?.email ?? ''}\n\nUID: ${user?.uid ?? ''}`
+            ),
         },
         {
           icon: 'log-out',
@@ -444,7 +574,6 @@ function MoreTab({ user, onLogout, isSigningOut }: {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
     >
-      {/* Admin profile card */}
       <View style={styles.moreProfileCard}>
         <View style={styles.moreAvatar}>
           <Feather name="shield" size={22} color="#fff" />
@@ -480,9 +609,7 @@ function MoreTab({ user, onLogout, isSigningOut }: {
                   )}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.menuItemLabel, item.danger && { color: '#DC2626' }]}>
-                    {item.label}
-                  </Text>
+                  <Text style={[styles.menuItemLabel, item.danger && { color: '#DC2626' }]}>{item.label}</Text>
                   {item.desc ? (
                     <Text style={styles.menuItemDesc} numberOfLines={1}>{item.desc}</Text>
                   ) : null}
@@ -497,11 +624,12 @@ function MoreTab({ user, onLogout, isSigningOut }: {
   );
 }
 
-// ─── Root Admin Screen ──────────────────────────────────────────────────────
+// ─── Root Admin Screen ───────────────────────────────────────────────────────
 
 const TAB_ITEMS: { key: Tab; icon: keyof typeof Feather.glyphMap; label: string }[] = [
   { key: 'dashboard', icon: 'grid', label: 'Dashboard' },
   { key: 'users', icon: 'users', label: 'Users' },
+  { key: 'invoices', icon: 'file-text', label: 'Invoices' },
   { key: 'premium', icon: 'star', label: 'Premium' },
   { key: 'analytics', icon: 'bar-chart-2', label: 'Analytics' },
   { key: 'more', icon: 'more-horizontal', label: 'More' },
@@ -524,11 +652,11 @@ export default function AdminScreen() {
       setUsers(snap.docs.map((d) => ({ ...d.data(), uid: d.id } as UserWithInvoices)));
     } catch (err: unknown) {
       const msg = (err as Error).message ?? String(err);
-      if (msg.includes('permission') || msg.includes('PERMISSION_DENIED')) {
-        setError('Firestore rules not deployed. Deploy firestore.rules to grant admin read access.');
-      } else {
-        setError(`Load failed: ${msg}`);
-      }
+      setError(
+        msg.includes('permission') || msg.includes('PERMISSION_DENIED')
+          ? 'Firestore rules not deployed. Run: firebase deploy --only firestore:rules'
+          : `Load failed: ${msg}`
+      );
     } finally {
       setLoading(false);
     }
@@ -586,32 +714,31 @@ export default function AdminScreen() {
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
+  const tabTitle: Record<Tab, string> = {
+    dashboard: 'Dashboard',
+    users: 'Users',
+    invoices: 'All Invoices',
+    premium: 'Premium',
+    analytics: 'Analytics',
+    more: 'More',
+  };
+
   return (
     <View style={[styles.screen, { backgroundColor: BG }]}>
-      {/* Top Header */}
       <View style={[styles.topBar, { paddingTop: topPad + 10 }]}>
         <View>
           <Text style={styles.topBadge}>⚙️  ADMIN PANEL</Text>
-          <Text style={styles.topTitle}>
-            {tab === 'dashboard' ? 'Dashboard'
-              : tab === 'users' ? 'Users'
-              : tab === 'premium' ? 'Premium'
-              : tab === 'analytics' ? 'Analytics'
-              : 'More'}
-          </Text>
+          <Text style={styles.topTitle}>{tabTitle[tab]}</Text>
         </View>
-        <View style={styles.topRight}>
-          <Pressable
-            onPress={loadData}
-            style={({ pressed }) => [styles.topBtn, { opacity: pressed ? 0.7 : 1 }]}
-            hitSlop={8}
-          >
-            <Feather name="refresh-cw" size={17} color={NAVY} />
-          </Pressable>
-        </View>
+        <Pressable
+          onPress={loadData}
+          style={({ pressed }) => [styles.topBtn, { opacity: pressed ? 0.7 : 1 }]}
+          hitSlop={8}
+        >
+          <Feather name="refresh-cw" size={17} color={NAVY} />
+        </Pressable>
       </View>
 
-      {/* Error banner */}
       {error && (
         <View style={styles.errorBanner}>
           <Feather name="alert-triangle" size={14} color="#92400E" />
@@ -622,7 +749,6 @@ export default function AdminScreen() {
         </View>
       )}
 
-      {/* Tab content */}
       <View style={{ flex: 1 }}>
         {tab === 'dashboard' && (
           <DashboardTab users={users} loading={loading} onRefresh={loadData} />
@@ -632,6 +758,7 @@ export default function AdminScreen() {
             ? <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
             : <UsersTab users={users} onGrantPremium={handleGrantPremium} />
         )}
+        {tab === 'invoices' && <InvoicesTab />}
         {tab === 'premium' && (
           loading
             ? <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
@@ -647,19 +774,13 @@ export default function AdminScreen() {
         )}
       </View>
 
-      {/* Bottom Tab Bar */}
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
         {TAB_ITEMS.map(({ key, icon, label }) => {
           const active = tab === key;
           return (
-            <Pressable
-              key={key}
-              onPress={() => setTab(key)}
-              style={styles.tabItem}
-              hitSlop={4}
-            >
+            <Pressable key={key} onPress={() => setTab(key)} style={styles.tabItem} hitSlop={4}>
               <View style={[styles.tabIconWrap, active && { backgroundColor: NAVY + '14' }]}>
-                <Feather name={icon} size={20} color={active ? NAVY : '#9CA3AF'} />
+                <Feather name={icon} size={active ? 20 : 19} color={active ? NAVY : '#9CA3AF'} />
               </View>
               <Text style={[styles.tabLabel, { color: active ? NAVY : '#9CA3AF' }]}>{label}</Text>
             </Pressable>
@@ -680,8 +801,7 @@ const styles = StyleSheet.create({
   },
   topBadge: { fontSize: 11, fontWeight: '700', color: ORANGE, letterSpacing: 0.6, marginBottom: 2 },
   topTitle: { fontSize: 22, fontWeight: '900', color: NAVY, letterSpacing: -0.5 },
-  topRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  topBtn: { padding: 8, backgroundColor: '#F3F6FB', borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB' },
+  topBtn: { padding: 8, backgroundColor: '#F3F6FB', borderRadius: 10, borderWidth: 1, borderColor: '#E5E7EB', alignSelf: 'center' },
 
   errorBanner: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
@@ -701,7 +821,6 @@ const styles = StyleSheet.create({
     marginTop: 20, marginBottom: 10,
   },
 
-  // Stats
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statCard: {
     width: '47%', borderRadius: 14, backgroundColor: '#fff',
@@ -735,7 +854,6 @@ const styles = StyleSheet.create({
   },
   refreshText: { fontSize: 13, fontWeight: '600', color: NAVY },
 
-  // Users
   searchBox: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
@@ -767,26 +885,31 @@ const styles = StyleSheet.create({
   revokeBtn: { backgroundColor: '#DC2626' },
   grantBtnText: { fontSize: 10, fontWeight: '800', color: '#fff' },
 
-  empty: { alignItems: 'center', padding: 40, gap: 10 },
-  emptyText: { fontSize: 14, color: '#9CA3AF' },
+  invCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff', borderRadius: 14, padding: 12,
+    marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB',
+  },
+  invIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  invNumber: { fontSize: 13, fontWeight: '700', color: NAVY },
+  invClient: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  invMeta: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+  statusBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  statusText: { fontSize: 9, fontWeight: '800' },
 
-  // Premium
   foundersBanner: {
     backgroundColor: NAVY, borderRadius: 20, padding: 24,
-    alignItems: 'center', marginTop: 8,
+    alignItems: 'center', marginTop: 8, gap: 6,
   },
-  foundersRocket: { marginBottom: 8 },
   foundersTitle: { fontSize: 20, fontWeight: '900', color: ORANGE, letterSpacing: 1 },
-  foundersSubtitle: { fontSize: 14, fontWeight: '700', color: '#fff', marginTop: 4 },
-  foundersDesc: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
+  foundersSubtitle: { fontSize: 14, fontWeight: '700', color: '#fff' },
+  foundersDesc: { fontSize: 12, color: 'rgba(255,255,255,0.7)' },
   foundersProgress: {
     width: '100%', height: 6, backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 3, marginTop: 16,
+    borderRadius: 3, marginTop: 10,
   },
-  foundersProgressFill: {
-    height: 6, backgroundColor: ORANGE, borderRadius: 3, minWidth: 4,
-  },
-  foundersCount: { fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 6 },
+  foundersProgressFill: { height: 6, backgroundColor: ORANGE, borderRadius: 3, minWidth: 4 },
+  foundersCount: { fontSize: 11, color: 'rgba(255,255,255,0.6)' },
 
   premiumStats: {
     flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14,
@@ -796,7 +919,6 @@ const styles = StyleSheet.create({
   premiumStatNum: { fontSize: 22, fontWeight: '900', color: NAVY },
   premiumStatLabel: { fontSize: 10, fontWeight: '600', color: '#6B7280', marginTop: 2 },
 
-  // Analytics
   metricRow: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: '#fff', borderRadius: 12, padding: 14,
@@ -812,7 +934,6 @@ const styles = StyleSheet.create({
   },
   analyticsNoteText: { flex: 1, fontSize: 12, color: '#6B7280', lineHeight: 18 },
 
-  // More
   moreProfileCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: '#fff', borderRadius: 16, padding: 16,
@@ -843,13 +964,14 @@ const styles = StyleSheet.create({
   menuItemLabel: { fontSize: 14, fontWeight: '600', color: NAVY },
   menuItemDesc: { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
 
-  // Tab Bar
+  empty: { alignItems: 'center', padding: 40, gap: 10 },
+  emptyText: { fontSize: 14, color: '#9CA3AF' },
+
   tabBar: {
     flexDirection: 'row', backgroundColor: '#fff',
-    borderTopWidth: 1, borderTopColor: '#E5E7EB',
-    paddingTop: 6,
+    borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 6,
   },
   tabItem: { flex: 1, alignItems: 'center', gap: 2 },
   tabIconWrap: { borderRadius: 8, padding: 6 },
-  tabLabel: { fontSize: 10, fontWeight: '600' },
+  tabLabel: { fontSize: 9, fontWeight: '600' },
 });

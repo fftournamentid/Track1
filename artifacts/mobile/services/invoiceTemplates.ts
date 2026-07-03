@@ -1,4 +1,5 @@
 import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { Invoice } from '@/types';
 
 export interface TemplateStyle {
@@ -544,6 +545,34 @@ export interface PDFResult {
 
 export async function generatePDFWithTemplate(invoice: Invoice, templateId: string): Promise<PDFResult> {
   const html = await buildInvoiceHTML(invoice, templateId);
-  const result = await Print.printToFileAsync({ html, base64: false });
-  return { uri: result.uri };
+  console.log('[PDF] HTML length:', html.length, 'chars — template:', templateId);
+
+  if (html.length < 200) {
+    throw new Error('Invoice HTML is empty — check template configuration.');
+  }
+
+  const tryGenerate = async (): Promise<string> => {
+    const result = await Print.printToFileAsync({ html, base64: false });
+    console.log('[PDF] Generated URI:', result.uri);
+    const info = await FileSystem.getInfoAsync(result.uri);
+    const size = info.exists ? ((info as { exists: true; size: number }).size ?? 0) : 0;
+    console.log('[PDF] File size:', size, 'bytes');
+    if (!info.exists || size < 1024) {
+      throw new Error(`PDF file is ${size} bytes — too small (minimum 1 KB). URI: ${result.uri}`);
+    }
+    return result.uri;
+  };
+
+  try {
+    const uri = await tryGenerate();
+    return { uri };
+  } catch (firstErr) {
+    console.warn('[PDF] First attempt failed, retrying...', firstErr);
+    try {
+      const uri = await tryGenerate();
+      return { uri };
+    } catch (secondErr) {
+      throw secondErr;
+    }
+  }
 }
