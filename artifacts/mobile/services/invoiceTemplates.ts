@@ -1,5 +1,5 @@
 import * as Print from 'expo-print';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 
@@ -308,16 +308,40 @@ function statusBadgeCss(status: string): string {
 }
 
 async function imageToDataUrl(uri: string): Promise<string | null> {
+  if (!uri) return null;
+  if (uri.startsWith('data:')) return uri;
+
+  // For local file:// URIs on native, use expo-file-system (FileReader/fetch are
+  // unreliable for file:// on Hermes / older RN bridge).
+  if (Platform.OS !== 'web' && (uri.startsWith('file://') || uri.startsWith('/'))) {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      // Infer mime type from extension
+      const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return `data:${mime};base64,${base64}`;
+    } catch {
+      return null;
+    }
+  }
+
+  // For http/https URIs (remote images) or web platform, use fetch.
   try {
-    if (!uri) return null;
-    if (uri.startsWith('data:')) return uri;
     const response = await fetch(uri);
+    if (!response.ok) return null;
     const blob = await response.blob();
     return new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
+      // FileReader works on web; on native newer RN also supports it.
+      try {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      } catch {
+        resolve(null);
+      }
     });
   } catch {
     return null;

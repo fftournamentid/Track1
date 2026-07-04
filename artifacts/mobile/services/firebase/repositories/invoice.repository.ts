@@ -53,8 +53,15 @@ export async function createInvoiceDoc(
   uid: string,
   data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>
 ): Promise<Invoice> {
+  // Firestore throws on undefined values unless ignoreUndefinedProperties is set.
+  // Strip them out here so optional fields (dueDate, clientPhone, etc.) are omitted.
+  const sanitized: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined) sanitized[k] = v;
+  }
+
   const payload = {
-    ...data,
+    ...sanitized,
     downloadCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

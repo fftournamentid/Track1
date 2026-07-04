@@ -102,7 +102,10 @@ export default function InvoicePreviewScreen() {
 
   /** Save invoice to Firestore (create or update). */
   const handleSave = useCallback(async () => {
-    if (!invoice) return;
+    if (!invoice) {
+      Alert.alert('Error', 'No invoice data found. Please go back and try again.');
+      return;
+    }
     setSaving(true);
     try {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -126,7 +129,8 @@ export default function InvoicePreviewScreen() {
         { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: savedId } }) },
       ]);
     } catch (err) {
-      showToast('Save failed. Please try again.', 'error');
+      console.error('[Preview] Save error:', err);
+      Alert.alert('Save Failed', String(err instanceof Error ? err.message : err));
     } finally {
       setSaving(false);
     }
@@ -146,7 +150,11 @@ export default function InvoicePreviewScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       console.error('[Preview] Download PDF error:', err);
-      showToast('PDF generation failed. Please try again.', 'error');
+      Alert.alert(
+        'PDF Failed',
+        String(err instanceof Error ? err.message : err),
+        [{ text: 'OK' }]
+      );
     } finally {
       setDownloadingPDF(false);
     }
@@ -164,7 +172,11 @@ export default function InvoicePreviewScreen() {
       await sharePDF(uri, `Invoice — ${filename}`);
     } catch (err) {
       console.error('[Preview] Share PDF error:', err);
-      showToast('Share failed. Please try again.', 'error');
+      Alert.alert(
+        'Share Failed',
+        String(err instanceof Error ? err.message : err),
+        [{ text: 'OK' }]
+      );
     } finally {
       setSharingPDF(false);
     }

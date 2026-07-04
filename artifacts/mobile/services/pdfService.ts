@@ -1,5 +1,4 @@
-import * as Print from 'expo-print';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
@@ -67,14 +66,21 @@ export async function generateAndSaveInvoicePDF(
 
   // Generate fresh PDF
   const result = await generatePDFWithTemplate(invoice, templateId);
+
+  // On web, generatePDFWithTemplate returns a blob URL which cannot be
+  // copied via FileSystem. Return it directly — no local cache on web.
+  if (Platform.OS === 'web' || result.uri.startsWith('blob:')) {
+    return { uri: result.uri, filename, publicUrl: undefined };
+  }
+
   await FileSystem.copyAsync({ from: result.uri, to: dest });
 
   const info = await FileSystem.getInfoAsync(dest);
   if (!info.exists || (info.size ?? 0) < 1024) {
-    throw new Error('PDF generation failed — file too small or missing.');
+    throw new Error(`PDF generation failed — file is ${(info as { size?: number }).size ?? 0} bytes (minimum 1 KB). URI: ${dest}`);
   }
 
-  // Upload to Supabase (non-blocking on cache hits, awaited on fresh generation)
+  // Upload to Supabase
   let publicUrl: string | undefined;
   if (userId) {
     try {

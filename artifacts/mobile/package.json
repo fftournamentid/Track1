@@ -56,10 +56,10 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "expo-file-system": "^56.0.8",
-    "expo-intent-launcher": "^57.0.0",
-    "expo-print": "^56.0.4",
-    "expo-sharing": "^56.0.18",
+    "expo-file-system": "^19.0.23",
+    "expo-intent-launcher": "^13.0.8",
+    "expo-print": "^15.0.8",
+    "expo-sharing": "^14.0.8",
     "firebase": "^12.15.0"
   }
 }
