@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 
 function cftRecordsKey(uid: string): string {
-  return `@TruckInvoice:cft_records:${uid}`;
+  return `@FleetInvoice:cft_records:${uid}`;
 }
 
 function todayStr(): string {
@@ -57,20 +57,21 @@ interface Tool {
   icon: keyof typeof Feather.glyphMap;
   title: string;
   desc: string;
+  color: string;
 }
 
 const TOOLS: Tool[] = [
-  { id: 'cft',      icon: 'box',         title: 'CFT Calculator',    desc: 'Cubic feet for cargo' },
-  { id: 'freight',  icon: 'truck',        title: 'Freight Calculator', desc: 'Weight × rate pricing' },
-  { id: 'gst',      icon: 'percent',      title: 'GST Calculator',    desc: 'Tax inclusive/exclusive' },
-  { id: 'fuel',     icon: 'droplet',      title: 'Fuel Cost',         desc: 'Diesel trip expenses' },
-  { id: 'distance', icon: 'map',          title: 'Distance Calc',     desc: 'Speed · time · distance' },
-  { id: 'profit',   icon: 'trending-up',  title: 'Profit Calculator', desc: 'Revenue minus expenses' },
-  { id: 'weight',   icon: 'activity',     title: 'Weight Converter',  desc: 'kg · ton · quintal' },
-  { id: 'unit',     icon: 'navigation',   title: 'Unit Converter',    desc: 'km · miles · meters' },
-  { id: 'tyre',     icon: 'circle',       title: 'Tyre Cost',         desc: 'Cost per km analysis' },
-  { id: 'emi',      icon: 'credit-card',  title: 'EMI Calculator',    desc: 'Loan EMI computation' },
-  { id: 'qr',       icon: 'grid',         title: 'QR Payment',        desc: 'Generate UPI QR code' },
+  { id: 'cft',      icon: 'box',         title: 'CFT Calculator',    desc: 'Cubic feet for cargo',       color: '#6366F1' },
+  { id: 'freight',  icon: 'truck',       title: 'Freight Calculator', desc: 'Weight × rate pricing',     color: '#F57C00' },
+  { id: 'gst',      icon: 'percent',     title: 'GST Calculator',    desc: 'Tax inclusive/exclusive',    color: '#10B981' },
+  { id: 'fuel',     icon: 'droplet',     title: 'Fuel Cost',         desc: 'Diesel trip expenses',       color: '#EF4444' },
+  { id: 'distance', icon: 'map',         title: 'Distance Calc',     desc: 'Speed · time · distance',    color: '#3B82F6' },
+  { id: 'profit',   icon: 'trending-up', title: 'Profit Calculator', desc: 'Revenue minus expenses',     color: '#16A34A' },
+  { id: 'weight',   icon: 'activity',    title: 'Weight Converter',  desc: 'kg · ton · quintal',         color: '#8B5CF6' },
+  { id: 'unit',     icon: 'navigation',  title: 'Unit Converter',    desc: 'km · miles · meters',        color: '#0891B2' },
+  { id: 'tyre',     icon: 'circle',      title: 'Tyre Cost',         desc: 'Cost per km analysis',       color: '#DC2626' },
+  { id: 'emi',      icon: 'credit-card', title: 'EMI Calculator',    desc: 'Loan EMI computation',       color: '#D97706' },
+  { id: 'qr',       icon: 'grid',        title: 'QR Payment',        desc: 'Generate UPI QR code',       color: '#1A3C6E' },
 ];
 
 function fmt2(n: number): string {
@@ -975,8 +976,8 @@ export default function ToolsScreen() {
             onPress={() => setActiveTool(tool.id)}
             activeOpacity={0.8}
           >
-            <View style={[styles.iconWrap, { backgroundColor: colors.secondary }]}>
-              <Feather name={tool.icon} size={22} color={colors.primary} />
+            <View style={[styles.iconWrap, { backgroundColor: tool.color + '18' }]}>
+              <Feather name={tool.icon} size={22} color={tool.color} />
             </View>
             <Text style={[styles.cardTitle, { color: colors.foreground }]}>{tool.title}</Text>
             <Text style={[styles.cardDesc, { color: colors.mutedForeground }]}>{tool.desc}</Text>

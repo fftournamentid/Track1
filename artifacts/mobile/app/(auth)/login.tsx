@@ -52,8 +52,8 @@ export default function LoginScreen() {
           <View style={styles.logoCircle}>
             <Ionicons name="document-text" size={36} color="#fff" />
           </View>
-          <Text style={styles.appName}>Track Invoice</Text>
-          <Text style={styles.tagline}>Manage freight invoices on the go</Text>
+          <Text style={styles.appName}>FleetInvoice</Text>
+          <Text style={styles.tagline}>Professional fleet & freight invoicing</Text>
         </View>
 
         {/* Card */}

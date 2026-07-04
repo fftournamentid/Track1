@@ -8,8 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import {
   collection, collectionGroup, getDocs, query, orderBy, limit,
-  doc, updateDoc, serverTimestamp,
+  doc, updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
+import { setAdminVerified } from '@/services/firebase/repositories/user.repository';
 import { db } from '@/services/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/services/firebase/auth.service';
@@ -143,13 +144,15 @@ function DashboardTab({ users, loading, onRefresh }: {
 
 // ─── Users Tab ──────────────────────────────────────────────────────────────
 
-function UsersTab({ users, onGrantPremium }: {
+function UsersTab({ users, onGrantPremium, onVerifyUser }: {
   users: UserWithInvoices[];
   onGrantPremium: (uid: string, current: boolean) => void;
+  onVerifyUser: (uid: string, currentVerified: boolean) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [grantingId, setGrantingId] = useState<string | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   const filtered = search.trim()
     ? users.filter(
@@ -163,6 +166,12 @@ function UsersTab({ users, onGrantPremium }: {
     setGrantingId(uid);
     try { await onGrantPremium(uid, current); }
     finally { setGrantingId(null); }
+  };
+
+  const handleVerify = async (uid: string, currentVerified: boolean) => {
+    setVerifyingId(uid);
+    try { await onVerifyUser(uid, currentVerified); }
+    finally { setVerifyingId(null); }
   };
 
   return (
@@ -222,21 +231,38 @@ function UsersTab({ users, onGrantPremium }: {
             <View style={styles.userActions}>
               <View style={[styles.activeDot, { backgroundColor: u.isActive ? '#16A34A' : '#D1D5DB' }]} />
               {u.role !== 'admin' && (
-                <Pressable
-                  onPress={() => handleGrant(u.uid, u.isPremium)}
-                  disabled={grantingId === u.uid}
-                  style={({ pressed }) => [
-                    styles.grantBtn,
-                    u.isPremium ? styles.revokeBtn : styles.grantBtnActive,
-                    { opacity: pressed || grantingId === u.uid ? 0.7 : 1 },
-                  ]}
-                >
-                  {grantingId === u.uid ? (
-                    <ActivityIndicator size={10} color="#fff" />
-                  ) : (
-                    <Text style={styles.grantBtnText}>{u.isPremium ? 'Revoke' : '+ Pro'}</Text>
-                  )}
-                </Pressable>
+                <>
+                  <Pressable
+                    onPress={() => handleGrant(u.uid, u.isPremium)}
+                    disabled={grantingId === u.uid}
+                    style={({ pressed }) => [
+                      styles.grantBtn,
+                      u.isPremium ? styles.revokeBtn : styles.grantBtnActive,
+                      { opacity: pressed || grantingId === u.uid ? 0.7 : 1 },
+                    ]}
+                  >
+                    {grantingId === u.uid ? (
+                      <ActivityIndicator size={10} color="#fff" />
+                    ) : (
+                      <Text style={styles.grantBtnText}>{u.isPremium ? 'Revoke' : '+ Pro'}</Text>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    onPress={() => handleVerify(u.uid, !!u.emailVerified)}
+                    disabled={verifyingId === u.uid}
+                    style={({ pressed }) => [
+                      styles.grantBtn,
+                      { backgroundColor: u.emailVerified ? '#6B7280' : '#16A34A' },
+                      { opacity: pressed || verifyingId === u.uid ? 0.7 : 1 },
+                    ]}
+                  >
+                    {verifyingId === u.uid ? (
+                      <ActivityIndicator size={10} color="#fff" />
+                    ) : (
+                      <Text style={styles.grantBtnText}>{u.emailVerified ? 'Unverify' : '✓ Verify'}</Text>
+                    )}
+                  </Pressable>
+                </>
               )}
             </View>
           </View>
@@ -265,6 +291,29 @@ function InvoicesTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+
+  const handleDeleteInvoice = (inv: AdminInvoice) => {
+    if (!inv.userId || !inv.id) return;
+    Alert.alert(
+      'Delete Invoice',
+      `Delete ${inv.invoiceNumber} for ${inv.clientName}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, 'users', inv.userId!, 'invoices', inv.id));
+              setInvoices((prev) => prev.filter((i) => i.id !== inv.id));
+            } catch (err: unknown) {
+              Alert.alert('Error', (err as Error).message ?? String(err));
+            }
+          },
+        },
+      ]
+    );
+  };
 
   useEffect(() => {
     (async () => {
@@ -364,6 +413,13 @@ function InvoicesTab() {
                   {inv.currency} {Math.abs(inv.balance ?? 0).toLocaleString('en-IN')} · {inv.date}
                 </Text>
               </View>
+              <Pressable
+                onPress={() => handleDeleteInvoice(inv)}
+                hitSlop={10}
+                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, padding: 4 })}
+              >
+                <Feather name="trash-2" size={15} color="#EF4444" />
+              </Pressable>
             </View>
           );
         })}
@@ -670,6 +726,36 @@ export default function AdminScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const handleVerifyUser = async (targetUid: string, currentVerified: boolean): Promise<void> => {
+    const action = currentVerified ? 'Unverify' : 'Verify';
+    return new Promise<void>((resolve) => {
+      Alert.alert(
+        `${action} User`,
+        `${action} email verification for this user?`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve() },
+          {
+            text: action,
+            onPress: async () => {
+              try {
+                await setAdminVerified(targetUid, !currentVerified);
+                setUsers((prev) =>
+                  prev.map((u) =>
+                    u.uid === targetUid ? { ...u, emailVerified: !currentVerified } : u
+                  )
+                );
+              } catch (err: unknown) {
+                Alert.alert('Error', (err as Error).message ?? String(err));
+              } finally {
+                resolve();
+              }
+            },
+          },
+        ]
+      );
+    });
+  };
+
   const handleGrantPremium = async (targetUid: string, currentStatus: boolean) => {
     const action = currentStatus ? 'Revoke' : 'Grant';
     return new Promise<void>((resolve) => {
@@ -762,7 +848,7 @@ export default function AdminScreen() {
         {tab === 'users' && (
           loading
             ? <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
-            : <UsersTab users={users} onGrantPremium={handleGrantPremium} />
+            : <UsersTab users={users} onGrantPremium={handleGrantPremium} onVerifyUser={handleVerifyUser} />
         )}
         {tab === 'invoices' && <InvoicesTab />}
         {tab === 'premium' && (

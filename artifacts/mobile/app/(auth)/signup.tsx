@@ -72,7 +72,7 @@ export default function SignupScreen() {
             <Ionicons name="person-add" size={32} color="#fff" />
           </View>
           <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Get started with Track Invoice</Text>
+          <Text style={styles.subtitle}>Get started with FleetInvoice</Text>
         </View>
 
         {/* Card */}

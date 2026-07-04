@@ -13,7 +13,8 @@ import { useColors } from '@/hooks/useColors';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { signOut } from '@/services/firebase/auth.service';
+import { signOut, resendEmailVerification } from '@/services/firebase/auth.service';
+import { uploadProfilePhotoToSupabase } from '@/services/supabaseStorage';
 import PremiumBanner from '@/components/PremiumBanner';
 import type { BusinessInfo } from '@/types';
 
@@ -71,7 +72,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { profile, isLoading: profileLoading, updateProfile } = useProfile();
   const { settings, updateSettings } = useSettings();
-  const { user } = useAuth();
+  const { user, userDoc } = useAuth();
 
   const [form, setForm] = useState<BusinessInfo>(profile);
   const [defaultGstRate, setDefaultGstRate] = useState(settings.defaultGstRate);
@@ -79,6 +80,8 @@ export default function ProfileScreen() {
   const [defaultTerms, setDefaultTerms] = useState(settings.defaultPaymentTerms);
   const [isSaving, setIsSaving] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,6 +124,46 @@ export default function ProfileScreen() {
   const setField = (key: keyof BusinessInfo, val: string) => {
     userEditedRef.current = true;
     setForm((prev) => ({ ...prev, [key]: val }));
+  };
+
+  const handleResendVerification = async () => {
+    setIsSendingVerification(true);
+    try {
+      await resendEmailVerification();
+      Alert.alert('Email Sent', `A verification link has been sent to ${user?.email ?? 'your email'}. Check your inbox.`);
+    } catch (e: unknown) {
+      Alert.alert('Error', (e as Error).message ?? 'Failed to send verification email.');
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const pickProfilePhoto = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Allow photo library access in Settings.');
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0] && user?.uid) {
+      const localUri = result.assets[0].uri;
+      setUploadingPhoto(true);
+      try {
+        const cloudUrl = await uploadProfilePhotoToSupabase(localUri, user.uid);
+        const photoUri = cloudUrl ?? localUri;
+        userEditedRef.current = true;
+        setForm((prev) => ({ ...prev, profilePhotoUri: photoUri }));
+      } finally {
+        setUploadingPhoto(false);
+      }
+    }
   };
 
   const pickImage = async (field: 'logoUri' | 'signatureUri') => {
@@ -213,22 +256,53 @@ export default function ProfileScreen() {
         {/* Account info */}
         {user?.email ? (
           <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={[styles.accountAvatar, { backgroundColor: colors.primary }]}>
-              <Ionicons name="person" size={20} color="#fff" />
-            </View>
-            <View style={styles.accountInfo}>
+            {/* Profile photo — tappable */}
+            <Pressable
+              onPress={pickProfilePhoto}
+              style={[styles.accountAvatar, { backgroundColor: colors.primary }]}
+            >
+              {uploadingPhoto ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : form.profilePhotoUri ? (
+                <Image source={{ uri: form.profilePhotoUri }} style={styles.accountAvatarImg} />
+              ) : (
+                <Ionicons name="person" size={20} color="#fff" />
+              )}
+              <View style={styles.photoEditBadge}>
+                <Feather name="camera" size={8} color="#fff" />
+              </View>
+            </Pressable>
+
+            <View style={[styles.accountInfo, { gap: 4 }]}>
               <Text style={[styles.accountName, { color: colors.foreground }]}>
                 {user.displayName || 'Account'}
               </Text>
               <Text style={[styles.accountEmail, { color: colors.mutedForeground }]}>
                 {user.email}
               </Text>
+              {/* Verification status row — check both Firebase Auth and admin-set Firestore flag */}
+              {(user.emailVerified || !!userDoc?.emailVerified) ? (
+                <View style={styles.verifiedBadge}>
+                  <Feather name="check-circle" size={11} color="#15803D" />
+                  <Text style={styles.verifiedText}>Email Verified</Text>
+                </View>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <View style={styles.unverifiedBadge}>
+                    <Text style={styles.unverifiedText}>Unverified</Text>
+                  </View>
+                  <Pressable
+                    onPress={handleResendVerification}
+                    disabled={isSendingVerification}
+                    style={({ pressed }) => [styles.resendBtn, { opacity: pressed || isSendingVerification ? 0.7 : 1 }]}
+                  >
+                    {isSendingVerification
+                      ? <ActivityIndicator size={10} color="#1A3C6E" />
+                      : <Text style={styles.resendBtnText}>Resend Email</Text>}
+                  </Pressable>
+                </View>
+              )}
             </View>
-            {!user.emailVerified && (
-              <View style={styles.unverifiedBadge}>
-                <Text style={styles.unverifiedText}>Unverified</Text>
-              </View>
-            )}
           </View>
         ) : null}
 
@@ -518,9 +592,28 @@ const styles = StyleSheet.create({
     borderRadius: 14, padding: 14, marginBottom: 14, gap: 12,
   },
   accountAvatar: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 44, height: 44, borderRadius: 22,
     alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden', position: 'relative',
   },
+  accountAvatarImg: { width: 44, height: 44, borderRadius: 22 },
+  photoEditBadge: {
+    position: 'absolute', bottom: 0, right: 0,
+    backgroundColor: '#1A3C6E', borderRadius: 8,
+    width: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: '#fff',
+  },
+  verifiedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#F0FDF4', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3,
+    alignSelf: 'flex-start',
+  },
+  verifiedText: { fontSize: 11, color: '#15803D', fontWeight: '600' },
+  resendBtn: {
+    backgroundColor: '#EEF3FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    alignItems: 'center', justifyContent: 'center', minWidth: 32,
+  },
+  resendBtnText: { fontSize: 11, color: '#1A3C6E', fontWeight: '700' },
   accountInfo: { flex: 1 },
   accountName: { fontSize: 15, fontWeight: '600' },
   accountEmail: { fontSize: 13, marginTop: 2 },

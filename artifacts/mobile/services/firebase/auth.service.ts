@@ -35,6 +35,12 @@ export async function sendPasswordReset(email: string): Promise<void> {
   await sendPasswordResetEmail(auth, email);
 }
 
+export async function resendEmailVerification(): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error('Not signed in.');
+  await sendEmailVerification(currentUser);
+}
+
 export function getAuthErrorMessage(code: string): string {
   const map: Record<string, string> = {
     'auth/email-already-in-use': 'This account already exists. Please login instead.',

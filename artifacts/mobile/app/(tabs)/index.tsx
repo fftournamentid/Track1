@@ -180,7 +180,7 @@ export default function DashboardScreen() {
           <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
             {getGreeting()}{name ? `, ${name.split(' ')[0]}` : ''}
           </Text>
-          <Text style={[styles.appTitle, { color: colors.foreground }]}>Truck Invoice</Text>
+          <Text style={[styles.appTitle, { color: colors.foreground }]}>FleetInvoice</Text>
         </View>
         <View style={styles.headerRightRow}>
           <Pressable

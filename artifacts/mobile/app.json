@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Truck Invoice Manager",
+    "name": "FleetInvoice",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",

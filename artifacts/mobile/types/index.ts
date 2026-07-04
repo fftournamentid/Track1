@@ -25,6 +25,7 @@ export interface BusinessInfo {
   ifscCode: string;
   logoUri?: string;
   signatureUri?: string;
+  profilePhotoUri?: string;
   footerNotes: string;
 }
 

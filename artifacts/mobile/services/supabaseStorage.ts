@@ -164,6 +164,19 @@ export async function uploadSignatureToSupabase(
 }
 
 /**
+ * Upload a profile photo to the "logos" bucket.
+ * Returns public URL or null on failure.
+ */
+export async function uploadProfilePhotoToSupabase(
+  localUri: string,
+  userId: string,
+  mimeType = 'image/jpeg'
+): Promise<string | null> {
+  const ext = localUri.split('.').pop() ?? 'jpg';
+  return uploadFile(localUri, 'logos', `${userId}/profile-photo.${ext}`, mimeType);
+}
+
+/**
  * Download a remote Supabase PDF URL to a local cache file and return the path.
  * Used when pdfUrl is a public Supabase URL and we need a local file to open/share.
  */

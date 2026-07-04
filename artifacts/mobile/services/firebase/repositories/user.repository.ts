@@ -116,6 +116,13 @@ export async function updateUserSettings(
   });
 }
 
+export async function setAdminVerified(uid: string, verified: boolean): Promise<void> {
+  await updateDoc(doc(db, 'users', uid), {
+    emailVerified: verified,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function setUserRole(uid: string, role: string): Promise<void> {
   await updateDoc(doc(db, 'users', uid), {
     role,

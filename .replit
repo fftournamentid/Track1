@@ -32,3 +32,7 @@ EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID = "G-K8LX3VN1X6"
 
 [nix]
 channel = "stable-25_05"
+
+[[ports]]
+localPort = 8082
+externalPort = 80
