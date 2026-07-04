@@ -55,6 +55,8 @@ interface InvoiceContextType {
   renameInvoice: (id: string, name: string) => Promise<void>;
   getInvoiceById: (id: string) => Invoice | undefined;
   incrementDownloadCount: (id: string) => Promise<void>;
+  /** Immediately surfaces a locally-saved invoice in the list (used after offline fallback saves). */
+  addLocalInvoice: (invoice: Invoice) => Promise<void>;
 }
 
 const InvoiceContext = createContext<InvoiceContextType | null>(null);
@@ -226,13 +228,45 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
     [invoices, updateInvoice]
   );
 
+  /**
+   * Immediately adds a locally-saved invoice to the invoices list and persists
+   * it in AsyncStorage. Used when Firestore is unavailable so the new invoice
+   * appears in the Invoices tab right after the offline save in preview.tsx.
+   */
+  const addLocalInvoice = useCallback(
+    async (invoice: Invoice) => {
+      if (!user) return;
+      const uid = user.uid;
+      // Optimistic update — show immediately in the list
+      setInvoices((prev) => {
+        const already = prev.find((i) => i.id === invoice.id);
+        if (already) {
+          return prev.map((i) => i.id === invoice.id ? { ...i, ...invoice } : i);
+        }
+        return [invoice, ...prev];
+      });
+      // Persist alongside any existing local invoices
+      try {
+        const existing = await loadLocalInvoices(uid);
+        const merged = existing.find((i) => i.id === invoice.id)
+          ? existing.map((i) => i.id === invoice.id ? invoice : i)
+          : [invoice, ...existing];
+        await saveLocalInvoices(uid, merged);
+        console.log('[InvoiceContext][addLocalInvoice] ✓ Invoice', invoice.id, 'added to local list and persisted.');
+      } catch (err) {
+        console.error('[InvoiceContext][addLocalInvoice] Failed to persist:', err);
+      }
+    },
+    [user]
+  );
+
   return (
     <InvoiceContext.Provider
       value={{
         invoices, isLoading, isOffline,
         createInvoice, updateInvoice, deleteInvoice,
         toggleFavorite, archiveInvoice, restoreInvoice, duplicateInvoice,
-        renameInvoice, getInvoiceById, incrementDownloadCount,
+        renameInvoice, getInvoiceById, incrementDownloadCount, addLocalInvoice,
       }}
     >
       {children}

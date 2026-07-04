@@ -1,5 +1,5 @@
-import React, { useMemo, useEffect, useState, useCallback } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Platform } from 'react-native';
+import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -109,9 +109,19 @@ export default function DashboardScreen() {
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [popupAnn, setPopupAnn] = useState<Announcement | null>(null);
+  const popupShownRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const unsub = subscribeToActiveAnnouncements(setAnnouncements);
+    const unsub = subscribeToActiveAnnouncements((list) => {
+      setAnnouncements(list);
+      // Show the first active popup announcement (once per session per ID)
+      const popup = list.find((a) => a.isPopup && a.active);
+      if (popup && !popupShownRef.current.has(popup.id)) {
+        popupShownRef.current.add(popup.id);
+        setPopupAnn(popup);
+      }
+    });
     return unsub;
   }, []);
 
@@ -119,8 +129,15 @@ export default function DashboardScreen() {
     setDismissed((prev) => new Set([...prev, id]));
   }, []);
 
+  // Pinned announcements always shown first, then by priority
   const visibleAnnouncements = useMemo(
-    () => announcements.filter((a) => !dismissed.has(a.id)),
+    () =>
+      announcements
+        .filter((a) => !dismissed.has(a.id))
+        .sort((a, b) => {
+          if ((a.isPinned ? 1 : 0) !== (b.isPinned ? 1 : 0)) return (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0);
+          return a.priority - b.priority;
+        }),
     [announcements, dismissed]
   );
 
@@ -202,7 +219,7 @@ export default function DashboardScreen() {
 
       {/* Create Button */}
       <Pressable
-        onPress={() => router.push('/invoice/template-select' as never)}
+        onPress={() => router.push({ pathname: '/invoice/template-select', params: { fresh: '1' } } as never)}
         style={({ pressed }) => [
           styles.createBtn,
           { backgroundColor: colors.accent, opacity: pressed ? 0.88 : 1 },
@@ -224,7 +241,7 @@ export default function DashboardScreen() {
           title="No invoices yet"
           subtitle="Create your first invoice and it will appear here."
           actionLabel="Create Invoice"
-          onAction={() => router.push('/invoice/template-select' as never)}
+          onAction={() => router.push({ pathname: '/invoice/template-select', params: { fresh: '1' } } as never)}
         />
       ) : (
         recentInvoices.map((inv) => (

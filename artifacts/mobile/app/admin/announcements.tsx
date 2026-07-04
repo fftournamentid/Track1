@@ -35,9 +35,11 @@ interface FormState {
   message: string;
   priority: number;
   active: boolean;
+  isPinned: boolean;
+  isPopup: boolean;
 }
 
-const EMPTY_FORM: FormState = { title: '', message: '', priority: 2, active: true };
+const EMPTY_FORM: FormState = { title: '', message: '', priority: 2, active: true, isPinned: false, isPopup: false };
 
 export default function AnnouncementsScreen() {
   const insets = useSafeAreaInsets();
@@ -71,6 +73,8 @@ export default function AnnouncementsScreen() {
       message: item.message,
       priority: item.priority,
       active: item.active,
+      isPinned: item.isPinned ?? false,
+      isPopup: item.isPopup ?? false,
     });
     setModalVisible(true);
   }, []);
@@ -177,6 +181,16 @@ export default function AnnouncementsScreen() {
                         {priorityLabel(item.priority)}
                       </Text>
                     </View>
+                    {item.isPinned && (
+                      <View style={[styles.priorityBadge, { backgroundColor: '#FEF3C7' }]}>
+                        <Text style={[styles.priorityText, { color: '#92400E' }]}>📌 Pinned</Text>
+                      </View>
+                    )}
+                    {item.isPopup && (
+                      <View style={[styles.priorityBadge, { backgroundColor: '#EFF6FF' }]}>
+                        <Text style={[styles.priorityText, { color: '#1D4ED8' }]}>💬 Popup</Text>
+                      </View>
+                    )}
                     <Text style={[styles.cardTitle, { flex: 1 }]} numberOfLines={1}>{item.title}</Text>
                   </View>
                   <View style={styles.cardRight}>
@@ -292,6 +306,34 @@ export default function AnnouncementsScreen() {
                   onValueChange={(v) => setForm((f) => ({ ...f, active: v }))}
                   trackColor={{ false: '#D1D5DB', true: '#BBF7D0' }}
                   thumbColor={form.active ? '#16A34A' : '#9CA3AF'}
+                />
+              </View>
+
+              {/* Pinned */}
+              <View style={styles.activeRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Pinned at Top</Text>
+                  <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: -4 }}>Always shows first in the list</Text>
+                </View>
+                <Switch
+                  value={form.isPinned}
+                  onValueChange={(v) => setForm((f) => ({ ...f, isPinned: v }))}
+                  trackColor={{ false: '#D1D5DB', true: '#FEF3C7' }}
+                  thumbColor={form.isPinned ? '#F59E0B' : '#9CA3AF'}
+                />
+              </View>
+
+              {/* Popup */}
+              <View style={styles.activeRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Show as Popup</Text>
+                  <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: -4 }}>Show modal dialog when app opens</Text>
+                </View>
+                <Switch
+                  value={form.isPopup}
+                  onValueChange={(v) => setForm((f) => ({ ...f, isPopup: v }))}
+                  trackColor={{ false: '#D1D5DB', true: '#BFDBFE' }}
+                  thumbColor={form.isPopup ? '#2563EB' : '#9CA3AF'}
                 />
               </View>
 

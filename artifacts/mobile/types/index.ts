@@ -194,4 +194,8 @@ export interface Announcement {
   updatedAt?: string;
   active: boolean;
   priority: number; // 1 = high (red), 2 = medium (orange), 3 = low (blue)
+  /** When true, announcement is shown at the top of the list and pinned home screen banner. */
+  isPinned?: boolean;
+  /** When true, announcement is shown as a modal popup on app open. */
+  isPopup?: boolean;
 }

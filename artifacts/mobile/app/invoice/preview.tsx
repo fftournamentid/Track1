@@ -24,7 +24,7 @@ import {
   View, Text, ScrollView, StyleSheet, Pressable,
   ActivityIndicator, Alert, Platform, useWindowDimensions, Image,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -433,8 +433,9 @@ function PaperDocument({ invoice, currency, templateId }: {
 
 export default function InvoicePreviewScreen() {
   const router = useRouter();
+  const { invoiceId: fallbackInvoiceId, templateId: fallbackTemplateId } = useLocalSearchParams<{ invoiceId?: string; templateId?: string }>();
   const insets = useSafeAreaInsets();
-  const { createInvoice, updateInvoice } = useInvoices();
+  const { createInvoice, updateInvoice, addLocalInvoice, getInvoiceById } = useInvoices();
   const { settings } = useSettings();
   const { user } = useAuth();
 
@@ -465,10 +466,23 @@ export default function InvoicePreviewScreen() {
         console.log('[Preview] ✓ Loaded preview payload. invoiceNumber:', data.invoice?.invoiceNumber, '| editId:', data.editId);
         setPayload(data);
       } else {
-        console.warn('[Preview] No preview data found in AsyncStorage.');
+        // Fallback: if navigated with invoiceId param, load invoice from context
+        if (fallbackInvoiceId) {
+          console.log('[Preview] No AsyncStorage data — trying context fallback for invoiceId:', fallbackInvoiceId);
+          const inv = getInvoiceById(fallbackInvoiceId);
+          if (inv) {
+            console.log('[Preview] ✓ Loaded from context:', inv.invoiceNumber);
+            setPayload({ invoice: inv, editId: inv.id });
+          } else {
+            console.warn('[Preview] Context fallback also failed for invoiceId:', fallbackInvoiceId);
+          }
+        } else {
+          console.warn('[Preview] No preview data found in AsyncStorage.');
+        }
       }
       setLoading(false);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const invoice = payload?.invoice;
@@ -508,6 +522,9 @@ export default function InvoicePreviewScreen() {
       try {
         savedId = await saveLocalFallback(invoice, uid, editId);
         console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
+        // Immediately surface the invoice in the Invoices tab list
+        const localInvoice: Invoice = { ...invoice, id: savedId };
+        await addLocalInvoice(localInvoice);
         showToast('Saved locally (offline — will sync when online)', 'success');
       } catch (localErr) {
         console.error('[Save] ✗ AsyncStorage fallback also FAILED:', localErr);
@@ -540,7 +557,7 @@ export default function InvoicePreviewScreen() {
       ]
     );
     setSaving(false);
-  }, [invoice, editId, createInvoice, updateInvoice, router, user?.uid]);
+  }, [invoice, editId, createInvoice, updateInvoice, addLocalInvoice, router, user?.uid]);
 
   const handleDownloadPDF = useCallback(async () => {
     if (!invoice) return;

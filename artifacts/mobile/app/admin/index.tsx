@@ -517,6 +517,12 @@ function MoreTab({ user, onLogout, isSigningOut }: {
           onPress: () => router.push('/admin/announcements' as never),
         },
         {
+          icon: 'key',
+          label: 'Premium Codes',
+          desc: 'Create and manage access codes',
+          onPress: () => router.push('/admin/premium-codes' as never),
+        },
+        {
           icon: 'message-square',
           label: 'User Feedback',
           desc: 'Review bugs and feature requests',

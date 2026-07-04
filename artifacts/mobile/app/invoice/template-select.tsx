@@ -2,11 +2,12 @@ import React from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { INVOICE_TEMPLATES } from '@/services/invoiceTemplates';
+import { usePremium } from '@/hooks/usePremium';
 
 function TemplateCard({
   template,
@@ -94,13 +95,17 @@ export default function TemplateSelectScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { isPremium } = usePremium();
+  const { fresh } = useLocalSearchParams<{ fresh?: string }>();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const freeTemplates = INVOICE_TEMPLATES.filter((t) => !t.isPremium);
   const premiumTemplates = INVOICE_TEMPLATES.filter((t) => t.isPremium);
 
   const handleSelect = (templateId: string) => {
-    router.push({ pathname: '/invoice/create', params: { templateId } });
+    const params: Record<string, string> = { templateId };
+    if (fresh) params.fresh = fresh;
+    router.push({ pathname: '/invoice/create', params });
   };
 
   return (
@@ -129,7 +134,7 @@ export default function TemplateSelectScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Free */}
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Free Templates</Text>
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Standard Templates</Text>
         <View style={styles.grid}>
           {freeTemplates.map((t) => (
             <TemplateCard
@@ -141,17 +146,25 @@ export default function TemplateSelectScreen() {
           ))}
         </View>
 
-        {/* Premium */}
-        <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>
-          Premium Templates
-        </Text>
+        {/* Premium — unlocked for all founders */}
+        <View style={styles.premiumHeaderRow}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
+            Premium Templates
+          </Text>
+          {isPremium && (
+            <View style={styles.unlockedBadge}>
+              <Feather name="unlock" size={11} color="#16A34A" />
+              <Text style={styles.unlockedText}>Unlocked</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.grid}>
           {premiumTemplates.map((t) => (
             <TemplateCard
               key={t.id}
               template={t}
-              isPremiumLocked
-              onPress={() => router.push('/premium' as never)}
+              isPremiumLocked={!isPremium}
+              onPress={isPremium ? () => handleSelect(t.id) : () => router.push('/premium' as never)}
             />
           ))}
         </View>
@@ -182,6 +195,12 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  premiumHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, marginBottom: 14 },
+  unlockedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
+  },
+  unlockedText: { fontSize: 11, fontWeight: '700', color: '#16A34A' },
   card: {
     width: '47.5%',
     borderRadius: 14,
