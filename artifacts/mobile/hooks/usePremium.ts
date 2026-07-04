@@ -6,11 +6,16 @@ export interface PremiumStatus {
   planId: string | null;
 }
 
+/**
+ * Returns the user's real premium status from their Firestore user document.
+ * Premium is granted when the user redeems a valid access code via the
+ * Premium screen. Admins can also manually set isPremium=true in the Users tab.
+ */
 export function usePremium(): PremiumStatus {
-  const { isLoading } = useAuth();
+  const { userDoc, isLoading } = useAuth();
   return {
-    isPremium: true,
+    isPremium: userDoc?.isPremium ?? false,
     isLoading,
-    planId: 'early-access',
+    planId: userDoc?.premiumPlanId ?? null,
   };
 }

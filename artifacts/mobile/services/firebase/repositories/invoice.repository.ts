@@ -38,14 +38,19 @@ export function subscribeToInvoices(
   callback: (invoices: Invoice[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
+  console.log('[Firestore][subscribe] Subscribing to invoices for uid:', uid);
   const q = query(invoicesRef(uid), orderBy('createdAt', 'desc'));
   return onSnapshot(
     q,
     (snap) => {
+      console.log('[Firestore][subscribe] Snapshot received —', snap.docs.length, 'docs');
       const invoices = snap.docs.map((d) => toInvoice(d.id, d.data() as RawInvoice));
       callback(invoices);
     },
-    (err) => onError?.(err)
+    (err) => {
+      console.error('[Firestore][subscribe] ✗ Snapshot error:', err.code, err.message);
+      onError?.(err);
+    }
   );
 }
 
@@ -53,6 +58,7 @@ export async function createInvoiceDoc(
   uid: string,
   data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>
 ): Promise<Invoice> {
+
   // Firestore throws on undefined values unless ignoreUndefinedProperties is set.
   // Strip them out here so optional fields (dueDate, clientPhone, etc.) are omitted.
   const sanitized: Record<string, unknown> = {};
@@ -60,15 +66,24 @@ export async function createInvoiceDoc(
     if (v !== undefined) sanitized[k] = v;
   }
 
+
+  console.log('[Firestore][create] Creating invoice doc for uid:', uid, '| invoiceNumber:', data.invoiceNumber);
+
   const payload = {
     ...sanitized,
     downloadCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
-  const ref = await addDoc(invoicesRef(uid), payload);
-  const now = new Date().toISOString();
-  return { ...data, id: ref.id, downloadCount: 0, createdAt: now, updatedAt: now };
+  try {
+    const ref = await addDoc(invoicesRef(uid), payload);
+    console.log('[Firestore][create] ✓ Created doc with id:', ref.id);
+    const now = new Date().toISOString();
+    return { ...data, id: ref.id, downloadCount: 0, createdAt: now, updatedAt: now };
+  } catch (err) {
+    console.error('[Firestore][create] ✗ addDoc failed:', err);
+    throw err;
+  }
 }
 
 export async function updateInvoiceDoc(
@@ -76,25 +91,38 @@ export async function updateInvoiceDoc(
   invoiceId: string,
   updates: Partial<Invoice>
 ): Promise<void> {
+  console.log('[Firestore][update] Updating invoice', invoiceId, 'for uid:', uid);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id: _id, createdAt: _ca, updatedAt: _ua, ...rest } = updates;
 
   // Replace undefined values with deleteField() so Firestore removes those fields.
-  // Passing undefined to Firestore throws if ignoreUndefinedProperties is not set.
   const sanitized: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rest)) {
     sanitized[k] = v === undefined ? deleteField() : v;
   }
 
-  await updateDoc(doc(db, 'users', uid, 'invoices', invoiceId), {
-    ...sanitized,
-    updatedAt: serverTimestamp(),
-  });
+  try {
+    await updateDoc(doc(db, 'users', uid, 'invoices', invoiceId), {
+      ...sanitized,
+      updatedAt: serverTimestamp(),
+    });
+    console.log('[Firestore][update] ✓ Updated invoice', invoiceId);
+  } catch (err) {
+    console.error('[Firestore][update] ✗ updateDoc failed:', err);
+    throw err;
+  }
 }
 
 export async function deleteInvoiceDoc(
   uid: string,
   invoiceId: string
 ): Promise<void> {
-  await deleteDoc(doc(db, 'users', uid, 'invoices', invoiceId));
+  console.log('[Firestore][delete] Deleting invoice', invoiceId, 'for uid:', uid);
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'invoices', invoiceId));
+    console.log('[Firestore][delete] ✓ Deleted invoice', invoiceId);
+  } catch (err) {
+    console.error('[Firestore][delete] ✗ deleteDoc failed:', err);
+    throw err;
+  }
 }

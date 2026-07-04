@@ -1,14 +1,52 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal,
   TextInput, Image, ActivityIndicator, Alert, Platform,
-  KeyboardAvoidingView, SafeAreaView,
+  KeyboardAvoidingView, SafeAreaView, FlatList,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from '@/hooks/useColors';
 import { useProfile } from '@/contexts/ProfileContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
+
+function cftRecordsKey(uid: string): string {
+  return `@TruckInvoice:cft_records:${uid}`;
+}
+
+function todayStr(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+interface CftRecord {
+  id: string;
+  customerName: string;
+  date: string;
+  truckNumber: string;
+  unit: string;
+  // Feet mode — dual Foot + Inches fields
+  lengthFt: string; lengthIn: string;
+  widthFt: string; widthIn: string;
+  heightFt: string; heightIn: string;
+  // Other modes — single value (also the display label for Feet mode)
+  length: string; width: string; height: string;
+  pricePerCft: string;
+  cft: number;
+  amount: number;
+  savedAt: string;
+}
+
+interface ProfitExpense {
+  id: string;
+  name: string;
+  amount: string;
+}
 
 type ToolId =
   | 'cft' | 'freight' | 'gst' | 'fuel' | 'distance'
@@ -132,35 +170,410 @@ function Chips({ options, value, onChange, accent }: { options: string[]; value:
   );
 }
 
+type CftUnit = 'Feet' | 'Inches' | 'Meters' | 'Yards';
+
 function CftCalc() {
-  const [unit, setUnit] = useState('Inches');
-  const [L, setL] = useState('');
-  const [W, setW] = useState('');
-  const [H, setH] = useState('');
-  const [items, setItems] = useState('1');
-  const [rate, setRate] = useState('');
-  const divisor = unit === 'Inches' ? 1728 : 1;
-  const cftEach = (num(L) * num(W) * num(H)) / divisor;
-  const totalCft = cftEach * num(items);
-  const freight = totalCft * num(rate);
+  const { user } = useAuth();
+  const [customerName, setCustomerName] = useState('');
+  const [date, setDate] = useState(todayStr());
+  const [truckNumber, setTruckNumber] = useState('');
+  const [unit, setUnit] = useState<CftUnit>('Feet');
+  const [showUnitPicker, setShowUnitPicker] = useState(false);
+
+  // Feet-mode: dual Foot + Inches per dimension
+  const [Lft, setLft] = useState(''); const [Lin, setLin] = useState('');
+  const [Wft, setWft] = useState(''); const [Win, setWin] = useState('');
+  const [Hft, setHft] = useState(''); const [Hin, setHin] = useState('');
+  // Other modes: single value
+  const [Lval, setLval] = useState('');
+  const [Wval, setWval] = useState('');
+  const [Hval, setHval] = useState('');
+
+  const [pricePerCft, setPricePerCft] = useState('');
+  const [result, setResult] = useState<{ cft: number; amount: number } | null>(null);
+  const [records, setRecords] = useState<CftRecord[]>([]);
+  const [showRecords, setShowRecords] = useState(false);
+  const [recordSearch, setRecordSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    AsyncStorage.getItem(cftRecordsKey(user.uid)).then((raw) => {
+      if (!raw) return;
+      try { setRecords(JSON.parse(raw) as CftRecord[]); } catch { /* ignore corrupt */ }
+    });
+  }, [user?.uid]);
+
+  const calcCft = useCallback((): { cft: number; amount: number } => {
+    let cft = 0;
+    if (unit === 'Feet') {
+      const l = num(Lft) + num(Lin) / 12;
+      const w = num(Wft) + num(Win) / 12;
+      const h = num(Hft) + num(Hin) / 12;
+      cft = l * w * h;
+    } else if (unit === 'Inches') {
+      cft = (num(Lval) * num(Wval) * num(Hval)) / 1728;
+    } else if (unit === 'Meters') {
+      cft = num(Lval) * num(Wval) * num(Hval) * 35.3147;
+    } else {
+      cft = num(Lval) * num(Wval) * num(Hval) * 27;
+    }
+    const amount = cft * num(pricePerCft);
+    const res = { cft, amount };
+    setResult(res);
+    return res;
+  }, [unit, Lft, Lin, Wft, Win, Hft, Hin, Lval, Wval, Hval, pricePerCft]);
+
+  const clear = () => {
+    setCustomerName(''); setDate(todayStr()); setTruckNumber('');
+    setLft(''); setLin(''); setWft(''); setWin(''); setHft(''); setHin('');
+    setLval(''); setWval(''); setHval('');
+    setPricePerCft(''); setResult(null);
+  };
+
+  const loadRecord = (r: CftRecord) => {
+    setCustomerName(r.customerName); setDate(r.date); setTruckNumber(r.truckNumber);
+    setUnit(r.unit as CftUnit);
+    if (r.unit === 'Feet') {
+      setLft(r.lengthFt || r.length); setLin(r.lengthIn || '');
+      setWft(r.widthFt || r.width); setWin(r.widthIn || '');
+      setHft(r.heightFt || r.height); setHin(r.heightIn || '');
+    } else {
+      setLval(r.length); setWval(r.width); setHval(r.height);
+    }
+    setPricePerCft(r.pricePerCft);
+    setResult({ cft: r.cft, amount: r.amount });
+    setShowRecords(false);
+  };
+
+  const saveRecord = async () => {
+    if (!user?.uid) { Alert.alert('Not signed in', 'Please log in to save records.'); return; }
+    const calc = result ?? calcCft();
+    if (calc.cft <= 0) { Alert.alert('No Dimensions', 'Enter dimensions before saving.'); return; }
+    setSaving(true);
+    try {
+      const dimLabel = unit === 'Feet'
+        ? `${Lft}'${Lin}" × ${Wft}'${Win}" × ${Hft}'${Hin}"`
+        : `${Lval} × ${Wval} × ${Hval} ${unit}`;
+      const newRec: CftRecord = {
+        id: Date.now().toString(),
+        customerName: customerName.trim() || 'Unknown Customer',
+        date, truckNumber: truckNumber.trim(), unit,
+        lengthFt: Lft, lengthIn: Lin, widthFt: Wft, widthIn: Win, heightFt: Hft, heightIn: Hin,
+        length: unit === 'Feet' ? dimLabel : Lval,
+        width: unit === 'Feet' ? '' : Wval,
+        height: unit === 'Feet' ? '' : Hval,
+        pricePerCft, cft: calc.cft, amount: calc.amount,
+        savedAt: new Date().toISOString(),
+      };
+      const updated = [newRec, ...records];
+      await AsyncStorage.setItem(cftRecordsKey(user.uid), JSON.stringify(updated));
+      setRecords(updated);
+      Alert.alert('✓ Saved', `CFT record for ${newRec.customerName} saved.`);
+    } catch { Alert.alert('Error', 'Failed to save. Try again.'); }
+    setSaving(false);
+  };
+
+  const deleteRecord = async (id: string) => {
+    if (!user?.uid) return;
+    const updated = records.filter((r) => r.id !== id);
+    await AsyncStorage.setItem(cftRecordsKey(user.uid), JSON.stringify(updated));
+    setRecords(updated);
+  };
+
+  const filteredRecords = records.filter((r) =>
+    !recordSearch ||
+    r.customerName.toLowerCase().includes(recordSearch.toLowerCase()) ||
+    r.truckNumber.toLowerCase().includes(recordSearch.toLowerCase())
+  );
+
+  const unitLabel = unit === 'Feet' ? 'ft' : unit === 'Inches' ? 'in' : unit === 'Meters' ? 'm' : 'yd';
+
+  // Plain render helper (NOT a React component) — avoids remount/focus-loss issue
+  const renderDim = (
+    label: string,
+    ft: string, setFt: (v: string) => void,
+    inches: string, setInches: (v: string) => void,
+    val: string, setVal: (v: string) => void,
+  ) => (
+    <View style={{ marginBottom: 12 }} key={label}>
+      <Text style={fl.label}>{label}</Text>
+      {unit === 'Feet' ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              value={ft}
+              onChangeText={(v) => { setFt(v); setResult(null); }}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor="#9CA3AF"
+              style={cft.dimInput}
+            />
+            <Text style={cft.dimUnit}>feet</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              value={inches}
+              onChangeText={(v) => { setInches(v); setResult(null); }}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor="#9CA3AF"
+              style={cft.dimInput}
+            />
+            <Text style={cft.dimUnit}>inches</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TextInput
+            value={val}
+            onChangeText={(v) => { setVal(v); setResult(null); }}
+            keyboardType="decimal-pad"
+            placeholder="0"
+            placeholderTextColor="#9CA3AF"
+            style={[cft.dimInput, { flex: 1 }]}
+          />
+          <Text style={[cft.dimUnit, { position: 'absolute', right: 12, bottom: 14, color: '#9CA3AF' }]}>{unitLabel}</Text>
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <View>
-      <Seg options={['Inches', 'Feet']} value={unit} onChange={setUnit} />
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}><Field label="Length" value={L} onChange={setL} suffix={unit[0]} /></View>
-        <View style={{ flex: 1 }}><Field label="Width" value={W} onChange={setW} suffix={unit[0]} /></View>
-        <View style={{ flex: 1 }}><Field label="Height" value={H} onChange={setH} suffix={unit[0]} /></View>
+      {/* ── Customer Name ── */}
+      <Field label="Customer Name" value={customerName} onChange={setCustomerName} keyboard="default" placeholder="Enter customer name" />
+
+      {/* ── Date ── */}
+      <Field label="Date" value={date} onChange={setDate} keyboard="default" placeholder="DD-MM-YYYY" />
+
+      {/* ── Truck Number + Unit Selector ── */}
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+        <View style={{ flex: 1 }}>
+          <Field label="Truck Number" value={truckNumber} onChange={setTruckNumber} keyboard="default" placeholder="e.g. MH12AB1234" />
+        </View>
+        <View style={{ marginBottom: 12 }}>
+          <Text style={[fl.label, { marginBottom: 6 }]}>Unit</Text>
+          <TouchableOpacity
+            style={cft.unitSelector}
+            onPress={() => setShowUnitPicker((v) => !v)}
+            activeOpacity={0.8}
+          >
+            <Text style={cft.unitSelectorTxt}>{unit}</Text>
+            <Feather name={showUnitPicker ? 'chevron-up' : 'chevron-down'} size={14} color="#1A3C6E" />
+          </TouchableOpacity>
+        </View>
       </View>
-      <Field label="Number of Items" value={items} onChange={setItems} />
-      <Field label="Rate per CFT (₹)" value={rate} onChange={setRate} suffix="₹" placeholder="Optional" />
-      <ResultBox>
-        <ResultRow label="CFT per Item" value={fmt2(cftEach) + ' CFT'} />
-        <ResultRow label="Total CFT" value={fmt2(totalCft) + ' CFT'} accent />
-        {num(rate) > 0 && <ResultRow label="Total Freight" value={'₹ ' + fmt2(freight)} accent />}
-      </ResultBox>
+
+      {/* ── Unit picker dropdown ── */}
+      {showUnitPicker && (
+        <View style={cft.unitDropdown}>
+          {(['Feet', 'Inches', 'Meters', 'Yards'] as CftUnit[]).map((u) => (
+            <TouchableOpacity
+              key={u}
+              style={[cft.unitOption, u === unit && cft.unitOptionActive]}
+              onPress={() => { setUnit(u); setShowUnitPicker(false); setResult(null); }}
+            >
+              <Text style={[cft.unitOptionTxt, u === unit && { color: '#fff', fontWeight: '800' }]}>{u}</Text>
+              {u === 'Feet' && <Text style={[cft.unitOptionHint, u === unit && { color: '#BFDBFE' }]}>Dual ft + in input</Text>}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* ── Dimensions ── */}
+      <View style={{ marginTop: 4 }}>
+        {renderDim('Length', Lft, setLft, Lin, setLin, Lval, setLval)}
+        {renderDim('Width',  Wft, setWft, Win, setWin, Wval, setWval)}
+        {renderDim('Height', Hft, setHft, Hin, setHin, Hval, setHval)}
+      </View>
+
+      {/* ── Price per CFT ── */}
+      <Field label="Price per CFT (₹)" value={pricePerCft} onChange={(v) => { setPricePerCft(v); setResult(null); }} suffix="₹" placeholder="Optional" />
+
+      {/* ── Result box ── */}
+      {result !== null && (
+        <ResultBox>
+          <ResultRow label="Volume" value={`${fmt2(result.cft)} CFT`} accent />
+          {result.amount > 0 && <ResultRow label="Total Amount" value={`₹ ${fmt2(result.amount)}`} accent />}
+          <ResultRow label="Unit" value={unit} />
+        </ResultBox>
+      )}
+
+      {/* ── Action buttons ── */}
+      <View style={cft.btnRow}>
+        <TouchableOpacity style={[cft.btn, cft.calcBtn]} onPress={calcCft} activeOpacity={0.85}>
+          <Feather name="zap" size={15} color="#fff" />
+          <Text style={cft.btnTxt}>Calculate</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[cft.btn, cft.clearBtn]} onPress={clear} activeOpacity={0.85}>
+          <Feather name="refresh-ccw" size={15} color="#374151" />
+          <Text style={[cft.btnTxt, { color: '#374151' }]}>Clear</Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity
+        style={[cft.btn, cft.saveBtn, { opacity: saving ? 0.7 : 1 }]}
+        onPress={saveRecord} disabled={saving} activeOpacity={0.85}
+      >
+        {saving
+          ? <ActivityIndicator color="#fff" size="small" />
+          : <><Feather name="save" size={15} color="#fff" /><Text style={cft.btnTxt}>Save Record</Text></>
+        }
+      </TouchableOpacity>
+
+      {/* ── View saved records ── */}
+      <TouchableOpacity style={cft.recordsBtn} onPress={() => setShowRecords(true)} activeOpacity={0.85}>
+        <Feather name="list" size={15} color="#1A3C6E" />
+        <Text style={cft.recordsBtnTxt}>View Saved Records ({records.length})</Text>
+        <Feather name="chevron-right" size={15} color="#1A3C6E" />
+      </TouchableOpacity>
+
+      {/* ── Saved Records Modal ── */}
+      <Modal visible={showRecords} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowRecords(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+          <View style={cft.recHeader}>
+            <Text style={cft.recTitle}>Saved CFT Records</Text>
+            <TouchableOpacity onPress={() => setShowRecords(false)} hitSlop={12} style={cft.recClose}>
+              <Feather name="x" size={20} color="#374151" />
+            </TouchableOpacity>
+          </View>
+          {/* Search Bar */}
+          <View style={cft.searchRow}>
+            <Feather name="search" size={15} color="#9CA3AF" />
+            <TextInput
+              value={recordSearch}
+              onChangeText={setRecordSearch}
+              placeholder="Search by name or truck number..."
+              placeholderTextColor="#9CA3AF"
+              style={cft.searchInput}
+            />
+            {recordSearch ? (
+              <TouchableOpacity onPress={() => setRecordSearch('')} hitSlop={8}>
+                <Feather name="x-circle" size={15} color="#9CA3AF" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          {filteredRecords.length === 0 ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              <Feather name="inbox" size={48} color="#D1D5DB" />
+              <Text style={{ color: '#9CA3AF', fontSize: 15 }}>
+                {records.length === 0 ? 'No saved records yet' : 'No records match your search'}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredRecords}
+              keyExtractor={(r) => r.id}
+              contentContainerStyle={{ padding: 16 }}
+              renderItem={({ item: r }) => (
+                <TouchableOpacity
+                  style={cft.recCard}
+                  onPress={() => Alert.alert(
+                    r.customerName,
+                    'Load this record into the calculator?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Load for Editing', onPress: () => loadRecord(r) },
+                    ]
+                  )}
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={cft.recName}>{r.customerName}</Text>
+                      <Text style={cft.recMeta}>{r.date}{r.truckNumber ? `  ·  ${r.truckNumber}` : ''}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                      <Feather name="edit-2" size={14} color="#1A3C6E" />
+                      <TouchableOpacity onPress={() => Alert.alert('Delete', 'Remove this record?', [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Delete', style: 'destructive', onPress: () => deleteRecord(r.id) },
+                      ])} hitSlop={8}>
+                        <Feather name="trash-2" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <View style={cft.recDims}>
+                    <Text style={cft.recDimTxt}>
+                      {r.unit === 'Feet' ? r.length : `${r.length} × ${r.width} × ${r.height}`} {r.unit !== 'Feet' ? r.unit : ''}
+                    </Text>
+                    <Text style={cft.recCft}>{fmt2(r.cft)} CFT</Text>
+                  </View>
+                  {r.amount > 0 && <Text style={cft.recAmount}>₹ {fmt2(r.amount)}</Text>}
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
+
+const cft = StyleSheet.create({
+  btnRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  btn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12 },
+  calcBtn: { backgroundColor: '#1A3C6E' },
+  clearBtn: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  saveBtn: { backgroundColor: '#16A34A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12, marginTop: 8 },
+  btnTxt: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  recordsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginTop: 12, paddingVertical: 12, borderRadius: 12,
+    backgroundColor: '#EEF3FF', borderWidth: 1, borderColor: '#BFDBFE',
+  },
+  recordsBtnTxt: { color: '#1A3C6E', fontWeight: '700', fontSize: 13, flex: 1, textAlign: 'center' },
+  // Unit selector
+  unitSelector: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1.5, borderColor: '#1A3C6E', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 11, backgroundColor: '#EEF3FF',
+  },
+  unitSelectorTxt: { fontSize: 13, fontWeight: '800', color: '#1A3C6E' },
+  unitDropdown: {
+    backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB',
+    marginTop: -8, marginBottom: 12, overflow: 'hidden',
+    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 4,
+  },
+  unitOption: { paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  unitOptionActive: { backgroundColor: '#1A3C6E' },
+  unitOptionTxt: { fontSize: 14, fontWeight: '600', color: '#374151' },
+  unitOptionHint: { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
+  // Dimension inputs
+  dimInput: {
+    borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 12, paddingRight: 40,
+    fontSize: 16, fontWeight: '600', color: '#111827', backgroundColor: '#fff',
+  },
+  dimUnit: { fontSize: 11, color: '#9CA3AF', marginTop: 4 },
+  // Search
+  searchRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderRadius: 10, margin: 12,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#E5E7EB',
+  },
+  searchInput: { flex: 1, fontSize: 14, color: '#111827' },
+  // Records
+  recHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 16,
+    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+  },
+  recTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
+  recClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  recCard: {
+    backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10,
+    borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+  },
+  recName: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  recMeta: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  recDims: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, backgroundColor: '#F9FAFB', borderRadius: 8, padding: 8 },
+  recDimTxt: { fontSize: 13, color: '#374151', fontWeight: '600', flex: 1 },
+  recCft: { fontSize: 14, fontWeight: '800', color: '#1A3C6E' },
+  recAmount: { fontSize: 15, fontWeight: '800', color: '#16A34A', marginTop: 6, textAlign: 'right' },
+});
 
 function FreightCalc() {
   const [weight, setWeight] = useState('');
@@ -279,41 +692,96 @@ function DistanceCalc() {
   );
 }
 
+const DEFAULT_PROFIT_EXPENSES: ProfitExpense[] = [
+  { id: '1', name: 'Fuel', amount: '' },
+  { id: '2', name: 'Driver', amount: '' },
+  { id: '3', name: 'Toll', amount: '' },
+  { id: '4', name: 'Loading', amount: '' },
+  { id: '5', name: 'Unloading', amount: '' },
+];
+
 function ProfitCalc() {
   const [revenue, setRevenue] = useState('');
-  const [fuel, setFuel] = useState('');
-  const [driver, setDriver] = useState('');
-  const [toll, setToll] = useState('');
-  const [loading, setLoading] = useState('');
-  const [unloading, setUnloading] = useState('');
-  const [other, setOther] = useState('');
-  const expenses = num(fuel) + num(driver) + num(toll) + num(loading) + num(unloading) + num(other);
-  const profit = num(revenue) - expenses;
+  const [expenses, setExpenses] = useState<ProfitExpense[]>(DEFAULT_PROFIT_EXPENSES);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const totalExpenses = expenses.reduce((s, e) => s + num(e.amount), 0);
+  const profit = num(revenue) - totalExpenses;
   const margin = num(revenue) > 0 ? (profit / num(revenue)) * 100 : 0;
+
+  const addExpense = () => {
+    const newExp: ProfitExpense = { id: Date.now().toString(), name: '', amount: '' };
+    setExpenses((prev) => [...prev, newExp]);
+    setEditingId(newExp.id);
+  };
+
+  const updateExpense = (id: string, field: 'name' | 'amount', value: string) => {
+    setExpenses((prev) => prev.map((e) => e.id === id ? { ...e, [field]: value } : e));
+  };
+
+  const removeExpense = (id: string) => {
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    if (editingId === id) setEditingId(null);
+  };
+
   return (
     <View>
       <Field label="Revenue / Billing Amount (₹)" value={revenue} onChange={setRevenue} suffix="₹" />
-      <Text style={[fl.label, { marginBottom: 8, marginTop: 4 }]}>Expenses</Text>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}><Field label="Fuel (₹)" value={fuel} onChange={setFuel} /></View>
-        <View style={{ flex: 1 }}><Field label="Driver (₹)" value={driver} onChange={setDriver} /></View>
+      <View style={profit_s.expensesHeader}>
+        <Text style={fl.label}>Expenses</Text>
+        <TouchableOpacity style={profit_s.addExpenseBtn} onPress={addExpense} activeOpacity={0.8}>
+          <Feather name="plus" size={13} color="#1A3C6E" />
+          <Text style={profit_s.addExpenseTxt}>Add</Text>
+        </TouchableOpacity>
       </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}><Field label="Toll (₹)" value={toll} onChange={setToll} /></View>
-        <View style={{ flex: 1 }}><Field label="Loading (₹)" value={loading} onChange={setLoading} /></View>
-      </View>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}><Field label="Unloading (₹)" value={unloading} onChange={setUnloading} /></View>
-        <View style={{ flex: 1 }}><Field label="Other (₹)" value={other} onChange={setOther} /></View>
-      </View>
+      {expenses.map((e) => (
+        <View key={e.id} style={profit_s.expenseRow}>
+          <TextInput
+            value={e.name}
+            onChangeText={(v) => updateExpense(e.id, 'name', v)}
+            placeholder="Expense name"
+            placeholderTextColor="#9CA3AF"
+            style={profit_s.expenseName}
+          />
+          <View style={profit_s.expenseAmtWrap}>
+            <Text style={profit_s.expenseCurrency}>₹</Text>
+            <TextInput
+              value={e.amount}
+              onChangeText={(v) => updateExpense(e.id, 'amount', v)}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor="#9CA3AF"
+              style={profit_s.expenseAmt}
+            />
+          </View>
+          <TouchableOpacity onPress={() => removeExpense(e.id)} hitSlop={8} style={profit_s.expenseDelete}>
+            <Feather name="x" size={14} color="#EF4444" />
+          </TouchableOpacity>
+        </View>
+      ))}
       <ResultBox>
-        <ResultRow label="Total Expenses" value={'₹ ' + fmt2(expenses)} />
-        <ResultRow label="Net Profit" value={(profit >= 0 ? '+ ' : '- ') + '₹ ' + fmt2(Math.abs(profit))} accent />
+        <ResultRow label="Total Expenses" value={'₹ ' + fmt2(totalExpenses)} />
+        <ResultRow label="Net Profit" value={(profit >= 0 ? '+ ' : '− ') + '₹ ' + fmt2(Math.abs(profit))} accent />
         <ResultRow label="Profit Margin" value={fmt2(margin) + '%'} />
       </ResultBox>
     </View>
   );
 }
+
+const profit_s = StyleSheet.create({
+  expensesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 },
+  addExpenseBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EEF3FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  addExpenseTxt: { fontSize: 13, fontWeight: '700', color: '#1A3C6E' },
+  expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  expenseName: {
+    flex: 1, borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, color: '#111827', backgroundColor: '#fff',
+  },
+  expenseAmtWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10, backgroundColor: '#fff', paddingLeft: 10, width: 110 },
+  expenseCurrency: { fontSize: 14, color: '#6B7280', fontWeight: '600' },
+  expenseAmt: { flex: 1, paddingHorizontal: 6, paddingVertical: 11, fontSize: 14, color: '#111827' },
+  expenseDelete: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' },
+});
 
 const WEIGHT_UNITS = ['kg', 'ton', 'quintal', 'pound', 'gram'];
 const toKg: Record<string, number> = { kg: 1, ton: 1000, quintal: 100, pound: 0.453592, gram: 0.001 };

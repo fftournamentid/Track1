@@ -1,3 +1,4 @@
+- [Invoice save + PDF flow bugs](invoice-save-pdf-flow.md) — save falls back to user-scoped AsyncStorage; web platform must use downloadForWeb; Supabase needs env vars
 - [expo-file-system v56 legacy import](expo-file-system-legacy.md) — v56 breaks documentDirectory; always import from expo-file-system/legacy in shareService
 - [Truck Invoice Manager architecture](truck-invoice-arch.md) — InvoiceContext.duplicateInvoice needs two args (id + newNumber); generatePDF returns PDFResult not string
 - [Ionicons icon availability](ionicons-icons.md) — "crown" is NOT in this Ionicons build; use Feather "award" for premium/medal UI instead.

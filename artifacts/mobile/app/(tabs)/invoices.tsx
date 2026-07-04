@@ -26,7 +26,7 @@ export default function InvoicesScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { invoices } = useInvoices();
+  const { invoices, isOffline } = useInvoices();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
@@ -128,6 +128,16 @@ export default function InvoicesScreen() {
             </Pressable>
           ))}
         </ScrollView>
+
+        {/* Offline banner */}
+        {isOffline && (
+          <View style={[styles.offlineBanner, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
+            <Feather name="wifi-off" size={13} color="#92400E" />
+            <Text style={[styles.offlineText, { color: '#92400E' }]}>
+              Offline — showing locally saved invoices
+            </Text>
+          </View>
+        )}
 
         {/* Count */}
         <Text style={[styles.count, { color: colors.mutedForeground }]}>
@@ -291,4 +301,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   sortOptionText: { fontSize: 15, fontWeight: '500' },
+  offlineBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 7,
+    borderRadius: 8, borderWidth: 1, marginBottom: 8,
+  },
+  offlineText: { fontSize: 12, fontWeight: '600' },
 });

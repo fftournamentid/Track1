@@ -403,15 +403,17 @@ function renderHTML(
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=794, initial-scale=1.0">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:${t.font}; color:${t.bodyText}; background:${t.bodyBg}; font-size:13px; }
-  .page { width:794px; min-height:1123px; padding:48px 52px; position:relative; background:${t.bodyBg}; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html, body { width:794px; font-family:${t.font}; color:${t.bodyText}; background:#f0f0f0; font-size:13px; }
+  .page { width:794px; min-height:1123px; padding:48px 52px; position:relative; background:${t.bodyBg}; margin:0 auto; }
   table { width:100%; border-collapse:collapse; margin-bottom:20px; }
   thead tr { background:${t.tableHeadBg}; }
   thead th { padding:11px 14px; font-size:10.5px; text-transform:uppercase; letter-spacing:0.8px; color:${t.tableHeadText}; text-align:left; }
   tbody tr { border-bottom:1px solid ${t.borderColor}; }
-  @media print { .page { padding:40px; } @page { size:A4; margin:0; } }
+  @page { size:A4; margin:0; }
+  @media print { html,body { background:#fff; } .page { margin:0; padding:40px; } }
 </style>
 </head>
 <body>

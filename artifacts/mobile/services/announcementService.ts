@@ -27,10 +27,12 @@ export function subscribeToActiveAnnouncements(cb: (list: Announcement[]) => voi
 }
 
 export async function createAnnouncement(
-  data: { title: string; message: string; priority: number; active: boolean }
+  data: { title: string; message: string; priority: number; active: boolean; isPinned?: boolean; isPopup?: boolean }
 ): Promise<string> {
   const ref = await addDoc(collection(db, COL), {
     ...data,
+    isPinned: data.isPinned ?? false,
+    isPopup: data.isPopup ?? false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -39,7 +41,7 @@ export async function createAnnouncement(
 
 export async function updateAnnouncement(
   id: string,
-  data: Partial<{ title: string; message: string; priority: number; active: boolean }>
+  data: Partial<{ title: string; message: string; priority: number; active: boolean; isPinned: boolean; isPopup: boolean }>
 ): Promise<void> {
   await updateDoc(doc(db, COL, id), { ...data, updatedAt: serverTimestamp() });
 }

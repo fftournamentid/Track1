@@ -81,7 +81,7 @@ export default function CreateInvoiceScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id: editId, templateId: tplParam } = useLocalSearchParams<{ id?: string; templateId?: string }>();
+  const { id: editId, templateId: tplParam, fresh } = useLocalSearchParams<{ id?: string; templateId?: string; fresh?: string }>();
   const isEditing = !!editId;
 
   const { createInvoice, updateInvoice, getInvoiceById } = useInvoices();
@@ -147,6 +147,21 @@ export default function CreateInvoiceScreen() {
         if (inv.templateId) setSelectedTemplateId(inv.templateId);
       }
       initializedRef.current = true;
+    } else if (fresh === '1') {
+      // "Create New Invoice" — always start completely blank, ignore any saved draft
+      clearDraft().catch(() => {});
+      generateNextInvoiceNumber().then(setInvoiceNumber);
+      setDate(todayFormatted());
+      setDueDate('');
+      setClientName(''); setClientPhone(''); setClientAddress(''); setClientGST('');
+      setFromLocation(''); setToLocation('');
+      setTruckNumber(profile.truckNumber);
+      setDriverName(profile.driverName);
+      setAdvanceAmount('');
+      setExpenses([{ id: generateId(), name: '', amount: 0 }]);
+      setPaymentTerms(settings.defaultPaymentTerms);
+      setNotes(profile.footerNotes || '');
+      initializedRef.current = true;
     } else {
       // New invoice: check for a saved draft first
       loadDraft().then((draft) => {
@@ -180,7 +195,7 @@ export default function CreateInvoiceScreen() {
         }
       });
     }
-  }, [editId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editId, fresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Auto-save effect (debounced 2 s) ──────────────────────────────────────
   useEffect(() => {
