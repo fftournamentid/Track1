@@ -488,9 +488,7 @@ export default function InvoicePreviewScreen() {
   const invoice = payload?.invoice;
   const editId = payload?.editId;
 
-  const handleSave = 
-  useCallback(async () => {
-
+  const handleSave = useCallback(async () => {
     if (!invoice) {
       Alert.alert('Error', 'No invoice data found. Please go back and try again.');
       return;
@@ -499,53 +497,48 @@ export default function InvoicePreviewScreen() {
     try {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, ...data } = invoice;
-  
-    console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId);
-  {console.warn('[Save] No invoice in payload — aborting.'); return;
 
+      console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId);
 
-    const uid = user?.uid;
-    console.log('[Save] Current user uid:', uid ?? 'NOT AUTHENTICATED');
+      const uid = user?.uid;
+      console.log('[Save] Current user uid:', uid ?? 'NOT AUTHENTICATED');
 
-    let savedId: string | null = null;
-    let firestoreOk = false;
+      let savedId: string | null = null;
 
-    try {
-const data = invoice;
-      if (editId) {
-        console.log('[Save] Updating existing invoice in Firestore, id:', editId);
-        await updateInvoice(editId, data);
-        savedId = editId;
-        console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
-      } else {
-        console.log('[Save] Creating new invoice in Firestore...');
-        const saved = await createInvoice({ ...data, status: data.status || 'pending' });
-        savedId = saved.id;
-        console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
-      }
-      firestoreOk = true;
-    } catch (firestoreErr) {
-      console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
-      if (!uid) {
-        showToast('Save failed: not signed in', 'error');
-        setSaving(false);
-        return;
-      }
       try {
-        savedId = await saveLocalFallback(invoice, uid, editId);
-        console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
-        // Immediately surface the invoice in the Invoices tab list
-        const localInvoice: Invoice = { ...invoice, id: savedId };
-        await addLocalInvoice(localInvoice);
-        showToast('Saved locally (offline — will sync when online)', 'success');
-      } catch (localErr) {
-        console.error('[Save] ✗ AsyncStorage fallback also FAILED:', localErr);
-        const msg = localErr instanceof Error ? localErr.message : String(localErr);
-        showToast(`Save failed: ${msg}`, 'error');
-        setSaving(false);
-        return;
+        if (editId) {
+          console.log('[Save] Updating existing invoice in Firestore, id:', editId);
+          await updateInvoice(editId, data);
+          savedId = editId;
+          console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
+        } else {
+          console.log('[Save] Creating new invoice in Firestore...');
+          const saved = await createInvoice({ ...data, status: data.status || 'pending' });
+          savedId = saved.id;
+          console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
+        }
+      } catch (firestoreErr) {
+        console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
+        if (!uid) {
+          showToast('Save failed: not signed in', 'error');
+          setSaving(false);
+          return;
+        }
+        try {
+          savedId = await saveLocalFallback(invoice, uid, editId);
+          console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
+          // Immediately surface the invoice in the Invoices tab list
+          const localInvoice: Invoice = { ...invoice, id: savedId };
+          await addLocalInvoice(localInvoice);
+          showToast('Saved locally (offline — will sync when online)', 'success');
+        } catch (localErr) {
+          console.error('[Save] ✗ AsyncStorage fallback also FAILED:', localErr);
+          const msg = localErr instanceof Error ? localErr.message : String(localErr);
+          showToast(`Save failed: ${msg}`, 'error');
+          setSaving(false);
+          return;
+        }
       }
-
 
       await clearDraft();
       await clearPreviewData();
@@ -560,11 +553,7 @@ const data = invoice;
       Alert.alert('Save Failed', String(err instanceof Error ? err.message : err));
     } finally {
       setSaving(false);
-
-
     }
-
-  
   }, [invoice, editId, createInvoice, updateInvoice, addLocalInvoice, router, user?.uid]);
 
   const handleDownloadPDF = useCallback(async () => {

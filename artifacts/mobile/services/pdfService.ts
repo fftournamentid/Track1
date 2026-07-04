@@ -104,14 +104,7 @@ export async function generateAndSaveInvoicePDF(
     return { uri: result.uri, filename, publicUrl: undefined };
   }
 
-  await FileSystem.copyAsync({ from: result.uri, to: dest });
-
-  const info = await FileSystem.getInfoAsync(dest);
-  if (!info.exists || (info.size ?? 0) < 1024) {
-    throw new Error(`PDF generation failed — file is ${(info as { size?: number }).size ?? 0} bytes (minimum 1 KB). URI: ${dest}`);
-
   console.log('[PDF] printToFileAsync returned URI:', result.uri);
-
   console.log('[PDF] Copying to stable path:', dest);
   await FileSystem.copyAsync({ from: result.uri, to: dest });
 
@@ -121,7 +114,6 @@ export async function generateAndSaveInvoicePDF(
 
   if (!info.exists || size < 1024) {
     throw new Error(`PDF generation failed — file is ${size} bytes (minimum 1 KB). Path: ${dest}`);
-
   }
 
   // Upload to Supabase
