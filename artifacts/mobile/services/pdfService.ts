@@ -3,7 +3,7 @@ import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 import { buildInvoiceHTML, generatePDFWithTemplate } from './invoiceTemplates';
-import { uploadPDFToSupabase } from './supabaseStorage';
+import { uploadPDFToFirebaseStorage } from './firebase/firebaseStorage';
 
 export interface PDFResult {
   uri: string;
@@ -12,7 +12,7 @@ export interface PDFResult {
 export interface SavedPDF {
   uri: string;
   filename: string;
-  /** Public Supabase URL if upload succeeded, undefined otherwise. */
+  /** Firebase Storage download URL if upload succeeded, undefined otherwise. */
   publicUrl?: string;
 }
 
@@ -30,14 +30,14 @@ async function fileExistsAndValid(uri: string): Promise<boolean> {
 }
 
 /**
- * Generates a PDF for the invoice, saves it locally, and uploads to Supabase.
+ * Generates a PDF for the invoice, saves it locally, and uploads to Firebase Storage.
  *
  * Cache key = invoiceNumber + templateId so switching templates always regenerates.
  * Pass forceRegenerate=true to bypass cache (e.g. invoice data changed).
- * Pass userId to enable Supabase upload; omit/undefined for guest/preview scenarios.
+ * Pass userId to enable Firebase Storage upload; omit/undefined for guest/preview scenarios.
  *
  * Returns { uri, filename, publicUrl? }
- * publicUrl is the Supabase public URL; undefined if upload was skipped or failed.
+ * publicUrl is the Firebase Storage download URL; undefined if upload was skipped or failed.
  */
 export async function generateAndSaveInvoicePDF(
   invoice: Invoice,
@@ -55,10 +55,9 @@ export async function generateAndSaveInvoicePDF(
 
   // Web: expo-print not supported → return HTML blob URI
   if (Platform.OS === 'web') {
-    console.log('[PDF] Web platform — generating HTML blob URI (real PDF not supported on web)');
+    console.log('[PDF] Web platform — generating HTML blob URI');
     const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.html`;
     const result = await generatePDFWithTemplate(invoice, templateId);
-    console.log('[PDF] Web blob URI ready:', result.uri);
     return { uri: result.uri, filename };
   }
 
@@ -73,17 +72,17 @@ export async function generateAndSaveInvoicePDF(
       console.log('[PDF] ✓ Valid cached file found at:', dest);
       let publicUrl: string | undefined;
       if (userId) {
-        console.log('[PDF] Uploading cached file to Supabase for userId:', userId);
+        console.log('[PDF] Uploading cached file to Firebase Storage for userId:', userId);
         try {
-          const uploaded = await uploadPDFToSupabase(dest, filename, userId);
+          const uploaded = await uploadPDFToFirebaseStorage(dest, filename, userId);
           if (uploaded) {
             publicUrl = uploaded;
-            console.log('[PDF] ✓ Supabase upload (cache path) succeeded:', publicUrl);
+            console.log('[PDF] ✓ Firebase Storage upload (cache path) succeeded:', publicUrl);
           } else {
-            console.warn('[PDF] Supabase upload (cache path) returned null — env vars may be missing');
+            console.warn('[PDF] Firebase Storage upload returned null');
           }
         } catch (uploadErr) {
-          console.warn('[PDF] Supabase upload (cache path) threw:', uploadErr);
+          console.warn('[PDF] Firebase Storage upload threw (non-fatal):', uploadErr);
         }
       }
       return { uri: dest, filename, publicUrl };
@@ -96,7 +95,6 @@ export async function generateAndSaveInvoicePDF(
   // Generate fresh PDF
   console.log('[PDF] Calling generatePDFWithTemplate...');
   const result = await generatePDFWithTemplate(invoice, templateId);
-
 
   // On web, generatePDFWithTemplate returns a blob URL which cannot be
   // copied via FileSystem. Return it directly — no local cache on web.
@@ -116,23 +114,23 @@ export async function generateAndSaveInvoicePDF(
     throw new Error(`PDF generation failed — file is ${size} bytes (minimum 1 KB). Path: ${dest}`);
   }
 
-  // Upload to Supabase
+  // Upload to Firebase Storage
   let publicUrl: string | undefined;
   if (userId) {
-    console.log('[PDF] Uploading to Supabase, userId:', userId, '| filename:', filename);
+    console.log('[PDF] Uploading to Firebase Storage, userId:', userId, '| filename:', filename);
     try {
-      const uploaded = await uploadPDFToSupabase(dest, filename, userId);
+      const uploaded = await uploadPDFToFirebaseStorage(dest, filename, userId);
       if (uploaded) {
         publicUrl = uploaded;
-        console.log('[PDF] ✓ Supabase upload succeeded:', publicUrl);
+        console.log('[PDF] ✓ Firebase Storage upload succeeded:', publicUrl);
       } else {
-        console.warn('[PDF] Supabase upload returned null — EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY may not be set');
+        console.warn('[PDF] Firebase Storage upload returned null — check Firebase project config');
       }
     } catch (uploadErr) {
-      console.warn('[PDF] Supabase upload threw (non-fatal, using local URI):', uploadErr);
+      console.warn('[PDF] Firebase Storage upload threw (non-fatal, using local URI):', uploadErr);
     }
   } else {
-    console.log('[PDF] No userId — skipping Supabase upload');
+    console.log('[PDF] No userId — skipping Firebase Storage upload');
   }
 
   console.log('[PDF] ✓ generateAndSaveInvoicePDF complete. uri:', dest, '| publicUrl:', publicUrl);
@@ -155,7 +153,7 @@ export async function openPDF(uri: string): Promise<void> {
 
   // Remote URL → download to cache first
   if (uri.startsWith('http://') || uri.startsWith('https://')) {
-    const filename = decodeURIComponent(uri.split('/').pop() ?? 'invoice.pdf');
+    const filename = decodeURIComponent(uri.split('/').pop() ?? 'invoice.pdf').split('?')[0];
     const dest = `${FileSystem.cacheDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
@@ -200,7 +198,6 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
 
   // Web: Sharing API not available — open the URI in a new tab as fallback
   if (Platform.OS === 'web') {
-    console.log('[PDF][share] Web platform — opening URI in new tab');
     if (typeof window !== 'undefined') {
       window.open(uri, '_blank');
     }
@@ -210,7 +207,7 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   let localUri = uri;
 
   if (uri.startsWith('http://') || uri.startsWith('https://')) {
-    const filename = decodeURIComponent(uri.split('/').pop() ?? 'invoice.pdf');
+    const filename = decodeURIComponent(uri.split('/').pop() ?? 'invoice.pdf').split('?')[0];
     const dest = `${FileSystem.cacheDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
@@ -224,7 +221,6 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   }
 
   const canShare = await Sharing.isAvailableAsync();
-  console.log('[PDF][share] Sharing available:', canShare);
   if (!canShare) throw new Error('Sharing is not available on this device.');
 
   await Sharing.shareAsync(localUri, {
@@ -240,14 +236,12 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
  * Android: StorageAccessFramework → Downloads folder, falls back to shareAsync.
  * iOS: share sheet → "Save to Files".
  * Web: triggers browser download of the HTML content.
- * Handles remote URLs by downloading first.
  */
 export async function savePDFToDownloads(uri: string, filename: string): Promise<void> {
   console.log('[PDF][download] savePDFToDownloads called — uri:', uri, '| filename:', filename, '| platform:', Platform.OS);
 
   // Web: trigger browser download
   if (Platform.OS === 'web') {
-    console.log('[PDF][download] Web platform — triggering browser download via anchor');
     if (typeof document !== 'undefined') {
       const a = document.createElement('a');
       a.href = uri;
@@ -265,21 +259,17 @@ export async function savePDFToDownloads(uri: string, filename: string): Promise
     const dest = `${FileSystem.cacheDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
-      console.log('[PDF][download] Downloading remote URL to cache:', dest);
       const dl = await FileSystem.downloadAsync(uri, dest);
       localUri = dl.uri;
     } else {
       localUri = dest;
     }
-    console.log('[PDF][download] Local URI ready:', localUri);
   }
 
   if (Platform.OS === 'android') {
     try {
-      console.log('[PDF][download] Android — requesting SAF directory permissions...');
       const perms = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (perms.granted) {
-        console.log('[PDF][download] SAF permissions granted, directoryUri:', perms.directoryUri);
         const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
           perms.directoryUri,
           filename,
@@ -293,8 +283,6 @@ export async function savePDFToDownloads(uri: string, filename: string): Promise
         });
         console.log('[PDF][download] ✓ Written to SAF uri:', destUri);
         return;
-      } else {
-        console.log('[PDF][download] SAF permission denied — falling back to shareAsync');
       }
     } catch (safErr) {
       console.warn('[PDF][download] SAF failed, falling back to shareAsync:', safErr);
@@ -308,19 +296,16 @@ export async function savePDFToDownloads(uri: string, filename: string): Promise
   }
 
   const canShare = await Sharing.isAvailableAsync();
-  console.log('[PDF][download] Sharing available:', canShare);
   if (!canShare) throw new Error('Saving is not available on this device.');
   await Sharing.shareAsync(localUri, {
     mimeType: 'application/pdf',
     dialogTitle: 'Save Invoice PDF',
     UTI: 'com.adobe.pdf',
   });
-  console.log('[PDF][download] ✓ Share dialog opened for save.');
 }
 
 /** Web-only: download as HTML file (browser print → Save as PDF). */
 export async function downloadForWeb(invoice: Invoice, templateId = 'classic'): Promise<void> {
-  console.log('[PDF][web] downloadForWeb called — invoiceNumber:', invoice.invoiceNumber, '| templateId:', templateId);
   const html = await buildInvoiceHTML(invoice, templateId);
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
@@ -331,5 +316,4 @@ export async function downloadForWeb(invoice: Invoice, templateId = 'classic'): 
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  console.log('[PDF][web] ✓ HTML download triggered. File:', a.download);
 }

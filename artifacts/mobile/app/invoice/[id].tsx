@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, Alert,
-  Modal, TextInput, ActivityIndicator, Platform,
+  Modal, TextInput, ActivityIndicator, Platform, Image,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -587,6 +587,37 @@ export default function InvoiceDetailScreen() {
             <Row label="Bank" value={invoice.businessSnapshot.bankName} />
             <Row label="Account" value={invoice.businessSnapshot.accountNumber} />
             <Row label="IFSC" value={invoice.businessSnapshot.ifscCode} />
+
+            {/* UPI QR Code in-app preview */}
+            {invoice.businessSnapshot.upiId ? (() => {
+              const biz = invoice.businessSnapshot;
+              const payeeName = encodeURIComponent((biz.ownerName || biz.companyName || 'Business').replace(/[&=?]/g, ''));
+              const upiId = encodeURIComponent(biz.upiId);
+              const amount = Math.abs(invoice.balance).toFixed(2);
+              const upiData = `upi://pay?pa=${upiId}&pn=${payeeName}&am=${amount}&cu=${invoice.currency || 'INR'}`;
+              const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&bgcolor=ffffff&color=000000&qzone=1&data=${encodeURIComponent(upiData)}`;
+              return (
+                <View style={[qrStyles.container, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
+                  <View style={[qrStyles.qrBox, { borderColor: colors.border }]}>
+                    <Image
+                      source={{ uri: qrUrl }}
+                      style={qrStyles.qrImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <View style={qrStyles.qrInfo}>
+                    <Text style={[qrStyles.qrLabel, { color: colors.mutedForeground }]}>📱 Scan &amp; Pay via UPI</Text>
+                    <Text style={[qrStyles.qrUpi, { color: colors.foreground }]}>{biz.upiId}</Text>
+                    <Text style={[qrStyles.qrAmount, { color: colors.primary }]}>
+                      {invoice.currency || '₹'} {Math.abs(invoice.balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </Text>
+                    <Text style={[qrStyles.qrNote, { color: colors.mutedForeground }]}>
+                      PhonePe · GPay · BHIM · Paytm
+                    </Text>
+                  </View>
+                </View>
+              );
+            })() : null}
           </Card>
         )}
 
@@ -727,4 +758,22 @@ const styles = StyleSheet.create({
   },
   renameBtns: { flexDirection: 'row', gap: 10 },
   renameBtn: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 10 },
+});
+
+const qrStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    borderRadius: 12, borderWidth: 1, padding: 12, marginTop: 12,
+  },
+  qrBox: {
+    width: 88, height: 88, borderRadius: 8, borderWidth: 1,
+    overflow: 'hidden', backgroundColor: '#fff',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  qrImage: { width: 84, height: 84 },
+  qrInfo: { flex: 1, minWidth: 0 },
+  qrLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  qrUpi: { fontSize: 13, fontWeight: '700', marginBottom: 3 },
+  qrAmount: { fontSize: 14, fontWeight: '800', marginBottom: 3 },
+  qrNote: { fontSize: 10, opacity: 0.7 },
 });

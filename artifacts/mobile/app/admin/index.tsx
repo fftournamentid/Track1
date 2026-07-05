@@ -340,7 +340,13 @@ function InvoicesTab() {
         setInvoices(list);
       } catch (err: unknown) {
         const msg = (err as Error).message ?? String(err);
-        setError(msg.includes('permission') ? 'Deploy Firestore rules to enable admin invoice access.' : msg);
+        let errorText = msg;
+        if (msg.includes('permission') || msg.includes('Missing or insufficient')) {
+          errorText = 'Permission denied. Deploy Firestore rules:\n\nfirebase deploy --only firestore:rules';
+        } else if (msg.includes('requires an index') || msg.includes('FAILED_PRECONDITION')) {
+          errorText = 'Missing Firestore index. Open Firebase Console → Firestore → Indexes and create a composite index on:\n\nCollection: invoices\nFields: createdAt (Desc)\nScope: Collection group';
+        }
+        setError(errorText);
       } finally {
         setLoading(false);
       }
@@ -737,6 +743,34 @@ export default function AdminScreen() {
 
   const handleVerifyUser = async (targetUid: string, currentVerified: boolean): Promise<void> => {
     const action = currentVerified ? 'Unverify' : 'Verify';
+    const performVerify = async () => {
+      try {
+        await setAdminVerified(targetUid, !currentVerified);
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.uid === targetUid ? { ...u, emailVerified: !currentVerified } : u
+          )
+        );
+        Alert.alert('Done', `User ${!currentVerified ? 'verified' : 'unverified'} successfully.`);
+      } catch (err: unknown) {
+        const msg = (err as Error).message ?? String(err);
+        const isPermission = msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('missing');
+        Alert.alert(
+          'Verify Failed',
+          isPermission
+            ? 'Permission denied. Ensure Firestore rules are deployed:\n\nfirebase deploy --only firestore:rules'
+            : msg
+        );
+      }
+    };
+
+    // On web, Alert.alert is synchronous (window.confirm) — skip the Promise wrapper
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(`${action} email verification for this user?`);
+      if (confirmed) await performVerify();
+      return;
+    }
+
     return new Promise<void>((resolve) => {
       Alert.alert(
         `${action} User`,
@@ -746,18 +780,7 @@ export default function AdminScreen() {
           {
             text: action,
             onPress: async () => {
-              try {
-                await setAdminVerified(targetUid, !currentVerified);
-                setUsers((prev) =>
-                  prev.map((u) =>
-                    u.uid === targetUid ? { ...u, emailVerified: !currentVerified } : u
-                  )
-                );
-              } catch (err: unknown) {
-                Alert.alert('Error', (err as Error).message ?? String(err));
-              } finally {
-                resolve();
-              }
+              try { await performVerify(); } finally { resolve(); }
             },
           },
         ]
@@ -767,6 +790,41 @@ export default function AdminScreen() {
 
   const handleGrantPremium = async (targetUid: string, currentStatus: boolean) => {
     const action = currentStatus ? 'Revoke' : 'Grant';
+
+    const performGrant = async () => {
+      try {
+        await updateDoc(doc(db, 'users', targetUid), {
+          isPremium: !currentStatus,
+          premiumPlanId: !currentStatus ? 'admin-grant' : null,
+          updatedAt: serverTimestamp(),
+        });
+        setUsers((prev) =>
+          prev.map((u) =>
+            u.uid === targetUid
+              ? { ...u, isPremium: !currentStatus, premiumPlanId: !currentStatus ? 'admin-grant' : null }
+              : u
+          )
+        );
+        Alert.alert('Done', `Premium ${!currentStatus ? 'granted' : 'revoked'} successfully.`);
+      } catch (err: unknown) {
+        const msg = (err as Error).message ?? String(err);
+        const isPermission = msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('missing');
+        Alert.alert(
+          'Grant Failed',
+          isPermission
+            ? 'Permission denied. Ensure Firestore rules are deployed:\n\nfirebase deploy --only firestore:rules'
+            : msg
+        );
+      }
+    };
+
+    // On web, Alert.alert is synchronous (window.confirm) — skip the Promise wrapper
+    if (Platform.OS === 'web') {
+      const confirmed = typeof window !== 'undefined' && window.confirm(`${action} premium access for this user?`);
+      if (confirmed) await performGrant();
+      return;
+    }
+
     return new Promise<void>((resolve) => {
       Alert.alert(
         `${action} Premium`,
@@ -777,25 +835,7 @@ export default function AdminScreen() {
             text: action,
             style: currentStatus ? 'destructive' : 'default',
             onPress: async () => {
-              try {
-                await updateDoc(doc(db, 'users', targetUid), {
-                  isPremium: !currentStatus,
-                  premiumPlanId: !currentStatus ? 'admin-grant' : null,
-                  updatedAt: serverTimestamp(),
-                });
-                setUsers((prev) =>
-                  prev.map((u) =>
-                    u.uid === targetUid
-                      ? { ...u, isPremium: !currentStatus, premiumPlanId: !currentStatus ? 'admin-grant' : null }
-                      : u
-                  )
-                );
-                Alert.alert('Done', `Premium ${!currentStatus ? 'granted' : 'revoked'} successfully.`);
-              } catch (err: unknown) {
-                Alert.alert('Error', (err as Error).message ?? String(err));
-              } finally {
-                resolve();
-              }
+              try { await performGrant(); } finally { resolve(); }
             },
           },
         ]
