@@ -24,18 +24,31 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
+const LoadingScreen = () => (
+  <View style={{ flex: 1, backgroundColor: "#1A3C6E", alignItems: "center", justifyContent: "center" }}>
+    <ActivityIndicator color="#F57C00" size="large" />
+  </View>
+);
+
 function RootLayoutNav() {
   const { user, userDoc, isLoading } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
+  const seg = segments as string[];
+  const inAuthGroup = seg[0] === "(auth)";
+  const inAdminGroup = seg[0] === "admin";
+  const isAdmin = userDoc?.role === "admin";
+
+  // Determine whether a redirect is needed right now.
+  const needsRedirect =
+    !isLoading &&
+    ((!user && !inAuthGroup) ||
+      (!!user && inAuthGroup) ||
+      (!!user && !isAdmin && inAdminGroup));
+
   useEffect(() => {
     if (isLoading) return;
-
-    const seg = segments as string[];
-    const inAuthGroup = seg[0] === "(auth)";
-    const inAdminGroup = seg[0] === "admin";
-    const isAdmin = userDoc?.role === "admin";
 
     if (!user && !inAuthGroup) {
       router.replace("/(auth)/login" as never);
@@ -53,12 +66,11 @@ function RootLayoutNav() {
     }
   }, [user, userDoc, isLoading, segments]);
 
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#1A3C6E", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color="#F57C00" size="large" />
-      </View>
-    );
+  // Show the loading screen while Firebase is initialising OR while a
+  // redirect is in flight. This prevents the bare white <Stack> from
+  // flashing on screen before navigation settles.
+  if (isLoading || needsRedirect) {
+    return <LoadingScreen />;
   }
 
   return (
@@ -84,7 +96,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, fontError]);
 

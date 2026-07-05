@@ -1,3 +1,4 @@
+- [White screen — RootLayoutNav redirect gap](white-screen-root-nav.md) — needsRedirect guard prevents bare <Stack> flash; always show spinner while isLoading OR redirect pending.
 - [Invoice save + PDF flow bugs](invoice-save-pdf-flow.md) — save falls back to user-scoped AsyncStorage; web platform must use downloadForWeb; Supabase needs env vars
 - [expo-file-system v56 legacy import](expo-file-system-legacy.md) — v56 breaks documentDirectory; always import from expo-file-system/legacy in shareService
 - [FleetInvoice architecture](truck-invoice-arch.md) — app renamed FleetInvoice; InvoiceContext.duplicateInvoice needs two args (id + newNumber); generatePDF returns PDFResult not string

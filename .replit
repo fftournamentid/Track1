@@ -34,6 +34,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_qOZaMtsbMtlh8YXFnRgKqw_Hivc_fcx"
 
 [nix]
 channel = "stable-25_05"
+packages = ["nano"]
 
 [[ports]]
 localPort = 8082
