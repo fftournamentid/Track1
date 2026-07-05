@@ -11,6 +11,11 @@ import {
   updateInvoiceDoc,
   deleteInvoiceDoc,
 } from '@/services/firebase/repositories/invoice.repository';
+import {
+  syncInvoiceToSupabase,
+  deleteInvoiceFromSupabase,
+  isSupabaseConfigured,
+} from '@/services/supabaseSync';
 
 /** User-scoped local cache key — prevents cross-user data leakage on shared devices. */
 function localInvoicesKey(uid: string): string {
@@ -117,6 +122,10 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       try {
         const result = await createInvoiceDoc(user.uid, data);
         console.log('[InvoiceContext][create] ✓ Firestore create succeeded. id:', result.id);
+        // Cloud backup (fire-and-forget — never blocks UI)
+        if (isSupabaseConfigured()) {
+          syncInvoiceToSupabase(result, user.uid).catch(() => {});
+        }
         return result;
       } catch (err) {
         console.error('[InvoiceContext][create] ✗ Firestore createInvoiceDoc failed:', err);
@@ -157,6 +166,9 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       try {
         await deleteInvoiceDoc(user.uid, id);
         console.log('[InvoiceContext][delete] ✓ Firestore delete succeeded for id:', id);
+        if (isSupabaseConfigured()) {
+          deleteInvoiceFromSupabase(id, user.uid).catch(() => {});
+        }
       } catch (err) {
         console.error('[InvoiceContext][delete] ✗ Firestore delete failed:', err);
         throw err;

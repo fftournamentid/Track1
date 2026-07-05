@@ -1,5 +1,5 @@
 import * as Print from 'expo-print';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 
@@ -8,6 +8,8 @@ export interface TemplateStyle {
   name: string;
   description: string;
   isPremium: boolean;
+  /** 'standard' (default) | 'compact' (receipt) | 'sidebar' (split-column) */
+  layout?: 'standard' | 'compact' | 'sidebar';
   previewColors: [string, string, string];
   font: string;
   bodyBg: string;
@@ -284,6 +286,133 @@ export const INVOICE_TEMPLATES: TemplateStyle[] = [
     metaTextColor: '#6B7280',
     totalRowColor: '#374151',
   },
+  // ── New templates ──────────────────────────────────────────────────────────
+  {
+    id: 'executive',
+    name: 'Executive',
+    description: 'Deep charcoal & violet, serif elegance',
+    isPremium: true,
+    previewColors: ['#1C1B2E', '#FAFAFA', '#7C3AED'],
+    font: 'Georgia, "Times New Roman", serif',
+    bodyBg: '#FAFAFA',
+    bodyText: '#1C1B2E',
+    companyNameColor: '#1C1B2E',
+    invoiceTitleColor: '#7C3AED',
+    dividerCss: 'linear-gradient(90deg, #1C1B2E 0%, #7C3AED 100%)',
+    dividerHeight: 3,
+    tableHeadBg: '#1C1B2E',
+    tableHeadText: '#F5F3FF',
+    grandRowBg: '#7C3AED',
+    grandRowText: '#FFFFFF',
+    labelColor: '#7C3AED',
+    billNameColor: '#1C1B2E',
+    tripBg: '#F5F3FF',
+    tripBorder: '#7C3AED',
+    tripValColor: '#1C1B2E',
+    rowAlt: '#F9F8FF',
+    borderColor: '#E5E7EB',
+    notesBg: '#F5F3FF',
+    notesAccent: '#7C3AED',
+    payValColor: '#1C1B2E',
+    itemAmtColor: '#7C3AED',
+    metaTextColor: '#6B7280',
+    totalRowColor: '#374151',
+  },
+  {
+    id: 'emerald',
+    name: 'Emerald',
+    description: 'Forest green, professional look',
+    isPremium: true,
+    previewColors: ['#064E3B', '#ECFDF5', '#10B981'],
+    font: '"Helvetica Neue", Arial, sans-serif',
+    bodyBg: '#FFFFFF',
+    bodyText: '#064E3B',
+    companyNameColor: '#064E3B',
+    invoiceTitleColor: '#10B981',
+    dividerCss: 'linear-gradient(90deg, #064E3B 0%, #10B981 100%)',
+    dividerHeight: 3,
+    tableHeadBg: '#064E3B',
+    tableHeadText: '#ECFDF5',
+    grandRowBg: '#059669',
+    grandRowText: '#FFFFFF',
+    labelColor: '#10B981',
+    billNameColor: '#064E3B',
+    tripBg: '#ECFDF5',
+    tripBorder: '#10B981',
+    tripValColor: '#064E3B',
+    rowAlt: '#F0FDF4',
+    borderColor: '#D1FAE5',
+    notesBg: '#ECFDF5',
+    notesAccent: '#10B981',
+    payValColor: '#064E3B',
+    itemAmtColor: '#059669',
+    metaTextColor: '#6B7280',
+    totalRowColor: '#374151',
+  },
+  {
+    id: 'receipt',
+    name: 'Receipt',
+    description: 'Compact centered receipt layout',
+    isPremium: false,
+    layout: 'compact',
+    previewColors: ['#111827', '#FFFFFF', '#374151'],
+    font: '"Courier New", Courier, monospace',
+    bodyBg: '#FFFFFF',
+    bodyText: '#111827',
+    companyNameColor: '#111827',
+    invoiceTitleColor: '#111827',
+    dividerCss: '#374151',
+    dividerHeight: 2,
+    tableHeadBg: '#111827',
+    tableHeadText: '#FFFFFF',
+    grandRowBg: '#111827',
+    grandRowText: '#FFFFFF',
+    labelColor: '#374151',
+    billNameColor: '#111827',
+    tripBg: '#F9FAFB',
+    tripBorder: '#374151',
+    tripValColor: '#111827',
+    rowAlt: '#F9FAFB',
+    borderColor: '#D1D5DB',
+    notesBg: '#F9FAFB',
+    notesAccent: '#374151',
+    payValColor: '#111827',
+    itemAmtColor: '#111827',
+    metaTextColor: '#6B7280',
+    totalRowColor: '#374151',
+  },
+  {
+    id: 'logistics',
+    name: 'Logistics Pro',
+    description: 'Blue sidebar, split-column layout',
+    isPremium: true,
+    layout: 'sidebar',
+    previewColors: ['#1E40AF', '#F8FAFC', '#60A5FA'],
+    font: '"Helvetica Neue", Arial, sans-serif',
+    bodyBg: '#F8FAFC',
+    bodyText: '#1E293B',
+    companyNameColor: '#1E3A8A',
+    invoiceTitleColor: '#2563EB',
+    dividerCss: 'linear-gradient(90deg, #1E40AF 0%, #60A5FA 100%)',
+    dividerHeight: 3,
+    tableHeadBg: '#1E40AF',
+    tableHeadText: '#FFFFFF',
+    grandRowBg: '#1E40AF',
+    grandRowText: '#FFFFFF',
+    labelColor: '#2563EB',
+    billNameColor: '#1E3A8A',
+    tripBg: '#EFF6FF',
+    tripBorder: '#1E40AF',
+    tripValColor: '#1E3A8A',
+    rowAlt: '#F0F9FF',
+    borderColor: '#DBEAFE',
+    notesBg: '#EFF6FF',
+    notesAccent: '#3B82F6',
+    payValColor: '#1E3A8A',
+    itemAmtColor: '#1E3A8A',
+    metaTextColor: '#64748B',
+    totalRowColor: '#475569',
+  },
 ];
 
 export function getTemplateById(id: string): TemplateStyle {
@@ -550,11 +679,293 @@ function renderHTML(
     </div>
   </div>
 
-  <div style="position:fixed;bottom:24px;right:52px;font-size:11px;color:${t.metaTextColor};">Page 1</div>
+  <div style="position:absolute;bottom:24px;right:52px;font-size:11px;color:${t.metaTextColor};opacity:0.6;">Page 1</div>
 </div>
 </body>
 </html>`;
 }
+
+// ─── Compact / Receipt layout ─────────────────────────────────────────────────
+
+function renderCompactHTML(
+  invoice: Invoice,
+  t: TemplateStyle,
+  logo: string | null,
+  sig: string | null,
+): string {
+  const biz = invoice.businessSnapshot;
+
+  const itemRows = invoice.expenses
+    .map(
+      (item, i) => `
+    <tr style="border-bottom:1px dashed ${t.borderColor};background:${i % 2 === 1 ? t.rowAlt : t.bodyBg};">
+      <td style="padding:8px 12px;font-size:12px;color:${t.bodyText};">${item.name}</td>
+      <td style="padding:8px 12px;font-size:12px;font-weight:700;color:${t.itemAmtColor};text-align:right;">${invoice.currency} ${fmt(item.amount)}</td>
+    </tr>`,
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=794, initial-scale=1.0">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html, body { width:794px; font-family:${t.font}; color:${t.bodyText}; background:${t.bodyBg}; font-size:13px; }
+  .page { width:794px; min-height:1123px; padding:60px 120px; position:relative; background:${t.bodyBg}; }
+  table { width:100%; border-collapse:collapse; margin-bottom:12px; }
+  @page { size:A4; margin:0; }
+  @media print { html,body { background:#fff; } .page { margin:0; padding:60px 120px; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header: centered company -->
+  <div style="text-align:center;margin-bottom:12px;">
+    ${logo ? `<img src="${logo}" alt="logo" style="height:56px;object-fit:contain;display:block;margin:0 auto 10px;" />` : ''}
+    <div style="font-size:20px;font-weight:900;color:${t.companyNameColor};">${biz.companyName || biz.ownerName || 'Company'}</div>
+    <div style="font-size:11px;color:${t.metaTextColor};margin-top:4px;line-height:1.8;">
+      ${biz.address ? biz.address + ' · ' : ''}${biz.mobile ?? ''}${biz.gstNumber ? ' · GST: ' + biz.gstNumber : ''}
+    </div>
+  </div>
+
+  <div style="border-top:2px solid ${t.bodyText};margin-bottom:14px;"></div>
+
+  <!-- Invoice title -->
+  <div style="text-align:center;margin-bottom:12px;">
+    <div style="font-size:30px;font-weight:900;color:${t.invoiceTitleColor};letter-spacing:-2px;">INVOICE</div>
+    <div style="font-size:13px;font-weight:700;color:${t.companyNameColor};margin-top:4px;">No. ${invoice.invoiceNumber}</div>
+    <div style="font-size:11px;color:${t.metaTextColor};margin-top:4px;">
+      Date: ${invoice.date}${invoice.dueDate ? ' · Due: ' + invoice.dueDate : ''}
+    </div>
+    <div style="display:inline-block;padding:3px 12px;border-radius:20px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;margin-top:6px;${statusBadgeCss(invoice.status)}">${invoice.status.toUpperCase()}</div>
+  </div>
+
+  <div style="border-top:1px dashed ${t.borderColor};margin-bottom:14px;"></div>
+
+  <!-- Bill to -->
+  <div style="text-align:center;margin-bottom:12px;">
+    <div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:${t.labelColor};font-weight:800;margin-bottom:4px;">BILL TO</div>
+    <div style="font-size:16px;font-weight:800;color:${t.billNameColor};">${invoice.clientName}</div>
+    <div style="font-size:11px;color:${t.metaTextColor};margin-top:3px;line-height:1.7;">
+      ${invoice.clientPhone ? invoice.clientPhone : ''}${invoice.clientAddress ? ' · ' + invoice.clientAddress : ''}
+    </div>
+  </div>
+
+  <div style="border-top:1px dashed ${t.borderColor};margin-bottom:12px;"></div>
+
+  <!-- Trip details compact -->
+  <div style="font-size:11px;color:${t.metaTextColor};text-align:center;line-height:2;margin-bottom:10px;">
+    <strong style="color:${t.tripValColor};">${invoice.fromLocation}</strong> → <strong style="color:${t.tripValColor};">${invoice.toLocation}</strong>
+    ${invoice.truckNumber ? ' · Truck: <strong>' + invoice.truckNumber + '</strong>' : ''}
+    ${invoice.driverName ? ' · Driver: <strong>' + invoice.driverName + '</strong>' : ''}
+  </div>
+
+  <div style="border-top:1px dashed ${t.borderColor};margin-bottom:12px;"></div>
+
+  <!-- Items -->
+  <table>
+    <thead>
+      <tr style="background:${t.tableHeadBg};">
+        <th style="padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:${t.tableHeadText};text-align:left;">Item</th>
+        <th style="padding:8px 12px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:${t.tableHeadText};text-align:right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>${itemRows}</tbody>
+  </table>
+
+  <div style="border-top:1px dashed ${t.borderColor};margin-bottom:12px;"></div>
+
+  <!-- Totals -->
+  <div style="width:240px;margin:0 auto 16px;">
+    <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:11.5px;color:${t.totalRowColor};border-bottom:1px solid ${t.borderColor};">
+      <span>Advance Received</span><span>${invoice.currency} ${fmt(invoice.advanceAmount)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:11.5px;color:${t.totalRowColor};border-bottom:1px solid ${t.borderColor};">
+      <span>Total Expenses</span><span>${invoice.currency} ${fmt(invoice.totalExpenses)}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding:10px 14px;border-radius:8px;background:${t.grandRowBg};color:${t.grandRowText};font-size:14px;font-weight:900;">
+      <span>BALANCE</span><span>${invoice.currency} ${fmt(Math.abs(invoice.balance))}</span>
+    </div>
+  </div>
+
+  ${invoice.notes ? `<div style="background:${t.notesBg};border:1px dashed ${t.notesAccent};border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:11px;color:${t.metaTextColor};text-align:center;line-height:1.7;"><strong style="color:${t.notesAccent};">Note:</strong> ${invoice.notes}</div>` : ''}
+
+  <div style="border-top:2px solid ${t.bodyText};padding-top:14px;margin-top:14px;text-align:center;">
+    <div style="font-size:11px;color:${t.metaTextColor};line-height:1.8;">${biz.footerNotes || 'Thank you for your business.'}</div>
+    <div style="margin-top:14px;">
+      ${sig ? `<img src="${sig}" alt="sig" style="height:44px;object-fit:contain;display:block;margin:0 auto 6px;" />` : '<div style="height:40px;"></div>'}
+      <div style="width:140px;height:1px;background:${t.metaTextColor};margin:0 auto 6px;"></div>
+      <div style="font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:${t.metaTextColor};">Authorized Signature</div>
+      <div style="font-size:11.5px;font-weight:700;color:${t.billNameColor};margin-top:3px;">${biz.ownerName || biz.companyName || ''}</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;bottom:24px;right:60px;font-size:10px;color:${t.metaTextColor};opacity:0.5;">Page 1</div>
+</div>
+</body>
+</html>`;
+}
+
+// ─── Sidebar layout ───────────────────────────────────────────────────────────
+
+function renderSidebarHTML(
+  invoice: Invoice,
+  t: TemplateStyle,
+  logo: string | null,
+  sig: string | null,
+): string {
+  const biz = invoice.businessSnapshot;
+
+  const itemRows = invoice.expenses
+    .map(
+      (item, i) => `
+    <tr style="border-bottom:1px solid ${t.borderColor};background:${i % 2 === 1 ? t.rowAlt : '#ffffff'};">
+      <td style="padding:10px 14px;font-size:12.5px;color:${t.bodyText};">${item.name}</td>
+      <td style="padding:10px 14px;font-size:12.5px;font-weight:700;color:${t.itemAmtColor};text-align:right;">${invoice.currency} ${fmt(item.amount)}</td>
+    </tr>`,
+    )
+    .join('');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=794, initial-scale=1.0">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  html, body { width:794px; background:#f0f0f0; font-family:${t.font}; font-size:13px; }
+  .layout { display:flex; width:794px; min-height:1123px; }
+  .sidebar { width:234px; min-height:1123px; background:${t.tableHeadBg}; padding:44px 22px; display:flex; flex-direction:column; position:relative; }
+  .main { flex:1; background:#ffffff; padding:44px 32px; position:relative; }
+  table { width:100%; border-collapse:collapse; margin-bottom:20px; }
+  @page { size:A4; margin:0; }
+  @media print { html,body { background:#fff; } }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ── LEFT SIDEBAR ── -->
+  <div class="sidebar">
+    ${logo ? `<img src="${logo}" alt="logo" style="height:56px;max-width:180px;object-fit:contain;border-radius:6px;margin-bottom:14px;background:rgba(255,255,255,0.1);padding:4px;" />` : ''}
+    <div style="font-size:15px;font-weight:800;color:#ffffff;margin-bottom:6px;line-height:1.35;">${biz.companyName || biz.ownerName || 'Company'}</div>
+    <div style="font-size:10.5px;color:rgba(255,255,255,0.68);line-height:1.85;margin-bottom:18px;">
+      ${biz.address ? biz.address + '<br>' : ''}
+      ${biz.mobile ? 'Tel: ' + biz.mobile + '<br>' : ''}
+      ${biz.gstNumber ? 'GST: ' + biz.gstNumber : ''}
+    </div>
+
+    <div style="height:1px;background:rgba(255,255,255,0.18);margin-bottom:18px;"></div>
+
+    <!-- Route -->
+    <div style="background:rgba(255,255,255,0.11);border-radius:10px;padding:13px 14px;margin-bottom:14px;">
+      <div style="font-size:8.5px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.55);margin-bottom:8px;">ROUTE</div>
+      <div style="font-size:13px;font-weight:700;color:#ffffff;margin-bottom:4px;">${invoice.fromLocation}</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:4px;">↓</div>
+      <div style="font-size:13px;font-weight:700;color:#ffffff;">${invoice.toLocation}</div>
+    </div>
+
+    ${invoice.truckNumber ? `<div style="margin-bottom:10px;"><div style="font-size:8.5px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:3px;">TRUCK</div><div style="font-size:12px;font-weight:700;color:#ffffff;">${invoice.truckNumber}</div></div>` : ''}
+    ${invoice.driverName ? `<div style="margin-bottom:10px;"><div style="font-size:8.5px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:3px;">DRIVER</div><div style="font-size:12px;font-weight:700;color:#ffffff;">${invoice.driverName}</div></div>` : ''}
+    <div style="margin-bottom:14px;"><div style="font-size:8.5px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:3px;">DATE</div><div style="font-size:12px;font-weight:700;color:#ffffff;">${invoice.date}</div></div>
+
+    <div style="height:1px;background:rgba(255,255,255,0.18);margin-bottom:14px;"></div>
+
+    ${(biz.upiId || biz.bankName) ? `
+    <div style="margin-bottom:16px;">
+      <div style="font-size:8.5px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.5);margin-bottom:8px;">PAYMENT INFO</div>
+      ${biz.upiId ? `<div style="font-size:11px;color:rgba(255,255,255,0.82);margin-bottom:3px;">UPI: ${biz.upiId}</div>` : ''}
+      ${biz.bankName ? `<div style="font-size:11px;color:rgba(255,255,255,0.82);margin-bottom:2px;">${biz.bankName}</div>` : ''}
+      ${biz.accountNumber ? `<div style="font-size:10px;color:rgba(255,255,255,0.6);">A/C: ${biz.accountNumber}</div>` : ''}
+      ${biz.ifscCode ? `<div style="font-size:10px;color:rgba(255,255,255,0.6);">IFSC: ${biz.ifscCode}</div>` : ''}
+    </div>` : ''}
+
+    <!-- Signature at bottom of sidebar -->
+    <div style="position:absolute;bottom:44px;left:22px;right:22px;">
+      ${sig ? `<img src="${sig}" alt="sig" style="height:42px;max-width:140px;object-fit:contain;display:block;margin-bottom:6px;opacity:0.9;" />` : '<div style="height:38px;"></div>'}
+      <div style="width:120px;height:1px;background:rgba(255,255,255,0.38);margin-bottom:5px;"></div>
+      <div style="font-size:8.5px;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,0.45);">Authorized Signature</div>
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.75);margin-top:3px;">${biz.ownerName || biz.companyName || ''}</div>
+    </div>
+  </div>
+
+  <!-- ── MAIN CONTENT ── -->
+  <div class="main">
+    <!-- Invoice header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;">
+      <div>
+        <div style="font-size:40px;font-weight:900;color:${t.invoiceTitleColor};letter-spacing:-3px;line-height:1;">INVOICE</div>
+        <div style="font-size:14px;font-weight:700;color:${t.companyNameColor};margin-top:6px;"># ${invoice.invoiceNumber}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="display:inline-block;padding:4px 12px;border-radius:20px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;${statusBadgeCss(invoice.status)}">${invoice.status.toUpperCase()}</div>
+        <div style="font-size:11px;color:${t.metaTextColor};margin-top:8px;line-height:1.9;">
+          Date: <strong>${invoice.date}</strong>${invoice.dueDate ? '<br>Due: <strong>' + invoice.dueDate + '</strong>' : ''}
+        </div>
+      </div>
+    </div>
+
+    <div style="height:3px;background:${t.dividerCss};border-radius:2px;margin-bottom:22px;"></div>
+
+    <!-- Bill To -->
+    <div style="margin-bottom:22px;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:${t.labelColor};font-weight:800;margin-bottom:8px;">Bill To</div>
+      <div style="font-size:15px;font-weight:800;color:${t.billNameColor};margin-bottom:4px;">${invoice.clientName}</div>
+      <div style="font-size:11.5px;color:${t.metaTextColor};line-height:1.8;">
+        ${invoice.clientPhone ? invoice.clientPhone + '<br>' : ''}
+        ${invoice.clientAddress ? invoice.clientAddress + '<br>' : ''}
+        ${invoice.clientGST ? 'GST: ' + invoice.clientGST : ''}
+      </div>
+    </div>
+
+    <!-- Expenses table -->
+    <table>
+      <thead>
+        <tr style="background:${t.tableHeadBg};">
+          <th style="padding:10px 14px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:${t.tableHeadText};text-align:left;width:64%;">Description</th>
+          <th style="padding:10px 14px;font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:${t.tableHeadText};text-align:right;width:36%;">Amount (${invoice.currency})</th>
+        </tr>
+      </thead>
+      <tbody>${itemRows}</tbody>
+    </table>
+
+    <!-- Totals -->
+    <div style="display:flex;justify-content:flex-end;margin-bottom:18px;">
+      <div style="width:260px;">
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};font-size:12.5px;">
+          <span>Advance Received</span><span>${invoice.currency} ${fmt(invoice.advanceAmount)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${t.borderColor};color:${t.totalRowColor};font-size:12.5px;">
+          <span>Total Expenses</span><span>${invoice.currency} ${fmt(invoice.totalExpenses)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:11px 14px;border-radius:8px;background:${t.grandRowBg};color:${t.grandRowText};font-size:14px;font-weight:800;margin-top:10px;">
+          <span>BALANCE</span><span>${invoice.currency} ${fmt(Math.abs(invoice.balance))}</span>
+        </div>
+        <div style="text-align:right;font-size:11.5px;font-weight:700;color:${t.labelColor};margin-top:8px;">
+          ${invoice.balance >= 0 ? 'Driver to receive money' : 'Driver to return money'}
+        </div>
+      </div>
+    </div>
+
+    ${invoice.notes ? `<div style="background:${t.notesBg};border-left:3px solid ${t.notesAccent};border-radius:0 6px 6px 0;padding:10px 14px;margin-bottom:14px;font-size:11.5px;color:${t.metaTextColor};line-height:1.8;"><strong style="color:${t.notesAccent};">Notes:</strong> ${invoice.notes}</div>` : ''}
+    ${invoice.paymentTerms ? `<div style="margin-bottom:14px;font-size:11px;color:${t.metaTextColor};line-height:1.7;"><strong>Payment Terms:</strong> ${invoice.paymentTerms}</div>` : ''}
+
+    <!-- Footer note -->
+    <div style="position:absolute;bottom:44px;left:32px;right:32px;">
+      <div style="border-top:1px solid ${t.borderColor};padding-top:14px;font-size:11px;color:${t.metaTextColor};line-height:1.8;">${biz.footerNotes || 'Thank you for your business.'}</div>
+    </div>
+    <div style="position:absolute;bottom:24px;right:32px;font-size:10px;color:${t.metaTextColor};opacity:0.5;">Page 1</div>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
+// ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 export async function buildInvoiceHTML(invoice: Invoice, templateId: string): Promise<string> {
   const t = getTemplateById(templateId);
@@ -563,6 +974,8 @@ export async function buildInvoiceHTML(invoice: Invoice, templateId: string): Pr
     biz.logoUri ? imageToDataUrl(biz.logoUri) : Promise.resolve(null),
     biz.signatureUri ? imageToDataUrl(biz.signatureUri) : Promise.resolve(null),
   ]);
+  if (t.layout === 'compact') return renderCompactHTML(invoice, t, logo, sig);
+  if (t.layout === 'sidebar') return renderSidebarHTML(invoice, t, logo, sig);
   return renderHTML(invoice, t, logo, sig);
 }
 

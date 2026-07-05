@@ -99,8 +99,10 @@ function DashboardTab({ users, loading, onRefresh }: {
       <Text style={styles.sectionTitle}>Overview</Text>
       <View style={styles.statsGrid}>
         {cards.map((c) => (
-          <View key={c.label} style={[styles.statCard, c.accent && { backgroundColor: NAVY }]}>
-            <Feather name={c.icon} size={20} color={c.accent ? '#fff' : NAVY} />
+          <View key={c.label} style={[styles.statCard, c.accent && styles.statCardAccent]}>
+            <View style={[styles.statIconWrap, { backgroundColor: c.accent ? 'rgba(255,255,255,0.18)' : NAVY + '12' }]}>
+              <Feather name={c.icon} size={18} color={c.accent ? '#fff' : NAVY} />
+            </View>
             <Text style={[styles.statValue, { color: c.accent ? '#fff' : NAVY }]}>{c.value}</Text>
             <Text style={[styles.statLabel, { color: c.accent ? 'rgba(255,255,255,0.75)' : '#6B7280' }]}>
               {c.label}
@@ -794,14 +796,30 @@ export default function AdminScreen() {
     });
   };
 
-  const handleLogout = async () => {
-    setIsSigningOut(true);
-    try {
-      await signOut();
-      router.replace('/(auth)/login' as never);
-    } catch {
-      setIsSigningOut(false);
-    }
+  const handleLogout = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out of the admin panel?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setIsSigningOut(true);
+            try {
+              await signOut();
+              // AuthContext onAuthStateChanged fires → _layout.tsx redirects to login.
+              // Explicit replace as a safety net.
+              router.replace('/(auth)/login' as never);
+            } catch (err: unknown) {
+              Alert.alert('Error', `Sign out failed: ${(err as Error).message ?? 'Unknown error'}`);
+              setIsSigningOut(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -915,9 +933,18 @@ const styles = StyleSheet.create({
 
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statCard: {
-    width: '47%', borderRadius: 14, backgroundColor: '#fff',
+    width: '47%', borderRadius: 16, backgroundColor: '#fff',
     padding: 14, alignItems: 'center', gap: 6,
     borderWidth: 1, borderColor: '#E5E7EB',
+    shadowColor: '#0F172A', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+  },
+  statCardAccent: {
+    backgroundColor: NAVY, borderColor: NAVY,
+  },
+  statIconWrap: {
+    width: 38, height: 38, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
   },
   statValue: { fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
   statLabel: { fontSize: 10, fontWeight: '600', textAlign: 'center' },

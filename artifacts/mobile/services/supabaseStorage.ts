@@ -9,7 +9,7 @@
  *   EXPO_PUBLIC_SUPABASE_URL      — e.g. https://xyzabc.supabase.co
  *   EXPO_PUBLIC_SUPABASE_ANON_KEY — your project's anon/public key
  */
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').replace(/\/$/, '');
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';

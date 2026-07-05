@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal,
   TextInput, Image, ActivityIndicator, Alert, Platform,
-  KeyboardAvoidingView, SafeAreaView, FlatList,
+  KeyboardAvoidingView, SafeAreaView, FlatList, Animated, Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -951,6 +951,118 @@ const TOOL_CONTENT: Partial<Record<ToolId, { title: string; component: React.Rea
   qr:       { title: 'QR Payment',        component: <QrPayment /> },
 };
 
+// ─── Premium Animated Tool Card ───────────────────────────────────────────────
+
+function ToolCard({ tool, onPress }: { tool: Tool; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.94,
+      useNativeDriver: true,
+      tension: 400,
+      friction: 8,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 8,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={[tc.wrap, { transform: [{ scale }] }]}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={tc.card}
+      >
+        {/* Icon with gradient-like layered circles */}
+        <View style={[tc.iconOuter, { backgroundColor: tool.color + '12' }]}>
+          <View style={[tc.iconInner, { backgroundColor: tool.color + '22' }]}>
+            <Feather name={tool.icon} size={22} color={tool.color} />
+          </View>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={tc.cardTitle} numberOfLines={1}>{tool.title}</Text>
+          <Text style={tc.cardDesc} numberOfLines={2}>{tool.desc}</Text>
+        </View>
+
+        {/* Arrow badge */}
+        <View style={[tc.arrowBadge, { backgroundColor: tool.color + '15' }]}>
+          <Feather name="chevron-right" size={14} color={tool.color} />
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+const tc = StyleSheet.create({
+  wrap: {
+    width: '47%',
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    alignItems: 'flex-start',
+    gap: 10,
+    // Soft 3D shadow
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.10,
+    shadowRadius: 12,
+    elevation: 4,
+    // Subtle top border for premium look
+    borderTopWidth: 1,
+    borderLeftWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderBottomWidth: 0,
+    borderColor: 'rgba(255,255,255,0.9)',
+  },
+  iconOuter: {
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconInner: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  cardDesc: {
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 15,
+  },
+  arrowBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+  },
+});
+
+// ─── Main Tools Screen ────────────────────────────────────────────────────────
+
 export default function ToolsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -959,61 +1071,83 @@ export default function ToolsScreen() {
   const current = activeTool ? TOOL_CONTENT[activeTool] : null;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-        <Text style={[styles.headerTitle, { color: colors.foreground }]}>More Tools</Text>
-        <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>Offline transport calculators</Text>
+    <View style={[styles.container, { backgroundColor: '#F8FAFC' }]}>
+      {/* Premium Header */}
+      <View style={[styles.header, { paddingTop: topPad + 10 }]}>
+        <View>
+          <Text style={styles.headerBadge}>TRANSPORT TOOLS</Text>
+          <Text style={styles.headerTitle}>Calculators</Text>
+          <Text style={styles.headerSub}>11 offline tools for transport professionals</Text>
+        </View>
+        <View style={styles.headerIconWrap}>
+          <Feather name="tool" size={20} color="#2563EB" />
+        </View>
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 96 }]}
         showsVerticalScrollIndicator={false}
       >
-        {TOOLS.map((tool) => (
-          <TouchableOpacity
-            key={tool.id}
-            style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => setActiveTool(tool.id)}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.iconWrap, { backgroundColor: tool.color + '18' }]}>
-              <Feather name={tool.icon} size={22} color={tool.color} />
-            </View>
-            <Text style={[styles.cardTitle, { color: colors.foreground }]}>{tool.title}</Text>
-            <Text style={[styles.cardDesc, { color: colors.mutedForeground }]}>{tool.desc}</Text>
-          </TouchableOpacity>
-        ))}
+        {/* Tool Cards Grid */}
+        <View style={styles.gridRow}>
+          {TOOLS.map((tool) => (
+            <ToolCard
+              key={tool.id}
+              tool={tool}
+              onPress={() => setActiveTool(tool.id)}
+            />
+          ))}
+        </View>
 
-        <TouchableOpacity
-          style={[styles.premiumCard, { backgroundColor: colors.primary }]}
+        {/* Premium Banner */}
+        <Pressable
+          style={({ pressed }) => [styles.premiumCard, { opacity: pressed ? 0.92 : 1 }]}
           onPress={() => router.push('/premium' as never)}
-          activeOpacity={0.9}
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Feather name="star" size={18} color="#F59E0B" />
-            <Text style={styles.premiumTitle}>Premium Features</Text>
+          <View style={styles.premiumGradientTop} />
+          <View style={styles.premiumContent}>
+            <View style={styles.premiumIconWrap}>
+              <Feather name="star" size={20} color="#F59E0B" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.premiumTitle}>Unlock Premium</Text>
+              <Text style={styles.premiumSub}>
+                8 invoice templates · Cloud backup · Priority support
+              </Text>
+            </View>
+            <View style={styles.premiumArrow}>
+              <Feather name="arrow-right" size={16} color="#fff" />
+            </View>
           </View>
-          <Text style={styles.premiumSub}>
-            Unlock 8 invoice templates, Excel export, cloud backup & priority support
-          </Text>
-          <View style={styles.premiumBtn}>
-            <Text style={styles.premiumBtnTxt}>View Plans</Text>
-            <Feather name="arrow-right" size={13} color="#1A3C6E" />
-          </View>
-        </TouchableOpacity>
+        </Pressable>
       </ScrollView>
 
+      {/* Calculator Modal */}
       <Modal
         visible={!!activeTool}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setActiveTool(null)}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+        <SafeAreaView style={modal.root}>
           <View style={modal.header}>
-            <Text style={modal.title}>{current?.title ?? ''}</Text>
+            <View style={modal.headerLeft}>
+              {activeTool && (
+                <View style={[modal.headerIcon, { backgroundColor: (TOOLS.find(t => t.id === activeTool)?.color ?? '#2563EB') + '18' }]}>
+                  <Feather
+                    name={TOOLS.find(t => t.id === activeTool)?.icon ?? 'tool'}
+                    size={18}
+                    color={TOOLS.find(t => t.id === activeTool)?.color ?? '#2563EB'}
+                  />
+                </View>
+              )}
+              <View>
+                <Text style={modal.title}>{current?.title ?? ''}</Text>
+                <Text style={modal.subtitle}>FleetInvoice Calculator</Text>
+              </View>
+            </View>
             <TouchableOpacity onPress={() => setActiveTool(null)} style={modal.closeBtn} hitSlop={12}>
-              <Feather name="x" size={22} color="#374151" />
+              <Feather name="x" size={20} color="#374151" />
             </TouchableOpacity>
           </View>
           <KeyboardAvoidingView
@@ -1036,37 +1170,151 @@ export default function ToolsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1 },
-  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  headerSub: { fontSize: 13, marginTop: 3 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 10 },
-  card: {
-    width: '47.5%', borderRadius: 14, borderWidth: 1,
-    padding: 16, alignItems: 'flex-start', gap: 8,
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  cardTitle: { fontSize: 14, fontWeight: '700' },
-  cardDesc: { fontSize: 12 },
-  premiumCard: { width: '100%', borderRadius: 16, padding: 20, gap: 10 },
-  premiumTitle: { fontSize: 15, fontWeight: '800', color: '#fff' },
-  premiumSub: { fontSize: 13, color: 'rgba(255,255,255,0.82)', lineHeight: 19 },
-  premiumBtn: {
-    backgroundColor: '#fff', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+  headerBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563EB',
+    letterSpacing: 1.5,
+    marginBottom: 4,
   },
-  premiumBtnTxt: { fontSize: 13, fontWeight: '700', color: '#1A3C6E' },
+  headerTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.8,
+  },
+  headerSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  headerIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  grid: {
+    padding: 14,
+    gap: 14,
+  },
+  gridRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  premiumCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#1D4ED8',
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  premiumGradientTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+  },
+  premiumContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 20,
+  },
+  premiumIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.2,
+  },
+  premiumSub: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  premiumArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 const modal = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#F8FAFC' },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 16,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  title: { fontSize: 18, fontWeight: '800', color: '#111827' },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
+  subtitle: { fontSize: 11, color: '#64748B', marginTop: 1 },
   closeBtn: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6',
-    alignItems: 'center', justifyContent: 'center',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   body: { padding: 20, paddingBottom: 60 },
 });

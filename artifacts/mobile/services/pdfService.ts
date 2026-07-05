@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
@@ -100,7 +100,7 @@ export async function generateAndSaveInvoicePDF(
 
   // On web, generatePDFWithTemplate returns a blob URL which cannot be
   // copied via FileSystem. Return it directly — no local cache on web.
-  if (Platform.OS === 'web' || result.uri.startsWith('blob:')) {
+  if ((Platform.OS as string) === 'web' || result.uri.startsWith('blob:')) {
     return { uri: result.uri, filename, publicUrl: undefined };
   }
 
