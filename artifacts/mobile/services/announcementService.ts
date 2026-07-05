@@ -9,11 +9,34 @@ import type { Announcement } from '@/types';
 const COL = 'announcements';
 
 export function subscribeToAllAnnouncements(cb: (list: Announcement[]) => void): Unsubscribe {
+  // Use single orderBy('createdAt') to avoid requiring a composite Firestore index.
+  // Sort by priority + createdAt client-side so admins can also see newly created items
+  // immediately without deploying a composite index.
   return onSnapshot(
-    query(collection(db, COL), orderBy('priority'), orderBy('createdAt', 'desc')),
-    (snap) =>
-      cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Announcement))),
-    () => cb([])
+    query(collection(db, COL), orderBy('createdAt', 'desc')),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Announcement))
+        .sort((a, b) => {
+          const aPri = typeof a.priority === 'number' ? a.priority : 999;
+          const bPri = typeof b.priority === 'number' ? b.priority : 999;
+          if (aPri !== bPri) return aPri - bPri;
+          const toSec = (v: unknown): number => {
+            if (!v) return 0;
+            if (typeof v === 'object' && v !== null && 'seconds' in v)
+              return (v as { seconds: number }).seconds;
+            if (typeof v === 'string') return new Date(v).getTime() / 1000;
+            if (typeof v === 'number') return v;
+            return 0;
+          };
+          return toSec(b.createdAt) - toSec(a.createdAt);
+        });
+      cb(list);
+    },
+    (err) => {
+      console.warn('[AnnouncementService] subscribeToAllAnnouncements error:', err);
+      cb([]);
+    }
   );
 }
 

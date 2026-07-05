@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator,
-  Platform, Alert, TextInput,
+  Platform, Alert, TextInput, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -204,9 +204,16 @@ function UsersTab({ users, onGrantPremium, onVerifyUser }: {
       >
         {filtered.map((u, idx) => (
           <View key={u.uid ?? idx} style={styles.userCard}>
-            <View style={[styles.userAvatar, { backgroundColor: u.role === 'admin' ? ORANGE : NAVY }]}>
-              <Feather name={u.role === 'admin' ? 'shield' : 'user'} size={14} color="#fff" />
-            </View>
+            {u.profile?.profilePhotoUri ? (
+              <Image
+                source={{ uri: u.profile.profilePhotoUri }}
+                style={[styles.userAvatar, { borderRadius: 18 }]}
+              />
+            ) : (
+              <View style={[styles.userAvatar, { backgroundColor: u.role === 'admin' ? ORANGE : NAVY }]}>
+                <Feather name={u.role === 'admin' ? 'shield' : 'user'} size={14} color="#fff" />
+              </View>
+            )}
             <View style={{ flex: 1, minWidth: 0 }}>
               <View style={styles.userNameRow}>
                 <Text style={styles.userName} numberOfLines={1}>

@@ -5,7 +5,8 @@
  */
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, where, serverTimestamp, increment,
+  query, where, serverTimestamp, increment, onSnapshot,
+  type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase/config';
 
@@ -89,9 +90,43 @@ export async function verifyAndRedeemCode(
 
 // ─── Admin-facing ─────────────────────────────────────────────────────────────
 
+/** One-time fetch of all premium codes (admin only). */
 export async function getAccessCodes(): Promise<PremiumCode[]> {
   const snap = await getDocs(collection(db, 'premium_codes'));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PremiumCode));
+}
+
+/**
+ * Realtime subscription to all premium codes.
+ * Fires immediately and on every change. Admin only.
+ */
+export function subscribeToAccessCodes(
+  cb: (codes: PremiumCode[]) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, 'premium_codes'),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PremiumCode))),
+    (err) => {
+      console.error('[PremiumCode] subscribeToAccessCodes error:', err);
+      onError?.(err);
+    }
+  );
+}
+
+/** Realtime subscription to premium_users collection. Admin only. */
+export function subscribeToPremiumUsers(
+  cb: (users: PremiumUser[]) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, 'premium_users'),
+    (snap) => cb(snap.docs.map((d) => d.data() as PremiumUser)),
+    (err) => {
+      console.error('[PremiumCode] subscribeToPremiumUsers error:', err);
+      onError?.(err);
+    }
+  );
 }
 
 export async function createAccessCode(data: {

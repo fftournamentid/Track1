@@ -50,21 +50,30 @@ function FieldInput({
 const fieldStyles = StyleSheet.create({
   wrap: { marginBottom: 14 },
   label: { fontSize: 12, fontWeight: '600', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 },
-  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15 },
+  input: {
+    borderWidth: 1.5, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15,
+    shadowColor: 'rgba(10,22,40,0.08)', shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 2,
+  },
 });
 
 function SectionBox({ title, children }: { title: string; children: React.ReactNode }) {
   const colors = useColors();
   return (
-    <View style={[sectionBoxStyles.box, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View style={[
+      sectionBoxStyles.box,
+      {
+        backgroundColor: colors.card, borderColor: colors.border,
+        shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 8, elevation: 4,
+      },
+    ]}>
       <Text style={[sectionBoxStyles.title, { color: colors.primary }]}>{title}</Text>
       {children}
     </View>
   );
 }
 const sectionBoxStyles = StyleSheet.create({
-  box: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 14 },
-  title: { fontSize: 13, fontWeight: '700', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
+  box: { borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 14 },
+  title: { fontSize: 13, fontWeight: '800', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
 });
 
 export default function ProfileScreen() {
@@ -138,7 +147,41 @@ export default function ProfileScreen() {
     }
   };
 
-  const pickProfilePhoto = async () => {
+  /** Upload a local URI to Supabase and update form state */
+  const uploadPhoto = async (localUri: string) => {
+    if (!user?.uid) return;
+    setUploadingPhoto(true);
+    try {
+      const cloudUrl = await uploadProfilePhotoToSupabase(localUri, user.uid);
+      const photoUri = cloudUrl ?? localUri;
+      userEditedRef.current = true;
+      setForm((prev) => ({ ...prev, profilePhotoUri: photoUri }));
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const launchCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Allow camera access in Settings to take a photo.');
+      return;
+    }
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets[0]) {
+        await uploadPhoto(result.assets[0].uri);
+      }
+    } catch (err: unknown) {
+      Alert.alert('Camera Error', (err as Error).message ?? 'Failed to capture photo. Please try again.');
+    }
+  };
+
+  const launchGallery = async () => {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -146,24 +189,35 @@ export default function ProfileScreen() {
         return;
       }
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets[0] && user?.uid) {
-      const localUri = result.assets[0].uri;
-      setUploadingPhoto(true);
-      try {
-        const cloudUrl = await uploadProfilePhotoToSupabase(localUri, user.uid);
-        const photoUri = cloudUrl ?? localUri;
-        userEditedRef.current = true;
-        setForm((prev) => ({ ...prev, profilePhotoUri: photoUri }));
-      } finally {
-        setUploadingPhoto(false);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets[0]) {
+        await uploadPhoto(result.assets[0].uri);
       }
+    } catch (err: unknown) {
+      Alert.alert('Gallery Error', (err as Error).message ?? 'Failed to select photo. Please try again.');
     }
+  };
+
+  const pickProfilePhoto = () => {
+    if (Platform.OS === 'web') {
+      launchGallery();
+      return;
+    }
+    Alert.alert(
+      'Profile Photo',
+      'Choose a source',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: '📷  Camera', onPress: launchCamera },
+        { text: '🖼  Photo Library', onPress: launchGallery },
+      ],
+    );
   };
 
   const pickImage = async (field: 'logoUri' | 'signatureUri') => {
@@ -181,7 +235,7 @@ export default function ProfileScreen() {
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]) {
-      setForm((prev) => ({ ...prev, [field]: result.assets[0].uri }));
+      setField(field, result.assets[0].uri);
     }
   };
 
@@ -255,8 +309,14 @@ export default function ProfileScreen() {
 
         {/* Account info */}
         {user?.email ? (
-          <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {/* Profile photo — tappable */}
+          <View style={[
+            styles.accountCard,
+            {
+              backgroundColor: colors.card, borderColor: colors.border,
+              shadowColor: colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 12, elevation: 6,
+            },
+          ]}>
+            {/* Profile photo — tappable (camera or gallery) */}
             <Pressable
               onPress={pickProfilePhoto}
               style={[styles.accountAvatar, { backgroundColor: colors.primary }]}
@@ -268,7 +328,7 @@ export default function ProfileScreen() {
               ) : (
                 <Ionicons name="person" size={20} color="#fff" />
               )}
-              <View style={styles.photoEditBadge}>
+              <View style={[styles.photoEditBadge, { backgroundColor: colors.accent }]}>
                 <Feather name="camera" size={8} color="#fff" />
               </View>
             </Pressable>
@@ -280,7 +340,7 @@ export default function ProfileScreen() {
               <Text style={[styles.accountEmail, { color: colors.mutedForeground }]}>
                 {user.email}
               </Text>
-              {/* Verification status row — check both Firebase Auth and admin-set Firestore flag */}
+              {/* Verification status row */}
               {(user.emailVerified || !!userDoc?.emailVerified) ? (
                 <View style={styles.verifiedBadge}>
                   <Feather name="check-circle" size={11} color="#15803D" />
@@ -297,8 +357,8 @@ export default function ProfileScreen() {
                     style={({ pressed }) => [styles.resendBtn, { opacity: pressed || isSendingVerification ? 0.7 : 1 }]}
                   >
                     {isSendingVerification
-                      ? <ActivityIndicator size={10} color="#1A3C6E" />
-                      : <Text style={styles.resendBtnText}>Resend Email</Text>}
+                      ? <ActivityIndicator size={10} color={colors.primary} />
+                      : <Text style={[styles.resendBtnText, { color: colors.primary }]}>Resend Email</Text>}
                   </Pressable>
                 </View>
               )}
@@ -309,7 +369,13 @@ export default function ProfileScreen() {
         {!isEditingProfile ? (
           <>
             {/* Summary Card */}
-            <View style={[styles.summaryCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[
+              styles.summaryCard,
+              {
+                backgroundColor: colors.card, borderColor: colors.border,
+                shadowColor: colors.shadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 12, elevation: 6,
+              },
+            ]}>
               <View style={styles.summaryHeaderRow}>
                 <View style={[styles.summaryLogoBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
                   {form.logoUri ? (
@@ -338,7 +404,7 @@ export default function ProfileScreen() {
                 {!!form.gstNumber && (
                   <View style={styles.summaryInfoRow}>
                     <Feather name="hash" size={13} color={colors.mutedForeground} />
-                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]}>GST: {form.gstNumber}</Text>
+                    <Text style={[styles.summaryInfoText, { color: colors.foreground }]}>GSTIN: {form.gstNumber}</Text>
                   </View>
                 )}
                 {!!form.address && (
@@ -398,184 +464,183 @@ export default function ProfileScreen() {
             </Pressable>
           </>
         ) : (
-        <>
-        {/* Logo */}
-        <SectionBox title="Company Logo">
-          <View style={styles.logoRow}>
-            <Pressable
-              onPress={() => pickImage('logoUri')}
-              style={[styles.logoBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}
-            >
-              {form.logoUri ? (
-                <Image source={{ uri: form.logoUri }} style={styles.logoImg} />
-              ) : (
-                <Feather name="image" size={28} color={colors.primary} />
-              )}
-            </Pressable>
-            <View style={styles.logoActions}>
-              <Text style={[styles.logoHint, { color: colors.mutedForeground }]}>
-                {form.logoUri ? 'Tap to change logo' : 'Tap to add company logo'}
-              </Text>
-              {form.logoUri && (
-                <Pressable onPress={() => setField('logoUri', '')} hitSlop={8}>
-                  <Text style={[styles.removeText, { color: colors.destructive }]}>Remove</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        </SectionBox>
-
-        {/* Business Identity */}
-        <SectionBox title="Business Identity">
-          <FieldInput label="Company Name" value={form.companyName} onChangeText={(v) => setField('companyName', v)} />
-          <FieldInput label="Owner Name" value={form.ownerName} onChangeText={(v) => setField('ownerName', v)} />
-          <FieldInput label="Address" value={form.address} onChangeText={(v) => setField('address', v)} multiline />
-        </SectionBox>
-
-        {/* Contact */}
-        <SectionBox title="Contact">
-          <FieldInput label="Mobile Number" value={form.mobile} onChangeText={(v) => setField('mobile', v)} keyboardType="phone-pad" />
-          <FieldInput label="GST Number" value={form.gstNumber} onChangeText={(v) => setField('gstNumber', v)} />
-        </SectionBox>
-
-        {/* Fleet */}
-        <SectionBox title="Fleet Details">
-          <FieldInput label="Driver Name" value={form.driverName} onChangeText={(v) => setField('driverName', v)} />
-          <FieldInput label="Truck Number" value={form.truckNumber} onChangeText={(v) => setField('truckNumber', v)} />
-        </SectionBox>
-
-        {/* Payment */}
-        <SectionBox title="Payment Details">
-          <FieldInput label="UPI ID" value={form.upiId} onChangeText={(v) => setField('upiId', v)} />
-          <FieldInput label="Bank Name" value={form.bankName} onChangeText={(v) => setField('bankName', v)} />
-          <FieldInput label="Account Number" value={form.accountNumber} onChangeText={(v) => setField('accountNumber', v)} keyboardType="numeric" />
-          <FieldInput label="IFSC Code" value={form.ifscCode} onChangeText={(v) => setField('ifscCode', v)} />
-        </SectionBox>
-
-        {/* Signature */}
-        <SectionBox title="Digital Signature">
-          <Pressable
-            onPress={() => pickImage('signatureUri')}
-            style={[styles.sigBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}
-          >
-            {form.signatureUri ? (
-              <Image source={{ uri: form.signatureUri }} style={styles.sigImg} resizeMode="contain" />
-            ) : (
-              <View style={styles.sigPlaceholder}>
-                <Feather name="pen-tool" size={22} color={colors.primary} />
-                <Text style={[styles.sigHint, { color: colors.mutedForeground }]}>
-                  Tap to add signature image
-                </Text>
-              </View>
-            )}
-          </Pressable>
-          {form.signatureUri && (
-            <Pressable onPress={() => setField('signatureUri', '')} hitSlop={8}>
-              <Text style={[styles.removeText, { color: colors.destructive, marginTop: 6 }]}>Remove Signature</Text>
-            </Pressable>
-          )}
-        </SectionBox>
-
-        {/* Footer Notes */}
-        <SectionBox title="Invoice Footer Notes">
-          <FieldInput
-            label="Footer Text"
-            value={form.footerNotes}
-            onChangeText={(v) => setField('footerNotes', v)}
-            multiline
-            placeholder="Thank you for your business."
-          />
-        </SectionBox>
-
-        {/* Invoice Settings */}
-        <SectionBox title="Invoice Settings">
-          <FieldInput
-            label="Invoice Prefix (e.g. INV)"
-            value={invoicePrefix}
-            onChangeText={(v) => { userEditedRef.current = true; setInvoicePrefix(v); }}
-            placeholder="INV"
-          />
-          <View style={fieldStyles.wrap}>
-            <Text style={[fieldStyles.label, { color: colors.mutedForeground }]}>Default GST Rate</Text>
-            <View style={styles.gstRow}>
-              {GST_OPTIONS.map((r) => (
+          <>
+            {/* Logo */}
+            <SectionBox title="Company Logo">
+              <View style={styles.logoRow}>
                 <Pressable
-                  key={r}
-                  onPress={() => { userEditedRef.current = true; setDefaultGstRate(r); }}
-                  style={[
-                    styles.gstBtn,
-                    {
-                      backgroundColor: defaultGstRate === r ? colors.primary : colors.secondary,
-                      borderColor: defaultGstRate === r ? colors.primary : colors.border,
-                    },
-                  ]}
+                  onPress={() => pickImage('logoUri')}
+                  style={[styles.logoBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}
                 >
-                  <Text style={{ color: defaultGstRate === r ? '#fff' : colors.foreground, fontWeight: '600', fontSize: 13 }}>
-                    {r}%
-                  </Text>
+                  {form.logoUri ? (
+                    <Image source={{ uri: form.logoUri }} style={styles.logoImg} />
+                  ) : (
+                    <Feather name="image" size={28} color={colors.primary} />
+                  )}
                 </Pressable>
-              ))}
-            </View>
-          </View>
-          <FieldInput
-            label="Default Payment Terms"
-            value={defaultTerms}
-            onChangeText={(v) => { userEditedRef.current = true; setDefaultTerms(v); }}
-            multiline
-            placeholder="Payment due within 30 days."
-          />
-        </SectionBox>
+                <View style={styles.logoActions}>
+                  <Text style={[styles.logoHint, { color: colors.mutedForeground }]}>
+                    {form.logoUri ? 'Tap to change logo' : 'Tap to add company logo'}
+                  </Text>
+                  {form.logoUri && (
+                    <Pressable onPress={() => setField('logoUri', '')} hitSlop={8}>
+                      <Text style={[styles.removeText, { color: colors.destructive }]}>Remove</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            </SectionBox>
 
-        <Pressable
-          onPress={() => setIsEditingProfile(false)}
-          style={({ pressed }) => [
-            styles.doneBtn,
-            { borderColor: colors.border, backgroundColor: colors.secondary, opacity: pressed ? 0.8 : 1 },
-          ]}
-        >
-          <Feather name="chevron-up" size={16} color={colors.primary} />
-          <Text style={[styles.doneBtnText, { color: colors.primary }]}>Back to Summary</Text>
-        </Pressable>
-        </>
+            {/* Business Identity */}
+            <SectionBox title="Business Identity">
+              <FieldInput label="Company Name" value={form.companyName} onChangeText={(v) => setField('companyName', v)} />
+              <FieldInput label="Owner Name" value={form.ownerName} onChangeText={(v) => setField('ownerName', v)} />
+              <FieldInput label="Address" value={form.address} onChangeText={(v) => setField('address', v)} multiline />
+            </SectionBox>
+
+            {/* Contact */}
+            <SectionBox title="Contact">
+              <FieldInput label="Mobile Number" value={form.mobile} onChangeText={(v) => setField('mobile', v)} keyboardType="phone-pad" />
+              <FieldInput label="GST Number (GSTIN)" value={form.gstNumber} onChangeText={(v) => setField('gstNumber', v)} />
+            </SectionBox>
+
+            {/* Fleet */}
+            <SectionBox title="Fleet Details">
+              <FieldInput label="Driver Name" value={form.driverName} onChangeText={(v) => setField('driverName', v)} />
+              <FieldInput label="Truck Number" value={form.truckNumber} onChangeText={(v) => setField('truckNumber', v)} />
+            </SectionBox>
+
+            {/* Payment */}
+            <SectionBox title="Payment Details">
+              <FieldInput label="UPI ID (for QR code on invoices)" value={form.upiId} onChangeText={(v) => setField('upiId', v)} />
+              <FieldInput label="Bank Name" value={form.bankName} onChangeText={(v) => setField('bankName', v)} />
+              <FieldInput label="Account Number" value={form.accountNumber} onChangeText={(v) => setField('accountNumber', v)} keyboardType="numeric" />
+              <FieldInput label="IFSC Code" value={form.ifscCode} onChangeText={(v) => setField('ifscCode', v)} />
+            </SectionBox>
+
+            {/* Signature */}
+            <SectionBox title="Digital Signature">
+              <Pressable
+                onPress={() => pickImage('signatureUri')}
+                style={[styles.sigBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}
+              >
+                {form.signatureUri ? (
+                  <Image source={{ uri: form.signatureUri }} style={styles.sigImg} resizeMode="contain" />
+                ) : (
+                  <View style={styles.sigPlaceholder}>
+                    <Feather name="pen-tool" size={22} color={colors.primary} />
+                    <Text style={[styles.sigHint, { color: colors.mutedForeground }]}>
+                      Tap to add signature image
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+              {form.signatureUri && (
+                <Pressable onPress={() => setField('signatureUri', '')} hitSlop={8}>
+                  <Text style={[styles.removeText, { color: colors.destructive, marginTop: 6 }]}>Remove Signature</Text>
+                </Pressable>
+              )}
+            </SectionBox>
+
+            {/* Footer Notes */}
+            <SectionBox title="Invoice Footer Notes">
+              <FieldInput
+                label="Footer Text"
+                value={form.footerNotes}
+                onChangeText={(v) => setField('footerNotes', v)}
+                multiline
+                placeholder="Thank you for your business."
+              />
+            </SectionBox>
+
+            {/* Invoice Settings */}
+            <SectionBox title="Invoice Settings">
+              <FieldInput
+                label="Invoice Prefix (e.g. INV)"
+                value={invoicePrefix}
+                onChangeText={(v) => { userEditedRef.current = true; setInvoicePrefix(v); }}
+                placeholder="INV"
+              />
+              <View style={fieldStyles.wrap}>
+                <Text style={[fieldStyles.label, { color: colors.mutedForeground }]}>Default GST Rate</Text>
+                <View style={styles.gstRow}>
+                  {GST_OPTIONS.map((r) => (
+                    <Pressable
+                      key={r}
+                      onPress={() => { userEditedRef.current = true; setDefaultGstRate(r); }}
+                      style={[
+                        styles.gstBtn,
+                        {
+                          backgroundColor: defaultGstRate === r ? colors.primary : colors.secondary,
+                          borderColor: defaultGstRate === r ? colors.primary : colors.border,
+                        },
+                      ]}
+                    >
+                      <Text style={{ color: defaultGstRate === r ? '#fff' : colors.foreground, fontWeight: '600', fontSize: 13 }}>
+                        {r}%
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+              <FieldInput
+                label="Default Payment Terms"
+                value={defaultTerms}
+                onChangeText={(v) => { userEditedRef.current = true; setDefaultTerms(v); }}
+                multiline
+                placeholder="Payment due within 30 days."
+              />
+            </SectionBox>
+
+            <Pressable
+              onPress={() => setIsEditingProfile(false)}
+              style={({ pressed }) => [
+                styles.doneBtn,
+                { borderColor: colors.border, backgroundColor: colors.secondary, opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Feather name="chevron-up" size={16} color={colors.primary} />
+              <Text style={[styles.doneBtnText, { color: colors.primary }]}>Back to Summary</Text>
+            </Pressable>
+          </>
         )}
       </ScrollView>
 
       {/* Save Bar */}
       {isEditingProfile && (
-      <View style={[styles.saveBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: insets.bottom + 10 }]}>
-        {/* Auto-save status */}
-        <View style={styles.autoSaveRow}>
-          {autoSaveStatus === 'saving' && (
-            <>
-              <ActivityIndicator size={12} color={colors.mutedForeground} />
-              <Text style={[styles.autoSaveTxt, { color: colors.mutedForeground }]}>Auto-saving…</Text>
-            </>
-          )}
-          {autoSaveStatus === 'saved' && (
-            <>
-              <Feather name="check-circle" size={13} color="#16A34A" />
-              <Text style={[styles.autoSaveTxt, { color: '#16A34A' }]}>All changes saved</Text>
-            </>
-          )}
+        <View style={[styles.saveBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: insets.bottom + 10 }]}>
+          <View style={styles.autoSaveRow}>
+            {autoSaveStatus === 'saving' && (
+              <>
+                <ActivityIndicator size={12} color={colors.mutedForeground} />
+                <Text style={[styles.autoSaveTxt, { color: colors.mutedForeground }]}>Auto-saving…</Text>
+              </>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <>
+                <Feather name="check-circle" size={13} color="#16A34A" />
+                <Text style={[styles.autoSaveTxt, { color: '#16A34A' }]}>All changes saved</Text>
+              </>
+            )}
+          </View>
+          <Pressable
+            onPress={handleSave}
+            disabled={isSaving}
+            style={({ pressed }) => [
+              styles.saveBtn,
+              { backgroundColor: colors.primary, opacity: pressed || isSaving ? 0.8 : 1 },
+            ]}
+          >
+            {isSaving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Feather name="check" size={18} color="#fff" />
+                <Text style={styles.saveBtnText}>Save Profile</Text>
+              </>
+            )}
+          </Pressable>
         </View>
-        <Pressable
-          onPress={handleSave}
-          disabled={isSaving}
-          style={({ pressed }) => [
-            styles.saveBtn,
-            { backgroundColor: colors.primary, opacity: pressed || isSaving ? 0.8 : 1 },
-          ]}
-        >
-          {isSaving ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <>
-              <Feather name="check" size={18} color="#fff" />
-              <Text style={styles.saveBtnText}>Save Profile</Text>
-            </>
-          )}
-        </Pressable>
-      </View>
       )}
     </View>
   );
@@ -585,22 +650,22 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: { paddingHorizontal: 16 },
-  title: { fontSize: 24, fontWeight: '800', marginBottom: 4, letterSpacing: -0.5 },
+  title: { fontSize: 26, fontWeight: '900', marginBottom: 4, letterSpacing: -0.8 },
   subtitle: { fontSize: 13, marginBottom: 20 },
   accountCard: {
     flexDirection: 'row', alignItems: 'center', borderWidth: 1,
-    borderRadius: 14, padding: 14, marginBottom: 14, gap: 12,
+    borderRadius: 16, padding: 14, marginBottom: 14, gap: 12,
   },
   accountAvatar: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 48, height: 48, borderRadius: 24,
     alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden', position: 'relative',
   },
-  accountAvatarImg: { width: 44, height: 44, borderRadius: 22 },
+  accountAvatarImg: { width: 48, height: 48, borderRadius: 24 },
   photoEditBadge: {
     position: 'absolute', bottom: 0, right: 0,
-    backgroundColor: '#1A3C6E', borderRadius: 8,
-    width: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 9, width: 18, height: 18,
+    alignItems: 'center', justifyContent: 'center',
     borderWidth: 1.5, borderColor: '#fff',
   },
   verifiedBadge: {
@@ -610,14 +675,14 @@ const styles = StyleSheet.create({
   },
   verifiedText: { fontSize: 11, color: '#15803D', fontWeight: '600' },
   resendBtn: {
-    backgroundColor: '#EEF3FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: '#E8EDF8', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
     alignItems: 'center', justifyContent: 'center', minWidth: 32,
   },
-  resendBtnText: { fontSize: 11, color: '#1A3C6E', fontWeight: '700' },
+  resendBtnText: { fontSize: 11, fontWeight: '700' },
   accountInfo: { flex: 1 },
-  accountName: { fontSize: 15, fontWeight: '600' },
+  accountName: { fontSize: 15, fontWeight: '700' },
   accountEmail: { fontSize: 13, marginTop: 2 },
-  summaryCard: { borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 16 },
+  summaryCard: { borderWidth: 1, borderRadius: 18, padding: 16, marginBottom: 16 },
   summaryHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 },
   summaryLogoBox: {
     width: 56, height: 56, borderRadius: 14, borderWidth: 1,
