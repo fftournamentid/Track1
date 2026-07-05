@@ -1,3 +1,4 @@
+- [Font loading white screen](font-loading-white-screen.md) — return LoadingScreen (not null) while useFonts() is pending; always pass onError to ErrorBoundary to surface silent crashes.
 - [Firebase Storage integration](firebase-storage-integration.md) — PDF/image uploads use pure-JS base64ToBytes (not atob); paths: pdfs/{uid}/{file}, logos/{uid}/logo.ext; module is in firebase package, no extra install.
 - [Admin panel web Alert limitation](admin-panel-web-alert.md) — Alert.alert button callbacks unreliable on web; use Platform.OS==='web' + window.confirm branch for any Promise-wrapped confirmation.
 - [White screen — RootLayoutNav redirect gap](white-screen-root-nav.md) — needsRedirect guard prevents bare <Stack> flash; always show spinner while isLoading OR redirect pending.

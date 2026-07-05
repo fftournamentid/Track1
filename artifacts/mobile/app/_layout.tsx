@@ -81,6 +81,7 @@ function RootLayoutNav() {
       <Stack.Screen name="invoice/template-select" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/create" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="invoice/preview" options={{ headerShown: false }} />
       <Stack.Screen name="pdf-history" options={{ headerShown: false }} />
     </Stack>
   );
@@ -100,11 +101,17 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) return null;
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#1A3C6E", alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator color="#F57C00" size="large" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
+      <ErrorBoundary onError={(err) => console.error("[ErrorBoundary]", err.message, err.stack)}>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <SettingsProvider>

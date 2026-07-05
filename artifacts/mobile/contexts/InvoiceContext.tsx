@@ -142,14 +142,31 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         return;
       }
       console.log('[InvoiceContext][update] Updating invoice', id, 'for user:', user.uid);
-      setInvoices((prev) =>
-        prev.map((inv) =>
-          inv.id === id ? { ...inv, ...updates, updatedAt: new Date().toISOString() } : inv
-        )
-      );
+
+      // Snapshot updatedAt once so both optimistic update and Supabase payload
+      // share the exact same timestamp — avoids drift across concurrent calls.
+      const updatedAt = new Date().toISOString();
+
+      // Capture the merged invoice before the await so the Supabase sync gets
+      // the same payload regardless of subsequent state updates (stale-closure safe).
+      let mergedForSync: Invoice | null = null;
+      setInvoices((prev) => {
+        const next = prev.map((inv) => {
+          if (inv.id !== id) return inv;
+          const merged = { ...inv, ...updates, updatedAt };
+          mergedForSync = merged;
+          return merged;
+        });
+        return next;
+      });
+
       try {
         await updateInvoiceDoc(user.uid, id, updates);
         console.log('[InvoiceContext][update] ✓ Firestore update succeeded for id:', id);
+        // Cloud backup — sync the pre-computed merged invoice (fire-and-forget)
+        if (isSupabaseConfigured() && mergedForSync) {
+          syncInvoiceToSupabase(mergedForSync, user.uid).catch(() => {});
+        }
       } catch (err) {
         console.error('[InvoiceContext][update] ✗ Firestore updateInvoiceDoc failed:', err);
         throw err;
@@ -214,9 +231,10 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         customName: undefined,
         date: new Date().toLocaleDateString('en-GB'),
       };
-      return createInvoiceDoc(user.uid, dupData);
+      // Use createInvoice (not createInvoiceDoc) so Supabase sync is included
+      return createInvoice(dupData);
     },
-    [invoices, user]
+    [invoices, user, createInvoice]
   );
 
   const renameInvoice = useCallback(
