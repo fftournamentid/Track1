@@ -1,14 +1,9 @@
-import { useColorScheme } from "react-native";
 import colors from "@/constants/colors";
 
 /**
- * Returns the design tokens for the current color scheme.
- *
- * Falls back to the light palette when the device is in light mode or
- * when a dark palette is not defined.
+ * Always returns the light (white + orange) design tokens.
+ * Dark mode is disabled per brand requirements — background is always #FFFFFF.
  */
 export function useColors() {
-  const scheme = useColorScheme();
-  const palette = scheme === "dark" ? colors.dark : colors.light;
-  return { ...palette, radius: colors.radius };
+  return { ...colors.light, radius: colors.radius };
 }

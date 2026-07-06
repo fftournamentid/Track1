@@ -79,12 +79,27 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         console.error('[InvoiceContext][create] ✗ User is not authenticated!');
         throw new Error('Not authenticated');
       }
-      if (isOffline) {
-        throw new Error('No internet connection. Please connect and save again.');
-      }
+      // Do NOT block on isOffline state — it may be stale from a transient
+      // connection glitch. Let the actual Firestore write determine connectivity.
       console.log('[InvoiceContext][create] Creating invoice in Firestore for user:', user.uid, '| invoiceNumber:', data.invoiceNumber);
-      const result = await createInvoiceDoc(user.uid, data);
-      console.log('[InvoiceContext][create] ✓ Firestore create succeeded. id:', result.id);
+      let result: Invoice;
+      try {
+        result = await createInvoiceDoc(user.uid, data);
+        console.log('[InvoiceContext][create] ✓ Firestore create succeeded. id:', result.id);
+        // Successful write — we're definitely online now
+        setIsOffline(false);
+      } catch (err) {
+        console.error('[InvoiceContext][create] ✗ Firestore createInvoiceDoc failed:', err);
+        const msg = String(err).toLowerCase();
+        if (
+          msg.includes('network') || msg.includes('offline') ||
+          msg.includes('unavailable') || msg.includes('failed to fetch') ||
+          msg.includes('no internet')
+        ) {
+          throw new Error('Internet is required only to save invoices. Please connect and try again.');
+        }
+        throw err;
+      }
 
       // Optimistically add to state immediately so navigating to the detail
       // screen works without waiting for the next Firestore snapshot.
@@ -99,7 +114,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       }
       return result;
     },
-    [user, isOffline]
+    [user]
   );
 
   const updateInvoice = useCallback(

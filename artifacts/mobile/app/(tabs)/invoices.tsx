@@ -131,7 +131,7 @@ export default function InvoicesScreen() {
 
         {/* Offline banner — only shown on this tab, saving is the only blocked action */}
         {isOffline && (
-          <View style={[styles.offlineBanner, { backgroundColor: '#2C1800', borderColor: '#FF6B00' }]}>
+          <View style={[styles.offlineBanner, { backgroundColor: '#FFF3E8', borderColor: '#FF6B00' }]}>
             <Feather name="wifi-off" size={13} color="#FF6B00" />
             <Text style={[styles.offlineText, { color: '#FF6B00' }]}>
               Internet is required only to save invoices.

@@ -3,7 +3,7 @@ import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 import { buildInvoiceHTML, generatePDFWithTemplate, hasValidPdfHeader } from './invoiceTemplates';
-import { uploadPDFToFirebaseStorage } from './firebase/firebaseStorage';
+import { uploadPDFToSupabase } from './supabaseStorage';
 
 export interface PDFResult {
   uri: string;
@@ -82,17 +82,17 @@ export async function generateAndSaveInvoicePDF(
       console.log('[PDF] ✓ Valid cached file found at:', dest);
       let publicUrl: string | undefined;
       if (userId) {
-        console.log('[PDF] Uploading cached file to Firebase Storage for userId:', userId);
+        console.log('[Supabase] Uploading cached PDF — userId:', userId);
         try {
-          const uploaded = await uploadPDFToFirebaseStorage(dest, filename, userId);
+          const uploaded = await uploadPDFToSupabase(dest, filename, userId);
           if (uploaded) {
             publicUrl = uploaded;
-            console.log('[PDF] ✓ Firebase Storage upload (cache path) succeeded:', publicUrl);
+            console.log('[Supabase] ✓ PDF upload (cache path) succeeded:', publicUrl);
           } else {
-            console.warn('[PDF] Firebase Storage upload returned null');
+            console.warn('[Supabase] PDF upload returned null — check env vars');
           }
         } catch (uploadErr) {
-          console.warn('[PDF] Firebase Storage upload threw (non-fatal):', uploadErr);
+          console.warn('[Supabase] PDF upload threw (non-fatal):', uploadErr);
         }
       }
       return { uri: dest, filename, publicUrl };
@@ -129,23 +129,23 @@ export async function generateAndSaveInvoicePDF(
     throw new Error('PDF generation failed. Please try again.');
   }
 
-  // Upload to Firebase Storage
+  // Upload to Supabase Storage
   let publicUrl: string | undefined;
   if (userId) {
-    console.log('[PDF] Uploading to Firebase Storage, userId:', userId, '| filename:', filename);
+    console.log('[Supabase] Uploading PDF — userId:', userId, '| filename:', filename);
     try {
-      const uploaded = await uploadPDFToFirebaseStorage(dest, filename, userId);
+      const uploaded = await uploadPDFToSupabase(dest, filename, userId);
       if (uploaded) {
         publicUrl = uploaded;
-        console.log('[PDF] ✓ Firebase Storage upload succeeded:', publicUrl);
+        console.log('[Supabase] ✓ PDF upload succeeded:', publicUrl);
       } else {
-        console.warn('[PDF] Firebase Storage upload returned null — check Firebase project config');
+        console.warn('[Supabase] PDF upload returned null — check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY env vars');
       }
     } catch (uploadErr) {
-      console.warn('[PDF] Firebase Storage upload threw (non-fatal, using local URI):', uploadErr);
+      console.warn('[Supabase] PDF upload threw (non-fatal, using local URI):', uploadErr);
     }
   } else {
-    console.log('[PDF] No userId — skipping Firebase Storage upload');
+    console.log('[PDF] No userId — skipping Supabase Storage upload');
   }
 
   console.log('[PDF] ✓ generateAndSaveInvoicePDF complete. uri:', dest, '| publicUrl:', publicUrl);

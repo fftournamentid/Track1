@@ -12,6 +12,8 @@ import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { generateAndSaveInvoicePDF } from '@/services/pdfService';
 import type { Invoice, ExpenseItem, SettlementStatus } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
 import { INVOICE_TEMPLATES } from '@/services/invoiceTemplates';
@@ -249,6 +251,7 @@ export default function CreateInvoiceScreen() {
   const { createInvoice, updateInvoice, getInvoiceById } = useInvoices();
   const { profile } = useProfile();
   const { settings, generateNextInvoiceNumber } = useSettings();
+  const { user } = useAuth();
 
   const [selectedTemplateId, setSelectedTemplateId] = useState(tplParam || settings.defaultTemplateId || 'classic');
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -486,13 +489,18 @@ export default function CreateInvoiceScreen() {
 
   // ─── Save ─────────────────────────────────────────────────────────────────
   const handleSave = async () => {
+    console.log('[Save] Save button pressed');
+
+    // ── Validation ────────────────────────────────────────────────────────
     if (!clientName.trim()) { Alert.alert('Required', 'Client name is required'); return; }
     if (!fromLocation.trim() || !toLocation.trim()) { Alert.alert('Required', 'From and To locations are required'); return; }
     if (advanceNum <= 0) { Alert.alert('Required', 'Advance amount must be greater than zero'); return; }
     if (expenses.some((i) => !i.name.trim())) { Alert.alert('Required', 'Fill all expense names'); return; }
     if (expenses.some((i) => i.amount <= 0)) { Alert.alert('Required', 'All expense amounts must be greater than zero'); return; }
 
+    console.log('[Save] Validation passed');
     setIsSaving(true);
+
     try {
       const data = {
         invoiceNumber: invoiceNumber.trim() || `INV-${Date.now()}`,
@@ -525,23 +533,84 @@ export default function CreateInvoiceScreen() {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       if (isEditing && editId) {
-        await updateInvoice(editId, data);
+        // ── Update existing invoice ────────────────────────────────────────
+        console.log('[Save] Firestore save started (update)', editId);
+        try {
+          await updateInvoice(editId, data);
+          console.log('[Save] Firestore save success');
+        } catch (fsErr) {
+          console.error('[Save] Firestore save failed:', fsErr);
+          throw fsErr;
+        }
         await clearDraft();
-        Alert.alert('✓ Invoice saved successfully', undefined, [
+
+        // Generate PDF + upload to Supabase in background (non-blocking)
+        if (Platform.OS !== 'web' && user?.uid) {
+          const existingInv = getInvoiceById(editId);
+          if (existingInv) {
+            const invoiceForPdf = { ...existingInv, ...data, id: editId };
+            console.log('[Save] Supabase upload started');
+            generateAndSaveInvoicePDF(invoiceForPdf, selectedTemplateId, true, user.uid)
+              .then((pdf) => {
+                if (pdf.publicUrl) {
+                  console.log('[Save] Supabase upload success:', pdf.publicUrl);
+                  updateInvoice(editId, { pdfUrl: pdf.publicUrl }).catch(() => {});
+                } else {
+                  console.log('[Save] Supabase upload — no public URL (env vars may not be set)');
+                }
+              })
+              .catch((pdfErr) => console.warn('[Save] Supabase upload failed (non-fatal):', pdfErr));
+          }
+        }
+
+        Alert.alert('Invoice saved successfully', undefined, [
           { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
           { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: editId } }) },
         ]);
       } else {
-        const inv = await createInvoice(data);
+        // ── Create new invoice ─────────────────────────────────────────────
+        console.log('[Save] Firestore save started');
+        let inv: import('@/types').Invoice;
+        try {
+          inv = await createInvoice(data);
+          console.log('[Save] Firestore save success. id:', inv.id);
+        } catch (fsErr) {
+          console.error('[Save] Firestore save failed:', fsErr);
+          throw fsErr;
+        }
         await clearDraft();
+
+        // Generate PDF + upload to Supabase in background (non-blocking)
+        // This runs after navigation so it doesn't delay the UX
+        if (Platform.OS !== 'web' && user?.uid) {
+          const savedInv = inv;
+          const savedUid = user.uid;
+          console.log('[Save] Supabase upload started');
+          generateAndSaveInvoicePDF(savedInv, selectedTemplateId, true, savedUid)
+            .then((pdf) => {
+              if (pdf.publicUrl) {
+                console.log('[Save] Supabase upload success:', pdf.publicUrl);
+                updateInvoice(savedInv.id, { pdfUrl: pdf.publicUrl }).catch(() => {});
+              } else {
+                console.log('[Save] Supabase upload — no public URL (env vars may not be set)');
+              }
+            })
+            .catch((pdfErr) => console.warn('[Save] Supabase upload failed (non-fatal):', pdfErr));
+        }
+
         router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } });
       }
     } catch (err) {
       const msg = String(err);
-      if (msg.toLowerCase().includes('no internet') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('offline')) {
-        Alert.alert('No Internet Connection', 'Please connect to the internet and try again.');
+      if (
+        msg.toLowerCase().includes('internet') ||
+        msg.toLowerCase().includes('network') ||
+        msg.toLowerCase().includes('offline') ||
+        msg.toLowerCase().includes('unavailable')
+      ) {
+        Alert.alert('Unable to save invoice', 'Internet is required to save invoices. Please connect and try again.');
       } else {
-        Alert.alert('Error saving invoice', msg);
+        Alert.alert('Unable to save invoice', msg);
       }
     } finally {
       setIsSaving(false);
@@ -590,11 +659,10 @@ export default function CreateInvoiceScreen() {
             disabled={isSaving}
             style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: isSaving ? 0.7 : 1 }]}
           >
-            {isSaving ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.saveBtnText}>Save</Text>
-            )}
+            {isSaving
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={styles.saveBtnText}>Save</Text>
+            }
           </Pressable>
         </View>
       </View>
@@ -881,7 +949,10 @@ export default function CreateInvoiceScreen() {
             style={[styles.bottomSaveBtn, { backgroundColor: colors.primary, opacity: isSaving ? 0.7 : 1 }]}
           >
             {isSaving ? (
-              <ActivityIndicator color="#fff" size="small" />
+              <>
+                <ActivityIndicator color="#fff" size="small" />
+                <Text style={styles.bottomSaveTxt}>Saving invoice...</Text>
+              </>
             ) : (
               <>
                 <Feather name="save" size={16} color="#fff" />
