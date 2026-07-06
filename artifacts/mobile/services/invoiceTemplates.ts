@@ -688,11 +688,15 @@ function renderA5Invoice(
 <div class="page">
   ${draftOverlay}
 
-  <!-- ══ APP BRANDING STRIP (top-left, every invoice) ══ -->
-  <div style="display:flex;align-items:center;gap:6px;padding:6px 17px;background:${isDark ? '#0a0a0a' : '#fff'};">
-    <img src="${APP_LOGO_DATA_URI}" style="width:16px;height:16px;border-radius:4px;display:block;" />
-    <span style="font-size:9.5px;font-weight:800;color:${isDark ? '#E2E8F0' : '#334155'};letter-spacing:-0.1px;">${APP_NAME}</span>
-    <span style="font-size:7px;color:${isDark ? '#6B7280' : '#94A3B8'};">· Generated with ${APP_NAME}</span>
+  <!-- ══ APP BRANDING STRIP ══ -->
+  <div style="display:flex;align-items:center;gap:8px;padding:7px 17px;background:${isDark ? '#1a0a00' : '#FFF3E8'};border-bottom:1px solid ${isDark ? '#2c1400' : '#FFD5A8'};">
+    <div style="width:22px;height:22px;border-radius:5px;background:#FF6B00;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <img src="${APP_LOGO_DATA_URI}" style="width:16px;height:16px;border-radius:3px;display:block;" />
+    </div>
+    <div>
+      <div style="font-size:9.5px;font-weight:900;color:#FF6B00;letter-spacing:-0.2px;line-height:1.2;">${APP_NAME}</div>
+      <div style="font-size:7px;color:${isDark ? '#9CA3AF' : '#A0714F'};line-height:1.2;">Generated with ${APP_NAME}</div>
+    </div>
   </div>
 
   <!-- ══ HEADER BAND ══ -->

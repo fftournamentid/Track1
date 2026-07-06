@@ -259,26 +259,39 @@ export default function ProfileScreen() {
   };
 
   const handleSignOut = () => {
+    const doSignOut = async () => {
+      setIsSigningOut(true);
+      // Safety fallback: if navigation doesn't complete in 5s, re-enable the button
+      const fallback = setTimeout(() => setIsSigningOut(false), 5000);
+      try {
+        await signOut();
+        clearTimeout(fallback);
+        router.replace('/(auth)/login' as never);
+        // Don't reset isSigningOut — component unmounts on successful redirect
+      } catch {
+        clearTimeout(fallback);
+        setIsSigningOut(false);
+        if (Platform.OS === 'web') {
+          window.alert('Failed to logout. Please try again.');
+        } else {
+          Alert.alert('Error', 'Failed to logout. Please try again.');
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to logout?')) {
+        doSignOut();
+      }
+      return;
+    }
+
     Alert.alert(
       'Logout',
       'Are you sure you want to logout?',
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            setIsSigningOut(true);
-            try {
-              await signOut();
-              router.replace('/(auth)/login' as never);
-              return;
-            } catch {
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-              setIsSigningOut(false);
-            }
-          },
-        },
+        { text: 'Logout', style: 'destructive', onPress: doSignOut },
       ]
     );
   };

@@ -122,11 +122,15 @@ function PaperDocument({ invoice, currency, templateId }: {
         </View>
       )}
 
-      {/* ══ APP BRANDING STRIP (top-left, every invoice) ══ */}
-      <View style={[a5.brandStrip, { backgroundColor: isDark ? '#0a0a0a' : '#fff' }]}>
-        <Image source={{ uri: APP_LOGO_DATA_URI }} style={a5.brandLogo} resizeMode="contain" />
-        <Text style={[a5.brandName, { color: isDark ? '#E2E8F0' : '#334155' }]}>{APP_NAME}</Text>
-        <Text style={[a5.brandTag, { color: isDark ? '#6B7280' : '#94A3B8' }]}>· Generated with {APP_NAME}</Text>
+      {/* ══ APP BRANDING STRIP ══ */}
+      <View style={[a5.brandStrip, { backgroundColor: isDark ? '#1a0a00' : '#FFF3E8', borderBottomColor: isDark ? '#2c1400' : '#FFD5A8' }]}>
+        <View style={[a5.brandIconBg, { backgroundColor: '#FF6B00' }]}>
+          <Image source={{ uri: APP_LOGO_DATA_URI }} style={a5.brandLogo} resizeMode="contain" />
+        </View>
+        <View style={a5.brandTextCol}>
+          <Text style={[a5.brandName, { color: '#FF6B00' }]}>{APP_NAME}</Text>
+          <Text style={[a5.brandTag, { color: isDark ? '#9CA3AF' : '#A0714F' }]}>Generated with {APP_NAME}</Text>
+        </View>
       </View>
 
       {/* ══ HEADER BAND ══ */}
@@ -179,30 +183,30 @@ function PaperDocument({ invoice, currency, templateId }: {
 
         {/* ── TRIP DETAILS STRIP ── */}
         <View style={[a5.tripStrip, { backgroundColor: isDark ? t.rowAlt : t.tripBg, borderLeftColor: t.primary }]}>
-          <View style={a5.tripField}>
+          <View style={[a5.tripField, a5.tripFieldRoute]}>
             <Text style={[a5.tripLabel, { color: t.metaText }]}>FROM</Text>
-            <Text style={[a5.tripValue, { color: isDark ? t.accent : t.primary }]} numberOfLines={1}>
+            <Text style={[a5.tripValue, { color: isDark ? t.accent : t.primary }]} numberOfLines={1} ellipsizeMode="tail">
               {invoice.fromLocation || '—'}
             </Text>
           </View>
           <Text style={[a5.tripArrow, { color: t.accent }]}>→</Text>
-          <View style={a5.tripField}>
+          <View style={[a5.tripField, a5.tripFieldRoute]}>
             <Text style={[a5.tripLabel, { color: t.metaText }]}>TO</Text>
-            <Text style={[a5.tripValue, { color: isDark ? t.accent : t.primary }]} numberOfLines={1}>
+            <Text style={[a5.tripValue, { color: isDark ? t.accent : t.primary }]} numberOfLines={1} ellipsizeMode="tail">
               {invoice.toLocation || '—'}
             </Text>
           </View>
           <View style={[a5.tripDivider, { backgroundColor: t.borderColor }]} />
-          <View style={a5.tripField}>
+          <View style={[a5.tripField, a5.tripFieldMeta]}>
             <Text style={[a5.tripLabel, { color: t.metaText }]}>VEHICLE</Text>
-            <Text style={[a5.tripSmallValue, { color: isDark ? '#E2E8F0' : t.bodyText }]} numberOfLines={1}>
+            <Text style={[a5.tripSmallValue, { color: isDark ? '#E2E8F0' : t.bodyText }]} numberOfLines={1} ellipsizeMode="tail">
               {invoice.truckNumber || '—'}
             </Text>
           </View>
           <View style={[a5.tripDivider, { backgroundColor: t.borderColor }]} />
-          <View style={a5.tripField}>
+          <View style={[a5.tripField, a5.tripFieldMeta]}>
             <Text style={[a5.tripLabel, { color: t.metaText }]}>DRIVER</Text>
-            <Text style={[a5.tripSmallValue, { color: isDark ? '#E2E8F0' : t.bodyText }]} numberOfLines={1}>
+            <Text style={[a5.tripSmallValue, { color: isDark ? '#E2E8F0' : t.bodyText }]} numberOfLines={1} ellipsizeMode="tail">
               {invoice.driverName || '—'}
             </Text>
           </View>
@@ -735,14 +739,20 @@ const a5 = StyleSheet.create({
   },
   watermark: { fontSize: 48, fontWeight: '900', color: 'rgba(128,128,128,0.05)', letterSpacing: 8 },
 
-  // ── App branding strip (top-left, every invoice) ──
+  // ── App branding strip ──
   brandStrip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingVertical: 6, paddingHorizontal: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 7, paddingHorizontal: 14,
+    borderBottomWidth: 1,
   },
-  brandLogo: { width: 16, height: 16, borderRadius: 4 },
-  brandName: { fontSize: 9.5, fontWeight: '800', letterSpacing: -0.1 },
-  brandTag: { fontSize: 7 },
+  brandIconBg: {
+    width: 22, height: 22, borderRadius: 5,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  brandLogo: { width: 16, height: 16, borderRadius: 3 },
+  brandTextCol: { gap: 0.5 },
+  brandName: { fontSize: 9.5, fontWeight: '900', letterSpacing: -0.2 },
+  brandTag: { fontSize: 7, lineHeight: 10 },
 
   // ── Header band ──
   headerBand: {
@@ -771,17 +781,19 @@ const a5 = StyleSheet.create({
 
   // ── Trip strip ──
   tripStrip: {
-    flexDirection: 'row', flexWrap: 'wrap',
+    flexDirection: 'row',
     borderLeftWidth: 4, borderTopRightRadius: 4, borderBottomRightRadius: 4,
     padding: 7, paddingHorizontal: 10, marginBottom: 9,
-    alignItems: 'center', gap: 4,
+    alignItems: 'center', overflow: 'hidden',
   },
-  tripField: { minWidth: 42 },
+  tripField: { overflow: 'hidden' },
+  tripFieldRoute: { flex: 1.4, minWidth: 0 },
+  tripFieldMeta: { flex: 1, minWidth: 0 },
   tripLabel: { fontSize: 6.5, textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: '700', marginBottom: 1 },
   tripValue: { fontSize: 10.5, fontWeight: '900' },
   tripSmallValue: { fontSize: 9, fontWeight: '700' },
-  tripArrow: { fontSize: 12, fontWeight: '900', marginHorizontal: 3 },
-  tripDivider: { width: 1, height: 20, marginHorizontal: 4 },
+  tripArrow: { fontSize: 12, fontWeight: '900', marginHorizontal: 3, flexShrink: 0 },
+  tripDivider: { width: 1, height: 20, marginHorizontal: 4, flexShrink: 0 },
 
   // ── Expense table ──
   table: { borderWidth: 1, borderRadius: 4, overflow: 'hidden', marginBottom: 0 },
