@@ -837,6 +837,31 @@ export async function buildInvoiceHTML(
  *
  * Verifies the output is at least 1 KB and retries once on failure.
  */
+/** A5 page size in PostScript points (72pt/inch). 148mm × 210mm. */
+const A5_WIDTH_PT = 420;
+const A5_HEIGHT_PT = 595;
+
+/**
+ * Reads the first few bytes of a local file and checks for the `%PDF-` magic
+ * header that all valid PDF binaries start with. Guards against HTML content
+ * or truncated/corrupted output being mistaken for a real PDF.
+ */
+export async function hasValidPdfHeader(uri: string): Promise<boolean> {
+  try {
+    const base64Head = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+      length: 16,
+      position: 0,
+    });
+    if (!base64Head) return false;
+    const binary = atob(base64Head);
+    return binary.startsWith('%PDF-');
+  } catch (err) {
+    console.warn('[PDF][header] Failed to read header bytes:', err);
+    return false;
+  }
+}
+
 export async function generatePDFWithTemplate(
   invoice: Invoice,
   templateId: string,
@@ -856,18 +881,31 @@ export async function generatePDFWithTemplate(
   const html = await generateInvoiceHTML(invoice, templateId);
 
   async function tryPrint(): Promise<{ uri: string }> {
-    const result = await Print.printToFileAsync({ html, base64: false });
+    // Explicit width/height (A5, in points) — printToFileAsync ignores the
+    // HTML's `@page` CSS on some Android WebView builds and silently falls
+    // back to US Letter, which corrupts the intended A5 layout/proportions.
+    const result = await Print.printToFileAsync({
+      html,
+      base64: false,
+      width: A5_WIDTH_PT,
+      height: A5_HEIGHT_PT,
+    });
     const info = await FileSystem.getInfoAsync(result.uri);
     const size = info.exists ? ((info as { exists: true; size?: number }).size ?? 0) : 0;
     if (size < 1024) {
       throw new Error(`PDF too small: ${size} bytes`);
+    }
+    const validHeader = await hasValidPdfHeader(result.uri);
+    if (!validHeader) {
+      throw new Error('Generated file is missing the %PDF- header — not a real PDF binary.');
     }
     return { uri: result.uri };
   }
 
   try {
     return await tryPrint();
-  } catch {
+  } catch (firstErr) {
+    console.warn('[PDF][generate] First attempt failed, retrying once:', firstErr);
     // Retry once
     return await tryPrint();
   }

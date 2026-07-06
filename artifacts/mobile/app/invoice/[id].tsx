@@ -439,7 +439,8 @@ export default function InvoiceDetailScreen() {
                   try {
                     await doShare(invoice.pdfUrl, `Invoice — ${invoice.pdfName}`);
                   } catch (err) {
-                    showToast('Share failed. Please try again.', 'error');
+                    console.error('[PDF][Share] ✗ Error:', err);
+                    showToast('Unable to share PDF. Please try again.', 'error');
                   }
                 }}
                 variant="accent"
@@ -453,7 +454,8 @@ export default function InvoiceDetailScreen() {
                   try {
                     await doShare(invoice.pdfUrl, 'Send Invoice via WhatsApp');
                   } catch (err) {
-                    showToast('Share failed. Please try again.', 'error');
+                    console.error('[PDF][Share] ✗ Error:', err);
+                    showToast('Unable to share PDF. Please try again.', 'error');
                   }
                 }}
                 variant="success"

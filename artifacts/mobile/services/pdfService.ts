@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
-import { buildInvoiceHTML, generatePDFWithTemplate } from './invoiceTemplates';
+import { buildInvoiceHTML, generatePDFWithTemplate, hasValidPdfHeader } from './invoiceTemplates';
 import { uploadPDFToFirebaseStorage } from './firebase/firebaseStorage';
 
 export interface PDFResult {
@@ -20,10 +20,19 @@ function safeName(s: string): string {
   return s.replace(/[^a-zA-Z0-9-]/g, '_');
 }
 
+/**
+ * Validates a cached/local file is a real, complete PDF: exists, > 1 KB, and
+ * starts with the `%PDF-` magic header. Skips the header check for non-PDF
+ * (e.g. `.html`) files, which are only ever produced on web.
+ */
 async function fileExistsAndValid(uri: string): Promise<boolean> {
   try {
     const info = await FileSystem.getInfoAsync(uri);
-    return info.exists && (info.size ?? 0) > 1024;
+    if (!info.exists || (info.size ?? 0) <= 1024) return false;
+    if (uri.toLowerCase().endsWith('.pdf')) {
+      return await hasValidPdfHeader(uri);
+    }
+    return true;
   } catch {
     return false;
   }
@@ -111,7 +120,12 @@ export async function generateAndSaveInvoicePDF(
   console.log('[PDF] File at dest — exists:', info.exists, '| size:', size, 'bytes');
 
   if (!info.exists || size < 1024) {
-    throw new Error(`PDF generation failed — file is ${size} bytes (minimum 1 KB). Path: ${dest}`);
+    throw new Error('PDF generation failed. Please try again.');
+  }
+
+  const validHeader = await hasValidPdfHeader(dest);
+  if (!validHeader) {
+    throw new Error('PDF generation failed. Please try again.');
   }
 
   // Upload to Firebase Storage
@@ -236,16 +250,20 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
     console.log('[PDF][share] Local URI ready:', localUri);
   }
 
-  // ── Verify file exists and is valid ────────────────────────────────────────
+  // ── Verify file exists and is a valid, complete PDF binary ─────────────────
   const info = await FileSystem.getInfoAsync(localUri);
   if (!info.exists) {
-    throw new Error('PDF file not found. Please generate the PDF first.');
+    throw new Error('Unable to share PDF. Please try again.');
   }
   const fileSize = (info as { exists: true; size?: number }).size ?? 0;
   if (fileSize < 1024) {
-    throw new Error(`PDF is too small (${fileSize} B) — generation may have failed.`);
+    throw new Error('Unable to share PDF. Please try again.');
   }
-  console.log('[PDF][share] File verified — size:', fileSize, 'bytes, uri:', localUri);
+  const validHeader = await hasValidPdfHeader(localUri);
+  if (!validHeader) {
+    throw new Error('Unable to share PDF. Please try again.');
+  }
+  console.log('[PDF][share] File verified — size:', fileSize, 'bytes, valid %PDF- header, uri:', localUri);
 
   // ── Android: content:// URI for reliable app-to-app sharing ─────────────
   // WhatsApp, Telegram, Gmail, Drive, Nearby Share all require a

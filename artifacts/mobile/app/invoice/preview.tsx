@@ -542,6 +542,7 @@ export default function InvoicePreviewScreen() {
     if (!invoice) return;
     console.log('[PDF][Download] handleDownloadPDF called — platform:', Platform.OS);
     setDownloadingPDF(true);
+    showToast('Preparing PDF...');
     try {
       if (Platform.OS === 'web') {
         await downloadForWeb(invoice, invoice.templateId ?? 'classic');
@@ -555,18 +556,9 @@ export default function InvoicePreviewScreen() {
       showToast('PDF saved to Downloads.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
-
-      console.error('[Preview] Download PDF error:', err);
-      Alert.alert(
-        'PDF Failed',
-        String(err instanceof Error ? err.message : err),
-        [{ text: 'OK' }]
-      );
-
-      const msg = err instanceof Error ? err.message : String(err);
       console.error('[PDF][Download] ✗ Error:', err);
-      showToast(`Download failed: ${msg}`, 'error');
-
+      Alert.alert('PDF generation failed. Please try again.', undefined, [{ text: 'OK' }]);
+      showToast('PDF generation failed. Please try again.', 'error');
     } finally {
       setDownloadingPDF(false);
     }
@@ -576,6 +568,7 @@ export default function InvoicePreviewScreen() {
     if (!invoice) return;
     console.log('[PDF][Share] handleSharePDF called — platform:', Platform.OS);
     setSharingPDF(true);
+    showToast('Preparing PDF...');
     try {
       if (Platform.OS === 'web') {
         // Web: Web Share API if available, otherwise download HTML as fallback
@@ -612,9 +605,8 @@ export default function InvoicePreviewScreen() {
       await sharePDF(uri, `Invoice — ${filename}`);
       console.log('[PDF][Share] ✓ Native share sheet opened. User can share to WhatsApp, Gmail, Telegram, Drive, etc.');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error('[PDF][Share] ✗ Error:', msg, err);
-      showToast(`Share failed: ${msg}`, 'error');
+      console.error('[PDF][Share] ✗ Error:', err);
+      showToast('Unable to share PDF. Please try again.', 'error');
     } finally {
       setSharingPDF(false);
     }
