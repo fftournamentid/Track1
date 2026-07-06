@@ -61,16 +61,16 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  { id: 'cft',      icon: 'box',         title: 'CFT Calculator',    desc: 'Cubic feet for cargo',       color: '#6366F1' },
-  { id: 'freight',  icon: 'truck',       title: 'Freight Calculator', desc: 'Weight × rate pricing',     color: '#F57C00' },
-  { id: 'gst',      icon: 'percent',     title: 'GST Calculator',    desc: 'Tax inclusive/exclusive',    color: '#10B981' },
-  { id: 'fuel',     icon: 'droplet',     title: 'Fuel Cost',         desc: 'Diesel trip expenses',       color: '#EF4444' },
-  { id: 'distance', icon: 'map',         title: 'Distance Calc',     desc: 'Speed · time · distance',    color: '#3B82F6' },
-  { id: 'profit',   icon: 'trending-up', title: 'Profit Calculator', desc: 'Revenue minus expenses',     color: '#16A34A' },
-  { id: 'weight',   icon: 'activity',    title: 'Weight Converter',  desc: 'kg · ton · quintal',         color: '#8B5CF6' },
+  { id: 'cft',      icon: 'box',         title: 'CFT Calculator',    desc: 'Cubic feet for cargo',       color: '#FF6B00' },
+  { id: 'freight',  icon: 'truck',       title: 'Freight Calculator', desc: 'Weight × rate pricing',     color: '#FF6B00' },
+  { id: 'gst',      icon: 'percent',     title: 'GST Calculator',    desc: 'Tax inclusive/exclusive',    color: '#FF6B00' },
+  { id: 'fuel',     icon: 'droplet',     title: 'Fuel Cost',         desc: 'Diesel trip expenses',       color: '#FF6B00' },
+  { id: 'distance', icon: 'map',         title: 'Distance Calc',     desc: 'Speed · time · distance',    color: '#FF6B00' },
+  { id: 'profit',   icon: 'trending-up', title: 'Profit Calculator', desc: 'Revenue minus expenses',     color: '#FF6B00' },
+  { id: 'weight',   icon: 'activity',    title: 'Weight Converter',  desc: 'kg · ton · quintal',         color: '#FF6B00' },
   { id: 'unit',     icon: 'navigation',  title: 'Unit Converter',    desc: 'km · miles · meters',        color: '#FF6B00' },
-  { id: 'tyre',     icon: 'circle',      title: 'Tyre Cost',         desc: 'Cost per km analysis',       color: '#DC2626' },
-  { id: 'emi',      icon: 'credit-card', title: 'EMI Calculator',    desc: 'Loan EMI computation',       color: '#D97706' },
+  { id: 'tyre',     icon: 'circle',      title: 'Tyre Cost',         desc: 'Cost per km analysis',       color: '#FF6B00' },
+  { id: 'emi',      icon: 'credit-card', title: 'EMI Calculator',    desc: 'Loan EMI computation',       color: '#FF6B00' },
   { id: 'qr',       icon: 'grid',        title: 'QR Payment',        desc: 'Generate UPI QR code',       color: '#FF6B00' },
 ];
 
@@ -93,14 +93,14 @@ function ResultRow({ label, value, accent }: { label: string; value: string; acc
   );
 }
 const rr = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  label: { fontSize: 13, color: '#6B7280' },
-  val: { fontSize: 13, fontWeight: '700', color: '#111827' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#333333' },
+  label: { fontSize: 13, color: '#BDBDBD' },
+  val: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
   accent: { color: '#FF6B00', fontSize: 14 },
 });
 
 function ResultBox({ children }: { children: React.ReactNode }) {
-  return <View style={{ backgroundColor: '#EEF3FF', borderRadius: 12, padding: 14, marginTop: 16 }}>{children}</View>;
+  return <View style={{ backgroundColor: '#2C2C2C', borderRadius: 12, padding: 14, marginTop: 16 }}>{children}</View>;
 }
 
 function Field({
@@ -127,10 +127,10 @@ function Field({
   );
 }
 const fl = StyleSheet.create({
-  label: { fontSize: 11.5, fontWeight: '700', color: '#6B7280', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 },
-  row: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, backgroundColor: '#fff' },
-  input: { flex: 1, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15, color: '#111827' },
-  suffix: { paddingRight: 12, fontSize: 13, color: '#9CA3AF', fontWeight: '600' },
+  label: { fontSize: 11.5, fontWeight: '700', color: '#BDBDBD', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.5 },
+  row: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#333333', borderRadius: 10, backgroundColor: '#1E1E1E' },
+  input: { flex: 1, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15, color: '#FFFFFF' },
+  suffix: { paddingRight: 12, fontSize: 13, color: '#BDBDBD', fontWeight: '600' },
 });
 
 function Seg({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
@@ -145,10 +145,10 @@ function Seg({ options, value, onChange }: { options: string[]; value: string; o
   );
 }
 const seg = StyleSheet.create({
-  wrap: { flexDirection: 'row', backgroundColor: '#F3F4F6', borderRadius: 10, padding: 3, marginBottom: 14 },
+  wrap: { flexDirection: 'row', backgroundColor: '#2C2C2C', borderRadius: 10, padding: 3, marginBottom: 14 },
   btn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  active: { backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 3 },
-  txt: { fontSize: 12.5, color: '#6B7280', fontWeight: '600' },
+  active: { backgroundColor: '#1E1E1E', elevation: 2, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 3 },
+  txt: { fontSize: 12.5, color: '#BDBDBD', fontWeight: '600' },
   activeTxt: { color: '#FF6B00', fontWeight: '700' },
 });
 
@@ -161,10 +161,10 @@ function Chips({ options, value, onChange, accent }: { options: string[]; value:
           onPress={() => onChange(opt)}
           style={{
             paddingVertical: 7, paddingHorizontal: 14, borderRadius: 20,
-            backgroundColor: value === opt ? (accent ? '#F57C00' : '#FF6B00') : '#F3F4F6',
+            backgroundColor: value === opt ? (accent ? '#F57C00' : '#FF6B00') : '#2C2C2C',
           }}
         >
-          <Text style={{ fontSize: 13, fontWeight: '600', color: value === opt ? '#fff' : '#6B7280' }}>{opt}</Text>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: value === opt ? '#fff' : '#BDBDBD' }}>{opt}</Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -376,7 +376,7 @@ function CftCalc() {
               onPress={() => { setUnit(u); setShowUnitPicker(false); setResult(null); }}
             >
               <Text style={[cft.unitOptionTxt, u === unit && { color: '#fff', fontWeight: '800' }]}>{u}</Text>
-              {u === 'Feet' && <Text style={[cft.unitOptionHint, u === unit && { color: '#BFDBFE' }]}>Dual ft + in input</Text>}
+              {u === 'Feet' && <Text style={[cft.unitOptionHint, u === unit && { color: 'rgba(255,255,255,0.7)' }]}>Dual ft + in input</Text>}
             </TouchableOpacity>
           ))}
         </View>
@@ -408,8 +408,8 @@ function CftCalc() {
           <Text style={cft.btnTxt}>Calculate</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[cft.btn, cft.clearBtn]} onPress={clear} activeOpacity={0.85}>
-          <Feather name="refresh-ccw" size={15} color="#374151" />
-          <Text style={[cft.btnTxt, { color: '#374151' }]}>Clear</Text>
+          <Feather name="refresh-ccw" size={15} color="#BDBDBD" />
+          <Text style={[cft.btnTxt, { color: '#BDBDBD' }]}>Clear</Text>
         </TouchableOpacity>
       </View>
       <TouchableOpacity
@@ -431,16 +431,16 @@ function CftCalc() {
 
       {/* ── Saved Records Modal ── */}
       <Modal visible={showRecords} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowRecords(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#121212' }}>
           <View style={cft.recHeader}>
             <Text style={cft.recTitle}>Saved CFT Records</Text>
             <TouchableOpacity onPress={() => setShowRecords(false)} hitSlop={12} style={cft.recClose}>
-              <Feather name="x" size={20} color="#374151" />
+              <Feather name="x" size={20} color="#BDBDBD" />
             </TouchableOpacity>
           </View>
           {/* Search Bar */}
           <View style={cft.searchRow}>
-            <Feather name="search" size={15} color="#9CA3AF" />
+            <Feather name="search" size={15} color="#BDBDBD" />
             <TextInput
               value={recordSearch}
               onChangeText={setRecordSearch}
@@ -457,7 +457,7 @@ function CftCalc() {
           {filteredRecords.length === 0 ? (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               <Feather name="inbox" size={48} color="#D1D5DB" />
-              <Text style={{ color: '#9CA3AF', fontSize: 15 }}>
+              <Text style={{ color: '#BDBDBD', fontSize: 15 }}>
                 {records.length === 0 ? 'No saved records yet' : 'No records match your search'}
               </Text>
             </View>
@@ -515,65 +515,65 @@ const cft = StyleSheet.create({
   btnRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
   btn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12 },
   calcBtn: { backgroundColor: '#FF6B00' },
-  clearBtn: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
-  saveBtn: { backgroundColor: '#16A34A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12, marginTop: 8 },
+  clearBtn: { backgroundColor: '#2C2C2C', borderWidth: 1, borderColor: '#333333' },
+  saveBtn: { backgroundColor: '#FF6B00', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12, marginTop: 8 },
   btnTxt: { color: '#fff', fontWeight: '700', fontSize: 14 },
   recordsBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     marginTop: 12, paddingVertical: 12, borderRadius: 12,
-    backgroundColor: '#EEF3FF', borderWidth: 1, borderColor: '#BFDBFE',
+    backgroundColor: '#2C1800', borderWidth: 1, borderColor: '#FF6B00',
   },
   recordsBtnTxt: { color: '#FF6B00', fontWeight: '700', fontSize: 13, flex: 1, textAlign: 'center' },
   // Unit selector
   unitSelector: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     borderWidth: 1.5, borderColor: '#FF6B00', borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 11, backgroundColor: '#EEF3FF',
+    paddingHorizontal: 14, paddingVertical: 11, backgroundColor: '#2C1800',
   },
   unitSelectorTxt: { fontSize: 13, fontWeight: '800', color: '#FF6B00' },
   unitDropdown: {
-    backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB',
+    backgroundColor: '#1E1E1E', borderRadius: 12, borderWidth: 1, borderColor: '#333333',
     marginTop: -8, marginBottom: 12, overflow: 'hidden',
-    shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 4,
+    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 8, elevation: 4,
   },
-  unitOption: { paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  unitOption: { paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#333333' },
   unitOptionActive: { backgroundColor: '#FF6B00' },
-  unitOptionTxt: { fontSize: 14, fontWeight: '600', color: '#374151' },
-  unitOptionHint: { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
+  unitOptionTxt: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  unitOptionHint: { fontSize: 11, color: '#BDBDBD', marginTop: 1 },
   // Dimension inputs
   dimInput: {
-    borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
+    borderWidth: 1.5, borderColor: '#333333', borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 12, paddingRight: 40,
-    fontSize: 16, fontWeight: '600', color: '#111827', backgroundColor: '#fff',
+    fontSize: 16, fontWeight: '600', color: '#FFFFFF', backgroundColor: '#1E1E1E',
   },
-  dimUnit: { fontSize: 11, color: '#9CA3AF', marginTop: 4 },
+  dimUnit: { fontSize: 11, color: '#BDBDBD', marginTop: 4 },
   // Search
   searchRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#fff', borderRadius: 10, margin: 12,
+    backgroundColor: '#1E1E1E', borderRadius: 10, margin: 12,
     paddingHorizontal: 12, paddingVertical: 10,
-    borderWidth: 1, borderColor: '#E5E7EB',
+    borderWidth: 1, borderColor: '#333333',
   },
-  searchInput: { flex: 1, fontSize: 14, color: '#111827' },
+  searchInput: { flex: 1, fontSize: 14, color: '#FFFFFF' },
   // Records
   recHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingVertical: 16,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    backgroundColor: '#1E1E1E', borderBottomWidth: 1, borderBottomColor: '#333333',
   },
-  recTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  recClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },
+  recTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  recClose: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#2C2C2C', alignItems: 'center', justifyContent: 'center' },
   recCard: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 10,
-    borderWidth: 1, borderColor: '#E5E7EB',
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    backgroundColor: '#1E1E1E', borderRadius: 14, padding: 14, marginBottom: 10,
+    borderWidth: 1, borderColor: '#333333',
+    shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 4, elevation: 1,
   },
-  recName: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  recMeta: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  recDims: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, backgroundColor: '#F9FAFB', borderRadius: 8, padding: 8 },
-  recDimTxt: { fontSize: 13, color: '#374151', fontWeight: '600', flex: 1 },
+  recName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  recMeta: { fontSize: 12, color: '#BDBDBD', marginTop: 2 },
+  recDims: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, backgroundColor: '#2C2C2C', borderRadius: 8, padding: 8 },
+  recDimTxt: { fontSize: 13, color: '#FFFFFF', fontWeight: '600', flex: 1 },
   recCft: { fontSize: 14, fontWeight: '800', color: '#FF6B00' },
-  recAmount: { fontSize: 15, fontWeight: '800', color: '#16A34A', marginTop: 6, textAlign: 'right' },
+  recAmount: { fontSize: 15, fontWeight: '800', color: '#FF6B00', marginTop: 6, textAlign: 'right' },
 });
 
 function FreightCalc() {
@@ -771,17 +771,17 @@ function ProfitCalc() {
 
 const profit_s = StyleSheet.create({
   expensesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 },
-  addExpenseBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EEF3FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  addExpenseBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#2C1800', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   addExpenseTxt: { fontSize: 13, fontWeight: '700', color: '#FF6B00' },
   expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   expenseName: {
-    flex: 1, borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, color: '#111827', backgroundColor: '#fff',
+    flex: 1, borderWidth: 1.5, borderColor: '#333333', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 11, fontSize: 14, color: '#FFFFFF', backgroundColor: '#1E1E1E',
   },
-  expenseAmtWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10, backgroundColor: '#fff', paddingLeft: 10, width: 110 },
-  expenseCurrency: { fontSize: 14, color: '#6B7280', fontWeight: '600' },
-  expenseAmt: { flex: 1, paddingHorizontal: 6, paddingVertical: 11, fontSize: 14, color: '#111827' },
-  expenseDelete: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#FEE2E2', alignItems: 'center', justifyContent: 'center' },
+  expenseAmtWrap: { flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: '#333333', borderRadius: 10, backgroundColor: '#1E1E1E', paddingLeft: 10, width: 110 },
+  expenseCurrency: { fontSize: 14, color: '#BDBDBD', fontWeight: '600' },
+  expenseAmt: { flex: 1, paddingHorizontal: 6, paddingVertical: 11, fontSize: 14, color: '#FFFFFF' },
+  expenseDelete: { width: 32, height: 32, borderRadius: 8, backgroundColor: '#3A1515', alignItems: 'center', justifyContent: 'center' },
 });
 
 const WEIGHT_UNITS = ['kg', 'ton', 'quintal', 'pound', 'gram'];
@@ -925,11 +925,12 @@ function QrPayment() {
       {loading && <ActivityIndicator color="#FF6B00" style={{ marginTop: 24 }} />}
       {!!qrUrl && !loading && (
         <View style={{ alignItems: 'center', marginTop: 24 }}>
-          <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 16, borderWidth: 1.5, borderColor: '#E5E7EB', elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6 }}>
+          {/* White bg intentional for QR code readability */}
+          <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 16, borderWidth: 1.5, borderColor: '#FF6B00', elevation: 2, shadowColor: '#FF6B00', shadowOpacity: 0.3, shadowRadius: 6 }}>
             <Image source={{ uri: qrUrl }} style={{ width: 220, height: 220 }} resizeMode="contain" />
           </View>
-          <Text style={{ marginTop: 14, fontSize: 15, fontWeight: '700', color: '#111827' }}>{name || upiId}</Text>
-          <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 4 }}>Scan with any UPI app to pay</Text>
+          <Text style={{ marginTop: 14, fontSize: 15, fontWeight: '700', color: '#FFFFFF' }}>{name || upiId}</Text>
+          <Text style={{ fontSize: 13, color: '#BDBDBD', marginTop: 4 }}>Scan with any UPI app to pay</Text>
           {!!amount && <Text style={{ fontSize: 16, fontWeight: '800', color: '#FF6B00', marginTop: 6 }}>₹ {amount}</Text>}
         </View>
       )}
@@ -1008,23 +1009,18 @@ const tc = StyleSheet.create({
     width: '47%',
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1E1E1E',
     borderRadius: 20,
     padding: 18,
     alignItems: 'flex-start',
     gap: 10,
-    // Soft 3D shadow
-    shadowColor: '#0F172A',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.10,
+    shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 4,
-    // Subtle top border for premium look
-    borderTopWidth: 1,
-    borderLeftWidth: 0.5,
-    borderRightWidth: 0.5,
-    borderBottomWidth: 0,
-    borderColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: '#333333',
   },
   iconOuter: {
     width: 54,
@@ -1043,12 +1039,12 @@ const tc = StyleSheet.create({
   cardTitle: {
     fontSize: 13.5,
     fontWeight: '800',
-    color: '#0F172A',
+    color: '#FFFFFF',
     letterSpacing: -0.2,
   },
   cardDesc: {
     fontSize: 11,
-    color: '#64748B',
+    color: '#BDBDBD',
     lineHeight: 15,
   },
   arrowBadge: {
@@ -1071,7 +1067,7 @@ export default function ToolsScreen() {
   const current = activeTool ? TOOL_CONTENT[activeTool] : null;
 
   return (
-    <View style={[styles.container, { backgroundColor: '#F8FAFC' }]}>
+    <View style={[styles.container, { backgroundColor: '#121212' }]}>
       {/* Premium Header */}
       <View style={[styles.header, { paddingTop: topPad + 10 }]}>
         <View>
@@ -1080,7 +1076,7 @@ export default function ToolsScreen() {
           <Text style={styles.headerSub}>11 offline tools for transport professionals</Text>
         </View>
         <View style={styles.headerIconWrap}>
-          <Feather name="tool" size={20} color="#2563EB" />
+          <Feather name="tool" size={20} color="#FF6B00" />
         </View>
       </View>
 
@@ -1147,7 +1143,7 @@ export default function ToolsScreen() {
               </View>
             </View>
             <TouchableOpacity onPress={() => setActiveTool(null)} style={modal.closeBtn} hitSlop={12}>
-              <Feather name="x" size={20} color="#374151" />
+              <Feather name="x" size={20} color="#BDBDBD" />
             </TouchableOpacity>
           </View>
           <KeyboardAvoidingView
@@ -1176,42 +1172,42 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#1E1E1E',
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    shadowColor: '#0F172A',
+    borderBottomColor: '#333333',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 2,
   },
   headerBadge: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#2563EB',
+    color: '#FF6B00',
     letterSpacing: 1.5,
     marginBottom: 4,
   },
   headerTitle: {
     fontSize: 26,
     fontWeight: '900',
-    color: '#0F172A',
+    color: '#FFFFFF',
     letterSpacing: -0.8,
   },
   headerSub: {
     fontSize: 12,
-    color: '#64748B',
+    color: '#BDBDBD',
     marginTop: 2,
   },
   headerIconWrap: {
     width: 48,
     height: 48,
     borderRadius: 16,
-    backgroundColor: '#EEF2FF',
+    backgroundColor: '#2C1800',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#C7D2FE',
+    borderColor: '#FF6B00',
   },
   grid: {
     padding: 14,
@@ -1225,10 +1221,10 @@ const styles = StyleSheet.create({
   premiumCard: {
     borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: '#1D4ED8',
-    shadowColor: '#1D4ED8',
+    backgroundColor: '#FF6B00',
+    shadowColor: '#FF6B00',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.45,
     shadowRadius: 14,
     elevation: 8,
   },
@@ -1238,7 +1234,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 60,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 20,
   },
   premiumContent: {
@@ -1278,19 +1274,19 @@ const styles = StyleSheet.create({
 });
 
 const modal = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#F8FAFC' },
+  root: { flex: 1, backgroundColor: '#121212' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 14,
-    backgroundColor: '#fff',
+    backgroundColor: '#1E1E1E',
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-    shadowColor: '#0F172A',
+    borderBottomColor: '#333333',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -1306,13 +1302,13 @@ const modal = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
-  subtitle: { fontSize: 11, color: '#64748B', marginTop: 1 },
+  title: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
+  subtitle: { fontSize: 11, color: '#BDBDBD', marginTop: 1 },
   closeBtn: {
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#2C2C2C',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -66,8 +66,8 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         console.error('[InvoiceContext] ✗ Firestore subscription error:', err);
         setIsOffline(true);
         setIsLoading(false);
-        // No local fallback — always require cloud connectivity
-        setInvoices([]);
+        // Keep last-known invoices so the list stays visible while offline.
+        // Clearing to [] would show an empty list, which is misleading.
       }
     );
     return unsub;

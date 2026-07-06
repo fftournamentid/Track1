@@ -254,64 +254,73 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   // ── Verify file exists and is a valid, complete PDF binary ─────────────────
   const info = await FileSystem.getInfoAsync(localUri);
   if (!info.exists) {
+    console.error('[PDF][share] Share failed — file not found at:', localUri);
     throw new Error('Unable to share PDF. Please try again.');
   }
   const fileSize = (info as { exists: true; size?: number }).size ?? 0;
   if (fileSize < 1024) {
+    console.error('[PDF][share] Share failed — file too small:', fileSize, 'bytes');
     throw new Error('Unable to share PDF. Please try again.');
   }
   const validHeader = await hasValidPdfHeader(localUri);
   if (!validHeader) {
+    console.error('[PDF][share] Share failed — invalid PDF header at:', localUri);
     throw new Error('Unable to share PDF. Please try again.');
   }
-  console.log('[PDF][share] File verified — size:', fileSize, 'bytes, valid %PDF- header, uri:', localUri);
+
+  console.log('[PDF] PDF generated ✓');
+  console.log('[PDF] PDF file path:', localUri);
+  console.log('[PDF][share] File verified — size:', fileSize, 'bytes, valid %PDF- header');
 
   // ── Android: content:// URI for reliable app-to-app sharing ─────────────
   // WhatsApp, Telegram, Gmail, Drive, Nearby Share all require a
-  // content:// URI; a raw file:// URI is blocked by StrictMode on Android 7+.
+  // content:// URI; a raw file:// URI is blocked by Android StrictMode (7+).
+  // IMPORTANT: do NOT fall back to file:// if getContentUriAsync fails — the
+  // share sheet would open but apps cannot read a file:// stream cross-process.
   if (Platform.OS === 'android') {
-    let shareUri = localUri;
+    let contentUri: string;
     try {
-      shareUri = await FileSystem.getContentUriAsync(localUri);
-      console.log('[PDF][share] Android: obtained content URI:', shareUri);
+      contentUri = await FileSystem.getContentUriAsync(localUri);
+      console.log('[PDF][share] Android: obtained content:// URI:', contentUri);
     } catch (contentUriErr) {
-      console.warn('[PDF][share] getContentUriAsync failed — will try file:// directly:', contentUriErr);
+      console.error('[PDF][share] Share failed — getContentUriAsync threw:', contentUriErr);
+      throw new Error('Unable to share PDF on this device. Please try "Save to Downloads" instead.');
     }
 
     const canShare = await Sharing.isAvailableAsync();
-    if (!canShare) throw new Error('Unable to share PDF. Please try again.');
+    if (!canShare) throw new Error('Sharing is not available on this device.');
 
+    console.log('[PDF][share] Share started (Android content URI)');
     try {
-      await Sharing.shareAsync(shareUri, {
+      await Sharing.shareAsync(contentUri, {
         mimeType: 'application/pdf',
         dialogTitle: title,
         UTI: 'com.adobe.pdf',
       });
-      console.log('[PDF][share] ✓ Android share sheet opened successfully.');
-      return;
+      console.log('[PDF][share] Share success ✓');
     } catch (shareErr) {
-      console.warn('[PDF][share] shareAsync with content URI failed, retrying with file URI:', shareErr);
-      // Last resort: original file:// URI
-      await Sharing.shareAsync(localUri, {
-        mimeType: 'application/pdf',
-        dialogTitle: title,
-        UTI: 'com.adobe.pdf',
-      });
-      console.log('[PDF][share] ✓ Android fallback share sheet opened.');
-      return;
+      console.error('[PDF][share] Share failed:', shareErr);
+      throw shareErr;
     }
+    return;
   }
 
   // ── iOS / other ──────────────────────────────────────────────────────────
   const canShare = await Sharing.isAvailableAsync();
-  if (!canShare) throw new Error('Unable to share PDF. Please try again.');
+  if (!canShare) throw new Error('Sharing is not available on this device.');
 
-  await Sharing.shareAsync(localUri, {
-    mimeType: 'application/pdf',
-    dialogTitle: title,
-    UTI: 'com.adobe.pdf',
-  });
-  console.log('[PDF][share] ✓ Share sheet opened successfully.');
+  console.log('[PDF][share] Share started');
+  try {
+    await Sharing.shareAsync(localUri, {
+      mimeType: 'application/pdf',
+      dialogTitle: title,
+      UTI: 'com.adobe.pdf',
+    });
+    console.log('[PDF][share] Share success ✓');
+  } catch (shareErr) {
+    console.error('[PDF][share] Share failed:', shareErr);
+    throw shareErr;
+  }
 }
 
 /**

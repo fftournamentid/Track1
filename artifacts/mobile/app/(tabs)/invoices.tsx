@@ -129,12 +129,12 @@ export default function InvoicesScreen() {
           ))}
         </ScrollView>
 
-        {/* Offline banner */}
+        {/* Offline banner — only shown on this tab, saving is the only blocked action */}
         {isOffline && (
-          <View style={[styles.offlineBanner, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
-            <Feather name="wifi-off" size={13} color="#92400E" />
-            <Text style={[styles.offlineText, { color: '#92400E' }]}>
-              No internet connection. Please connect and save again.
+          <View style={[styles.offlineBanner, { backgroundColor: '#2C1800', borderColor: '#FF6B00' }]}>
+            <Feather name="wifi-off" size={13} color="#FF6B00" />
+            <Text style={[styles.offlineText, { color: '#FF6B00' }]}>
+              Internet is required only to save invoices.
             </Text>
           </View>
         )}

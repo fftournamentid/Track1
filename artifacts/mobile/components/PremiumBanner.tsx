@@ -44,5 +44,5 @@ const styles = StyleSheet.create({
   rocket: { fontSize: 18 },
   textWrap: { flex: 1 },
   title: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  subtitle: { color: ORANGE, fontSize: 12, fontWeight: '700', marginTop: 1 },
+  subtitle: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '700', marginTop: 1 },
 });
