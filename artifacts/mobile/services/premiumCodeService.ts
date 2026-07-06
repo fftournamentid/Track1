@@ -114,7 +114,7 @@ export function subscribeToAccessCodes(
   );
 }
 
-/** Realtime subscription to premium_users collection. Admin only. */
+/** Realtime subscription to premium_users . Admin only. */
 export function subscribeToPremiumUsers(
   cb: (users: PremiumUser[]) => void,
   onError?: (err: Error) => void,
