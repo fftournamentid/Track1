@@ -781,7 +781,7 @@ function renderA5Invoice(
     <div style="display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid ${isDark ? t.accent + '44' : t.borderColor};padding-top:9px;margin-top:3px;">
       <div style="flex:1;padding-right:12px;">
         <div style="font-size:9px;color:${t.metaText};line-height:1.6;">${biz.footerNotes || 'Thank you for your business.'}</div>
-        <div style="font-size:8px;color:${t.metaText};opacity:0.4;margin-top:5px;">Page 1 of 1</div>
+        <div style="font-size:7px;color:${t.metaText};opacity:0.45;margin-top:5px;">Page 1 of 1 &nbsp;·&nbsp; Generated with FleetInvoice</div>
       </div>
       <div style="text-align:right;flex-shrink:0;min-width:105px;">
         ${sigHtml}

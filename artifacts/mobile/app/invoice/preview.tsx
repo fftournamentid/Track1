@@ -348,7 +348,9 @@ function PaperDocument({ invoice, currency, templateId }: {
             <Text style={[a5.footerNote, { color: isDark ? '#6B7280' : t.metaText }]}>
               {biz.footerNotes || 'Thank you for your business.'}
             </Text>
-            <Text style={[a5.pageNum, { color: isDark ? '#374151' : t.metaText }]}>Page 1 of 1</Text>
+            <Text style={[a5.pageNum, { color: isDark ? '#374151' : t.metaText }]}>
+              Page 1 of 1 · Generated with FleetInvoice
+            </Text>
           </View>
           <View style={a5.sigArea}>
             {biz.signatureUri ? (
