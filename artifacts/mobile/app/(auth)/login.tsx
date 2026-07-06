@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { signIn, getAuthErrorMessage, validateEmail, validatePassword } from '@/services/firebase/auth.service';
 
-const NAVY = '#1A3C6E';
+const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 const ERROR = '#DC2626';
 

@@ -68,10 +68,10 @@ const TOOLS: Tool[] = [
   { id: 'distance', icon: 'map',         title: 'Distance Calc',     desc: 'Speed · time · distance',    color: '#3B82F6' },
   { id: 'profit',   icon: 'trending-up', title: 'Profit Calculator', desc: 'Revenue minus expenses',     color: '#16A34A' },
   { id: 'weight',   icon: 'activity',    title: 'Weight Converter',  desc: 'kg · ton · quintal',         color: '#8B5CF6' },
-  { id: 'unit',     icon: 'navigation',  title: 'Unit Converter',    desc: 'km · miles · meters',        color: '#0891B2' },
+  { id: 'unit',     icon: 'navigation',  title: 'Unit Converter',    desc: 'km · miles · meters',        color: '#FF6B00' },
   { id: 'tyre',     icon: 'circle',      title: 'Tyre Cost',         desc: 'Cost per km analysis',       color: '#DC2626' },
   { id: 'emi',      icon: 'credit-card', title: 'EMI Calculator',    desc: 'Loan EMI computation',       color: '#D97706' },
-  { id: 'qr',       icon: 'grid',        title: 'QR Payment',        desc: 'Generate UPI QR code',       color: '#1A3C6E' },
+  { id: 'qr',       icon: 'grid',        title: 'QR Payment',        desc: 'Generate UPI QR code',       color: '#FF6B00' },
 ];
 
 function fmt2(n: number): string {
@@ -96,7 +96,7 @@ const rr = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   label: { fontSize: 13, color: '#6B7280' },
   val: { fontSize: 13, fontWeight: '700', color: '#111827' },
-  accent: { color: '#1A3C6E', fontSize: 14 },
+  accent: { color: '#FF6B00', fontSize: 14 },
 });
 
 function ResultBox({ children }: { children: React.ReactNode }) {
@@ -149,7 +149,7 @@ const seg = StyleSheet.create({
   btn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
   active: { backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 3 },
   txt: { fontSize: 12.5, color: '#6B7280', fontWeight: '600' },
-  activeTxt: { color: '#1A3C6E', fontWeight: '700' },
+  activeTxt: { color: '#FF6B00', fontWeight: '700' },
 });
 
 function Chips({ options, value, onChange, accent }: { options: string[]; value: string; onChange: (v: string) => void; accent?: boolean }) {
@@ -161,7 +161,7 @@ function Chips({ options, value, onChange, accent }: { options: string[]; value:
           onPress={() => onChange(opt)}
           style={{
             paddingVertical: 7, paddingHorizontal: 14, borderRadius: 20,
-            backgroundColor: value === opt ? (accent ? '#F57C00' : '#1A3C6E') : '#F3F4F6',
+            backgroundColor: value === opt ? (accent ? '#F57C00' : '#FF6B00') : '#F3F4F6',
           }}
         >
           <Text style={{ fontSize: 13, fontWeight: '600', color: value === opt ? '#fff' : '#6B7280' }}>{opt}</Text>
@@ -361,7 +361,7 @@ function CftCalc() {
             activeOpacity={0.8}
           >
             <Text style={cft.unitSelectorTxt}>{unit}</Text>
-            <Feather name={showUnitPicker ? 'chevron-up' : 'chevron-down'} size={14} color="#1A3C6E" />
+            <Feather name={showUnitPicker ? 'chevron-up' : 'chevron-down'} size={14} color="#FF6B00" />
           </TouchableOpacity>
         </View>
       </View>
@@ -424,9 +424,9 @@ function CftCalc() {
 
       {/* ── View saved records ── */}
       <TouchableOpacity style={cft.recordsBtn} onPress={() => setShowRecords(true)} activeOpacity={0.85}>
-        <Feather name="list" size={15} color="#1A3C6E" />
+        <Feather name="list" size={15} color="#FF6B00" />
         <Text style={cft.recordsBtnTxt}>View Saved Records ({records.length})</Text>
-        <Feather name="chevron-right" size={15} color="#1A3C6E" />
+        <Feather name="chevron-right" size={15} color="#FF6B00" />
       </TouchableOpacity>
 
       {/* ── Saved Records Modal ── */}
@@ -485,7 +485,7 @@ function CftCalc() {
                       <Text style={cft.recMeta}>{r.date}{r.truckNumber ? `  ·  ${r.truckNumber}` : ''}</Text>
                     </View>
                     <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-                      <Feather name="edit-2" size={14} color="#1A3C6E" />
+                      <Feather name="edit-2" size={14} color="#FF6B00" />
                       <TouchableOpacity onPress={() => Alert.alert('Delete', 'Remove this record?', [
                         { text: 'Cancel', style: 'cancel' },
                         { text: 'Delete', style: 'destructive', onPress: () => deleteRecord(r.id) },
@@ -514,7 +514,7 @@ function CftCalc() {
 const cft = StyleSheet.create({
   btnRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
   btn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12 },
-  calcBtn: { backgroundColor: '#1A3C6E' },
+  calcBtn: { backgroundColor: '#FF6B00' },
   clearBtn: { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
   saveBtn: { backgroundColor: '#16A34A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12, marginTop: 8 },
   btnTxt: { color: '#fff', fontWeight: '700', fontSize: 14 },
@@ -523,21 +523,21 @@ const cft = StyleSheet.create({
     marginTop: 12, paddingVertical: 12, borderRadius: 12,
     backgroundColor: '#EEF3FF', borderWidth: 1, borderColor: '#BFDBFE',
   },
-  recordsBtnTxt: { color: '#1A3C6E', fontWeight: '700', fontSize: 13, flex: 1, textAlign: 'center' },
+  recordsBtnTxt: { color: '#FF6B00', fontWeight: '700', fontSize: 13, flex: 1, textAlign: 'center' },
   // Unit selector
   unitSelector: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1.5, borderColor: '#1A3C6E', borderRadius: 10,
+    borderWidth: 1.5, borderColor: '#FF6B00', borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 11, backgroundColor: '#EEF3FF',
   },
-  unitSelectorTxt: { fontSize: 13, fontWeight: '800', color: '#1A3C6E' },
+  unitSelectorTxt: { fontSize: 13, fontWeight: '800', color: '#FF6B00' },
   unitDropdown: {
     backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB',
     marginTop: -8, marginBottom: 12, overflow: 'hidden',
     shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, elevation: 4,
   },
   unitOption: { paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  unitOptionActive: { backgroundColor: '#1A3C6E' },
+  unitOptionActive: { backgroundColor: '#FF6B00' },
   unitOptionTxt: { fontSize: 14, fontWeight: '600', color: '#374151' },
   unitOptionHint: { fontSize: 11, color: '#9CA3AF', marginTop: 1 },
   // Dimension inputs
@@ -572,7 +572,7 @@ const cft = StyleSheet.create({
   recMeta: { fontSize: 12, color: '#6B7280', marginTop: 2 },
   recDims: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, backgroundColor: '#F9FAFB', borderRadius: 8, padding: 8 },
   recDimTxt: { fontSize: 13, color: '#374151', fontWeight: '600', flex: 1 },
-  recCft: { fontSize: 14, fontWeight: '800', color: '#1A3C6E' },
+  recCft: { fontSize: 14, fontWeight: '800', color: '#FF6B00' },
   recAmount: { fontSize: 15, fontWeight: '800', color: '#16A34A', marginTop: 6, textAlign: 'right' },
 });
 
@@ -731,7 +731,7 @@ function ProfitCalc() {
       <View style={profit_s.expensesHeader}>
         <Text style={fl.label}>Expenses</Text>
         <TouchableOpacity style={profit_s.addExpenseBtn} onPress={addExpense} activeOpacity={0.8}>
-          <Feather name="plus" size={13} color="#1A3C6E" />
+          <Feather name="plus" size={13} color="#FF6B00" />
           <Text style={profit_s.addExpenseTxt}>Add</Text>
         </TouchableOpacity>
       </View>
@@ -772,7 +772,7 @@ function ProfitCalc() {
 const profit_s = StyleSheet.create({
   expensesHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, marginTop: 4 },
   addExpenseBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#EEF3FF', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  addExpenseTxt: { fontSize: 13, fontWeight: '700', color: '#1A3C6E' },
+  addExpenseTxt: { fontSize: 13, fontWeight: '700', color: '#FF6B00' },
   expenseRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   expenseName: {
     flex: 1, borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 10,
@@ -916,13 +916,13 @@ function QrPayment() {
       <Field label="Amount (₹)" value={amount} onChange={setAmount} suffix="₹" placeholder="Optional" />
       <Field label="Description / Note" value={note} onChange={setNote} keyboard="default" placeholder="Optional" />
       <TouchableOpacity
-        style={{ backgroundColor: '#1A3C6E', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4 }}
+        style={{ backgroundColor: '#FF6B00', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 4 }}
         onPress={generate}
         activeOpacity={0.85}
       >
         <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Generate QR Code</Text>
       </TouchableOpacity>
-      {loading && <ActivityIndicator color="#1A3C6E" style={{ marginTop: 24 }} />}
+      {loading && <ActivityIndicator color="#FF6B00" style={{ marginTop: 24 }} />}
       {!!qrUrl && !loading && (
         <View style={{ alignItems: 'center', marginTop: 24 }}>
           <View style={{ backgroundColor: '#fff', padding: 16, borderRadius: 16, borderWidth: 1.5, borderColor: '#E5E7EB', elevation: 2, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6 }}>
@@ -930,7 +930,7 @@ function QrPayment() {
           </View>
           <Text style={{ marginTop: 14, fontSize: 15, fontWeight: '700', color: '#111827' }}>{name || upiId}</Text>
           <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 4 }}>Scan with any UPI app to pay</Text>
-          {!!amount && <Text style={{ fontSize: 16, fontWeight: '800', color: '#1A3C6E', marginTop: 6 }}>₹ {amount}</Text>}
+          {!!amount && <Text style={{ fontSize: 16, fontWeight: '800', color: '#FF6B00', marginTop: 6 }}>₹ {amount}</Text>}
         </View>
       )}
     </View>

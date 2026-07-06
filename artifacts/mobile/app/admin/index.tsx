@@ -17,7 +17,7 @@ import { signOut } from '@/services/firebase/auth.service';
 import type { UserDocument } from '@/services/firebase/repositories/user.repository';
 import type { Invoice } from '@/types';
 
-const NAVY = '#1A3C6E';
+const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 const BG = '#F3F6FB';
 
@@ -528,7 +528,7 @@ function AnalyticsTab({ users }: { users: UserWithInvoices[] }) {
     { label: 'Active Users', value: String(users.filter((u) => u.isActive).length), icon: 'activity', color: '#16A34A' },
     { label: 'Premium Users', value: String(users.filter((u) => u.isPremium).length), icon: 'star', color: ORANGE },
     { label: 'Total Invoices', value: String(totalInvoices), icon: 'file-text', color: '#7C3AED' },
-    { label: 'Revenue Tracked', value: fmtCurrency(totalRevenue), icon: 'trending-up', color: '#0891B2' },
+    { label: 'Revenue Tracked', value: fmtCurrency(totalRevenue), icon: 'trending-up', color: '#FF6B00' },
     { label: 'Avg. Invoices/User', value: avgInvoicesPerUser, icon: 'bar-chart', color: '#DC2626' },
   ];
 

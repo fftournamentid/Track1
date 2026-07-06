@@ -9,7 +9,7 @@ import {
   sendPasswordReset, getAuthErrorMessage, validateEmail,
 } from '@/services/firebase/auth.service';
 
-const NAVY = '#1A3C6E';
+const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 const ERROR = '#DC2626';
 const SUCCESS = '#16A34A';
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDF4', borderRadius: 12, padding: 16, marginBottom: 24,
     borderWidth: 1, borderColor: '#BBF7D0',
   },
-  successText: { fontSize: 14, color: '#166534', flex: 1, lineHeight: 20 },
+  successText: { fontSize: 14, color: '#2E7D32', flex: 1, lineHeight: 20 },
   label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center',

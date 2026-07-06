@@ -25,7 +25,7 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 const LoadingScreen = () => (
-  <View style={{ flex: 1, backgroundColor: "#1A3C6E", alignItems: "center", justifyContent: "center" }}>
+  <View style={{ flex: 1, backgroundColor: "#FF6B00", alignItems: "center", justifyContent: "center" }}>
     <ActivityIndicator color="#F57C00" size="large" />
   </View>
 );
@@ -103,7 +103,7 @@ export default function RootLayout() {
 
   if (!fontsLoaded && !fontError) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#1A3C6E", alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, backgroundColor: "#FF6B00", alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator color="#F57C00" size="large" />
       </View>
     );

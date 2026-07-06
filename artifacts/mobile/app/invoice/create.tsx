@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, TextInput,
-  Alert, ActivityIndicator, Platform,
+  Alert, ActivityIndicator, Platform, Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -28,28 +29,189 @@ function settlementMessage(status: SettlementStatus): string {
   return 'Fully settled — no balance due.';
 }
 
-function Field({
-  label, value, onChangeText, placeholder, keyboardType, multiline, required,
+/** Parse DD/MM/YYYY string → Date object (or today if invalid) */
+function parseDMY(s: string): Date {
+  const parts = s.split('/');
+  if (parts.length === 3) {
+    const d = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const y = parseInt(parts[2], 10);
+    const dt = new Date(y, m, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+  return new Date();
+}
+
+/** Format Date → DD/MM/YYYY */
+function formatDMY(date: Date): string {
+  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+/** Date picker field — shows styled box, opens native picker on press */
+function DateField({
+  label, value, onChange, placeholder, required, colors,
 }: {
-  label: string; value: string; onChangeText: (v: string) => void;
-  placeholder?: string; keyboardType?: 'default' | 'numeric' | 'phone-pad' | 'decimal-pad';
-  multiline?: boolean; required?: boolean;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  colors: ReturnType<typeof import('@/hooks/useColors').useColors>;
 }) {
-  const colors = useColors();
+  const [show, setShow] = useState(false);
+  const date = value ? parseDMY(value) : new Date();
+
+  // iOS: show inline picker in a modal
+  const [iosPending, setIosPending] = useState<Date>(date);
+
+  const handleChange = (_: unknown, selected?: Date) => {
+    if (Platform.OS === 'android') {
+      setShow(false);
+      if (selected) onChange(formatDMY(selected));
+    } else {
+      if (selected) setIosPending(selected);
+    }
+  };
+
+  const confirmIos = () => {
+    onChange(formatDMY(iosPending));
+    setShow(false);
+  };
+
   return (
     <View style={fStyles.wrap}>
       <Text style={[fStyles.label, { color: colors.mutedForeground }]}>
         {label}{required ? ' *' : ''}
       </Text>
+      <Pressable
+        onPress={() => { setIosPending(date); setShow(true); }}
+        style={[
+          fStyles.dateBox,
+          { borderColor: colors.border, backgroundColor: colors.card },
+        ]}
+      >
+        <Feather name="calendar" size={16} color={colors.primary} />
+        <Text style={[fStyles.dateText, { color: value ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
+          {value || (placeholder ?? 'Select date')}
+        </Text>
+      </Pressable>
+
+      {/* Android: native inline picker */}
+      {Platform.OS === 'android' && show && (
+        <DateTimePicker
+          value={date}
+          mode="date"
+          display="default"
+          onChange={handleChange}
+          maximumDate={new Date(2099, 11, 31)}
+          minimumDate={new Date(2000, 0, 1)}
+        />
+      )}
+
+      {/* iOS: modal wrapper */}
+      {Platform.OS === 'ios' && (
+        <Modal visible={show} transparent animationType="slide" onRequestClose={() => setShow(false)}>
+          <Pressable style={fStyles.modalOverlay} onPress={() => setShow(false)}>
+            <Pressable style={fStyles.pickerSheet} onPress={() => {}}>
+              <View style={fStyles.pickerHeader}>
+                <Pressable onPress={() => setShow(false)}>
+                  <Text style={[fStyles.pickerCancel, { color: colors.mutedForeground }]}>Cancel</Text>
+                </Pressable>
+                <Text style={fStyles.pickerTitle}>{label}</Text>
+                <Pressable onPress={confirmIos}>
+                  <Text style={[fStyles.pickerDone, { color: colors.primary }]}>Done</Text>
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={iosPending}
+                mode="date"
+                display="spinner"
+                onChange={handleChange}
+                maximumDate={new Date(2099, 11, 31)}
+                minimumDate={new Date(2000, 0, 1)}
+                style={{ height: 200 }}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
+      {/* Web: native date input hidden behind styled box */}
+      {Platform.OS === 'web' && show && (
+        <View style={{ position: 'absolute', opacity: 0, top: 0, left: 0 }}>
+          <input
+            type="date"
+            autoFocus
+            value={value ? `${value.split('/')[2]}-${value.split('/')[1]}-${value.split('/')[0]}` : ''}
+            onChange={(e) => {
+              if (e.target.value) {
+                const [y, m, d] = e.target.value.split('-');
+                onChange(`${d}/${m}/${y}`);
+              }
+              setShow(false);
+            }}
+            onBlur={() => setShow(false)}
+            style={{ opacity: 0, position: 'absolute' }}
+          />
+        </View>
+      )}
+    </View>
+  );
+}
+
+const fStyles = StyleSheet.create({
+  wrap: { marginBottom: 12 },
+  label: { fontSize: 12, fontWeight: '600', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.4 },
+  input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15 },
+  dateBox: {
+    borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 13,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  dateText: { fontSize: 15, flex: 1 },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end',
+  },
+  pickerSheet: {
+    backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingBottom: 32,
+  },
+  pickerHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+  },
+  pickerTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
+  pickerCancel: { fontSize: 15 },
+  pickerDone: { fontSize: 15, fontWeight: '700' },
+});
+
+function Field({
+  label, value, onChangeText, placeholder, keyboardType, multiline, required, autoUppercase,
+}: {
+  label: string; value: string; onChangeText: (v: string) => void;
+  placeholder?: string; keyboardType?: 'default' | 'numeric' | 'phone-pad' | 'decimal-pad';
+  multiline?: boolean; required?: boolean; autoUppercase?: boolean;
+}) {
+  const colors = useColors();
+  return (
+    <View style={fieldStyles.wrap}>
+      <Text style={[fieldStyles.label, { color: colors.mutedForeground }]}>
+        {label}{required ? ' *' : ''}
+      </Text>
       <TextInput
         value={value}
-        onChangeText={onChangeText}
+        onChangeText={(v) => onChangeText(autoUppercase ? v.toUpperCase() : v)}
         placeholder={placeholder ?? label}
         placeholderTextColor={colors.mutedForeground}
         keyboardType={keyboardType ?? 'default'}
         multiline={multiline}
+        numberOfLines={multiline ? 3 : 1}
+        autoCapitalize={autoUppercase ? 'characters' : 'sentences'}
         style={[
-          fStyles.input,
+          fieldStyles.input,
           { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card },
           multiline && { height: 68, textAlignVertical: 'top' },
         ]}
@@ -57,7 +219,7 @@ function Field({
     </View>
   );
 }
-const fStyles = StyleSheet.create({
+const fieldStyles = StyleSheet.create({
   wrap: { marginBottom: 12 },
   label: { fontSize: 12, fontWeight: '600', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.4 },
   input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15 },
@@ -106,15 +268,12 @@ export default function CreateInvoiceScreen() {
   ]);
   const [paymentTerms, setPaymentTerms] = useState(settings.defaultPaymentTerms);
   const [notes, setNotes] = useState('');
-  // undefined = auto-decide (show when owner owes driver, hide otherwise); true/false = manual override
   const [showQrCode, setShowQrCode] = useState<boolean | undefined>(undefined);
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
-  // Auto-save debounce timer
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Whether initial field population is done (prevents auto-save on first fill)
   const initializedRef = useRef(false);
 
   const totalExpenses = useMemo(() => expenses.reduce((s, i) => s + i.amount, 0), [expenses]);
@@ -122,13 +281,12 @@ export default function CreateInvoiceScreen() {
   const balance = useMemo(() => Math.round((advanceNum - totalExpenses) * 100) / 100, [advanceNum, totalExpenses]);
   const settlementStatus = useMemo(() => computeSettlementStatus(balance), [balance]);
 
-  // ─── Initialise fields (edit mode OR load draft) ───────────────────────────
+  // ─── Initialise fields ─────────────────────────────────────────────────────
   useEffect(() => {
     if (initialized) return;
     setInitialized(true);
 
     if (isEditing && editId) {
-      // Edit mode: always load from Firestore (via context)
       const inv = getInvoiceById(editId);
       if (inv) {
         setInvoiceNumber(inv.invoiceNumber);
@@ -151,7 +309,6 @@ export default function CreateInvoiceScreen() {
       }
       initializedRef.current = true;
     } else if (fresh === '1') {
-      // "Create New Invoice" — always start completely blank, ignore any saved draft
       clearDraft().catch(() => {});
       generateNextInvoiceNumber().then(setInvoiceNumber);
       setDate(todayFormatted());
@@ -166,10 +323,8 @@ export default function CreateInvoiceScreen() {
       setNotes(profile.footerNotes || '');
       initializedRef.current = true;
     } else {
-      // New invoice: check for a saved draft first
       loadDraft().then((draft) => {
         if (draft && !draft.editId) {
-          // Auto-restore draft (silent — no confirm dialog per requirements)
           setInvoiceNumber(draft.invoiceNumber);
           setDate(draft.date || todayFormatted());
           setDueDate(draft.dueDate);
@@ -188,7 +343,6 @@ export default function CreateInvoiceScreen() {
           if (draft.selectedTemplateId) setSelectedTemplateId(draft.selectedTemplateId);
           initializedRef.current = true;
         } else {
-          // No draft — fresh form
           generateNextInvoiceNumber().then(setInvoiceNumber);
           setTruckNumber(profile.truckNumber);
           setDriverName(profile.driverName);
@@ -200,43 +354,26 @@ export default function CreateInvoiceScreen() {
     }
   }, [editId, fresh]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Auto-save effect (debounced 2 s) ──────────────────────────────────────
+  // ─── Auto-save ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!initializedRef.current) return;
-
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => {
       saveDraft({
-        invoiceNumber,
-        date,
-        dueDate,
-        clientName,
-        clientPhone,
-        clientAddress,
-        clientGST,
-        fromLocation,
-        toLocation,
-        truckNumber,
-        driverName,
-        advanceAmount,
-        expenses,
-        paymentTerms,
-        notes,
-        selectedTemplateId,
+        invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
+        clientGST, fromLocation, toLocation, truckNumber, driverName,
+        advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
         editId: editId ?? undefined,
       });
     }, 2000);
-
-    return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    };
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [
     invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
     clientGST, fromLocation, toLocation, truckNumber, driverName,
     advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Expense helpers ────────────────────────────────────────────────────────
+  // ─── Expense helpers ──────────────────────────────────────────────────────
   const updateExpense = (id: string, field: keyof ExpenseItem, raw: string | number) => {
     setExpenses((prev) =>
       prev.map((item) => {
@@ -254,7 +391,7 @@ export default function CreateInvoiceScreen() {
     setExpenses((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // ─── Build invoice object from current form state ───────────────────────────
+  // ─── Build invoice object ─────────────────────────────────────────────────
   const buildInvoiceObject = useCallback((): Invoice => ({
     id: editId ?? 'preview',
     invoiceNumber: invoiceNumber || 'PREVIEW',
@@ -294,12 +431,11 @@ export default function CreateInvoiceScreen() {
     settlementStatus, settings.defaultCurrency, paymentTerms, notes, selectedTemplateId, showQrCode,
   ]);
 
-  // ─── Preview: save draft + invoice data then navigate ───────────────────────
+  // ─── Preview ──────────────────────────────────────────────────────────────
   const handlePreview = async () => {
     if (isPreviewing) return;
     setIsPreviewing(true);
     try {
-      // Flush draft immediately
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
       await saveDraft({
         invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
@@ -307,10 +443,8 @@ export default function CreateInvoiceScreen() {
         advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
         editId: editId ?? undefined,
       });
-
       const invoice = buildInvoiceObject();
       await savePreviewData({ invoice, editId: editId ?? undefined });
-
       router.push('/invoice/preview' as never);
     } catch (err) {
       Alert.alert('Preview Error', String(err));
@@ -319,7 +453,7 @@ export default function CreateInvoiceScreen() {
     }
   };
 
-  // ─── Clear form (explicit "New Invoice") ────────────────────────────────────
+  // ─── Clear form ───────────────────────────────────────────────────────────
   const handleClearForm = () => {
     Alert.alert(
       'Start New Invoice',
@@ -335,12 +469,8 @@ export default function CreateInvoiceScreen() {
             setInvoiceNumber(newNum);
             setDate(todayFormatted());
             setDueDate('');
-            setClientName('');
-            setClientPhone('');
-            setClientAddress('');
-            setClientGST('');
-            setFromLocation('');
-            setToLocation('');
+            setClientName(''); setClientPhone(''); setClientAddress(''); setClientGST('');
+            setFromLocation(''); setToLocation('');
             setTruckNumber(profile.truckNumber);
             setDriverName(profile.driverName);
             setAdvanceAmount('');
@@ -354,7 +484,7 @@ export default function CreateInvoiceScreen() {
     );
   };
 
-  // ─── Save to Firestore ──────────────────────────────────────────────────────
+  // ─── Save ─────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!clientName.trim()) { Alert.alert('Required', 'Client name is required'); return; }
     if (!fromLocation.trim() || !toLocation.trim()) { Alert.alert('Required', 'From and To locations are required'); return; }
@@ -404,12 +534,10 @@ export default function CreateInvoiceScreen() {
       } else {
         const inv = await createInvoice(data);
         await clearDraft();
-        // Navigate immediately — invoice is already in the list via optimistic update in context
         router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } });
       }
     } catch (err) {
       const msg = String(err);
-      // Surface no-internet error clearly
       if (msg.toLowerCase().includes('no internet') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('offline')) {
         Alert.alert('No Internet Connection', 'Please connect to the internet and try again.');
       } else {
@@ -434,7 +562,6 @@ export default function CreateInvoiceScreen() {
           {isEditing ? 'Edit Invoice' : 'New Invoice'}
         </Text>
         <View style={styles.headerRight}>
-          {/* Clear / New Invoice (only for new invoices) */}
           {!isEditing && (
             <Pressable
               onPress={handleClearForm}
@@ -497,8 +624,8 @@ export default function CreateInvoiceScreen() {
                   style={[
                     styles.templateChip,
                     {
-                      backgroundColor: active ? t.previewColors[0] : colors.secondary,
-                      borderColor: active ? t.previewColors[0] : colors.border,
+                      backgroundColor: active ? colors.primary : colors.secondary,
+                      borderColor: active ? colors.primary : colors.border,
                     },
                   ]}
                 >
@@ -515,8 +642,21 @@ export default function CreateInvoiceScreen() {
         {/* Invoice Info */}
         <Section title="Invoice Info">
           <Field label="Invoice Number" value={invoiceNumber} onChangeText={setInvoiceNumber} placeholder="INV-0001" required />
-          <Field label="Date (DD/MM/YYYY)" value={date} onChangeText={setDate} placeholder="01/01/2025" required />
-          <Field label="Due Date (DD/MM/YYYY)" value={dueDate} onChangeText={setDueDate} placeholder="Optional" />
+          <DateField
+            label="Date"
+            value={date}
+            onChange={setDate}
+            placeholder="Select invoice date"
+            required
+            colors={colors}
+          />
+          <DateField
+            label="Due Date"
+            value={dueDate}
+            onChange={setDueDate}
+            placeholder="Optional"
+            colors={colors}
+          />
         </Section>
 
         {/* Bill From Preview */}
@@ -525,17 +665,17 @@ export default function CreateInvoiceScreen() {
             <Feather name="briefcase" size={14} color={colors.primary} />
             <Text style={[styles.billFromTitle, { color: colors.primary }]}>Bill From (auto-filled from profile)</Text>
           </View>
-          <Text style={[styles.billFromText, { color: colors.foreground }]}>
+          <Text style={[styles.billFromText, { color: colors.foreground }]} numberOfLines={1}>
             {profile.companyName || profile.ownerName || 'Set up your profile →'}
           </Text>
           {!!profile.gstNumber && (
-            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]}>GST: {profile.gstNumber}</Text>
+            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]} numberOfLines={1}>GST: {profile.gstNumber}</Text>
           )}
           {!!profile.address && (
-            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]}>{profile.address}</Text>
+            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]} numberOfLines={2}>{profile.address}</Text>
           )}
           {!!profile.mobile && (
-            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]}>📞 {profile.mobile}</Text>
+            <Text style={[styles.billFromSub, { color: colors.mutedForeground }]} numberOfLines={1}>📞 {profile.mobile}</Text>
           )}
         </View>
 
@@ -551,8 +691,19 @@ export default function CreateInvoiceScreen() {
         <Section title="Trip Details">
           <Field label="From Location" value={fromLocation} onChangeText={setFromLocation} required />
           <Field label="To Location" value={toLocation} onChangeText={setToLocation} required />
-          <Field label="Truck Number" value={truckNumber} onChangeText={setTruckNumber} />
-          <Field label="Driver Name" value={driverName} onChangeText={setDriverName} />
+          <Field
+            label="Vehicle Number"
+            value={truckNumber}
+            onChangeText={setTruckNumber}
+            placeholder="BR37AF1187"
+            autoUppercase
+          />
+          <Field
+            label="Driver Name"
+            value={driverName}
+            onChangeText={setDriverName}
+            placeholder="Driver name"
+          />
         </Section>
 
         {/* Expenses */}
@@ -569,24 +720,24 @@ export default function CreateInvoiceScreen() {
               </View>
               <View style={styles.expenseRow}>
                 <View style={styles.expenseNameCol}>
-                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Expense Name *</Text>
+                  <Text style={[fieldStyles.label, { color: colors.mutedForeground }]}>Expense Name *</Text>
                   <TextInput
                     value={item.name}
                     onChangeText={(v) => updateExpense(item.id, 'name', v)}
                     placeholder="e.g. Fuel, Toll, Food"
                     placeholderTextColor={colors.mutedForeground}
-                    style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
+                    style={[fieldStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
                   />
                 </View>
                 <View style={styles.expenseAmountCol}>
-                  <Text style={[fStyles.label, { color: colors.mutedForeground }]}>Amount ({settings.defaultCurrency})</Text>
+                  <Text style={[fieldStyles.label, { color: colors.mutedForeground }]}>Amount ({settings.defaultCurrency})</Text>
                   <TextInput
                     value={item.amount === 0 ? '' : String(item.amount)}
                     onChangeText={(v) => updateExpense(item.id, 'amount', v)}
                     keyboardType="decimal-pad"
                     placeholder="0"
                     placeholderTextColor={colors.mutedForeground}
-                    style={[fStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
+                    style={[fieldStyles.input, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.card }]}
                   />
                 </View>
               </View>
@@ -676,7 +827,7 @@ export default function CreateInvoiceScreen() {
           <Field label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Additional notes..." />
         </Section>
 
-        {/* QR Payment Code visibility */}
+        {/* QR Payment Code */}
         <Section title="QR Payment Code">
           <Pressable
             onPress={() => setShowQrCode((prev) => !(prev ?? balance < 0))}
@@ -764,13 +915,6 @@ const styles = StyleSheet.create({
   },
   previewBtnTxt: { fontSize: 12, fontWeight: '700' },
   saveBtn: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, minWidth: 56, alignItems: 'center' },
-  qrToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-  checkbox: {
-    width: 21, height: 21, borderRadius: 5, borderWidth: 2,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  qrToggleLabel: { fontSize: 14, fontWeight: '600' },
-  qrToggleHint: { fontSize: 12, lineHeight: 17 },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   content: { padding: 16 },
   templateBar: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14 },
@@ -807,6 +951,13 @@ const styles = StyleSheet.create({
   grandLabel: { fontSize: 16, fontWeight: '800' },
   grandVal: { fontSize: 16, fontWeight: '800' },
   settlementMsg: { fontSize: 13, fontWeight: '700', marginTop: 10, textAlign: 'center' },
+  qrToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  checkbox: {
+    width: 21, height: 21, borderRadius: 5, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  qrToggleLabel: { fontSize: 14, fontWeight: '600' },
+  qrToggleHint: { fontSize: 12, lineHeight: 17 },
   bottomRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   bottomPreviewBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

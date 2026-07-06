@@ -45,7 +45,7 @@ export default function PDFActionModal({ visible, uri, filename, onClose, onErro
       icon: 'eye',
       label: 'Open PDF',
       sublabel: 'View in PDF reader',
-      color: '#1A3C6E',
+      color: '#FF6B00',
       bg: '#EEF3FF',
       onPress: async () => {
         await openPDF(uri);
@@ -101,7 +101,7 @@ export default function PDFActionModal({ visible, uri, filename, onClose, onErro
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.pdfIcon}>
-              <Feather name="file-text" size={22} color="#1A3C6E" />
+              <Feather name="file-text" size={22} color="#FF6B00" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.title}>PDF Ready</Text>

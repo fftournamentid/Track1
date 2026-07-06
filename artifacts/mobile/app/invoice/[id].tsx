@@ -19,7 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
-  paid: { bg: '#D1FAE5', text: '#065F46' },
+  paid: { bg: '#D1FAE5', text: '#2E7D32' },
   pending: { bg: '#FEF3C7', text: '#92400E' },
   draft: { bg: '#F1F5F9', text: '#475569' },
   archived: { bg: '#E2E8F0', text: '#64748B' },
@@ -76,7 +76,7 @@ function ActionBtn({
 }) {
   const colors = useColors();
   const bgMap = { default: colors.secondary, danger: '#FEE2E2', success: '#D1FAE5', accent: colors.primary };
-  const fgMap = { default: colors.primary, danger: colors.destructive, success: '#065F46', accent: '#fff' };
+  const fgMap = { default: colors.primary, danger: colors.destructive, success: '#2E7D32', accent: '#fff' };
   return (
     <Pressable
       onPress={onPress}

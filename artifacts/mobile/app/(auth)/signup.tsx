@@ -10,7 +10,7 @@ import {
   validatePassword, getPasswordStrength,
 } from '@/services/firebase/auth.service';
 
-const NAVY = '#1A3C6E';
+const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 const ERROR = '#DC2626';
 

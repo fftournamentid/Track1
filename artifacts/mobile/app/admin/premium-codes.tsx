@@ -17,7 +17,7 @@ import {
   type PremiumCode, type PremiumUser,
 } from '@/services/premiumCodeService';
 
-const NAVY = '#1A3C6E';
+const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 
 function todayISO(): string { return new Date().toISOString().slice(0, 10); }

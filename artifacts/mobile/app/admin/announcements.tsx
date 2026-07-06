@@ -15,7 +15,7 @@ import {
 } from '@/services/announcementService';
 import type { Announcement } from '@/types';
 
-const NAVY = '#1A3C6E';
+const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 
 function priorityColor(p: number): string {

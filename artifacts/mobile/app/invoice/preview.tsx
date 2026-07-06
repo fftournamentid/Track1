@@ -531,7 +531,7 @@ export default function InvoicePreviewScreen() {
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: '#e8e8e8' }]}>
-        <ActivityIndicator color="#1A3C6E" size="large" />
+        <ActivityIndicator color="#FF6B00" size="large" />
       </View>
     );
   }
@@ -624,10 +624,10 @@ export default function InvoicePreviewScreen() {
           ]}
         >
           {downloadingPDF ? (
-            <ActivityIndicator color="#1A3C6E" size="small" />
+            <ActivityIndicator color="#FF6B00" size="small" />
           ) : (
             <>
-              <Feather name="download" size={16} color="#1A3C6E" />
+              <Feather name="download" size={16} color="#FF6B00" />
               <Text style={styles.outlineBtnText}>
                 {Platform.OS === 'web' ? 'Download' : 'Download PDF'}
               </Text>
@@ -670,7 +670,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#d0d0d0' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
   emptyText: { fontSize: 16, color: '#555' },
-  backBtnAlt: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, backgroundColor: '#1A3C6E' },
+  backBtnAlt: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, backgroundColor: '#FF6B00' },
 
   headerBar: {
     flexDirection: 'row', alignItems: 'center',
@@ -707,10 +707,10 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, paddingVertical: 13, borderRadius: 12,
   },
-  saveBtn: { backgroundColor: '#1A3C6E' },
+  saveBtn: { backgroundColor: '#FF6B00' },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  outlineBtn: { backgroundColor: '#EEF2FF', borderWidth: 1.5, borderColor: '#1A3C6E' },
-  outlineBtnText: { color: '#1A3C6E', fontWeight: '700', fontSize: 13 },
+  outlineBtn: { backgroundColor: '#EEF2FF', borderWidth: 1.5, borderColor: '#FF6B00' },
+  outlineBtnText: { color: '#FF6B00', fontWeight: '700', fontSize: 13 },
   shareBtn: { backgroundColor: '#F5F5F5', borderWidth: 1.5, borderColor: '#ddd' },
   shareBtnText: { color: '#444', fontWeight: '700', fontSize: 13 },
 });

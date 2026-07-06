@@ -191,7 +191,7 @@ export default function PDFHistoryScreen() {
         ]}
       >
         <View style={[styles.pdfIcon, { backgroundColor: '#EEF3FF' }]}>
-          <Feather name="file-text" size={22} color="#1A3C6E" />
+          <Feather name="file-text" size={22} color="#FF6B00" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.invoiceName, { color: colors.foreground }]} numberOfLines={1}>
@@ -388,8 +388,8 @@ export default function PDFHistoryScreen() {
               onPress={handleMenuShare}
               style={({ pressed }) => [styles.menuItem, { borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
             >
-              <Feather name="share-2" size={18} color="#0891B2" />
-              <Text style={[styles.menuItemText, { color: '#0891B2' }]}>Share</Text>
+              <Feather name="share-2" size={18} color="#FF6B00" />
+              <Text style={[styles.menuItemText, { color: '#FF6B00' }]}>Share</Text>
             </Pressable>
 
             {/* Regenerate — invoice only */}

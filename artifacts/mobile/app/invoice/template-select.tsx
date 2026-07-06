@@ -69,7 +69,7 @@ function TemplateCard({
         </View>
         {!isPremiumLocked && (
           <View style={[styles.freePill, { backgroundColor: '#EEF3FF' }]}>
-            <Text style={[styles.freePillTxt, { color: '#1A3C6E' }]}>Free</Text>
+            <Text style={[styles.freePillTxt, { color: '#FF6B00' }]}>Free</Text>
           </View>
         )}
       </View>
