@@ -1,9 +1,8 @@
 import React, {
-  createContext, useContext, useState, useEffect, useCallback, ReactNode,
+  createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Invoice } from '@/types';
-import { generateId } from '@/utils/formatters';
 import { useAuth } from './AuthContext';
 import {
   subscribeToInvoices,
@@ -16,6 +15,14 @@ import {
   deleteInvoiceFromSupabase,
   isSupabaseConfigured,
 } from '@/services/supabaseSync';
+import {
+  getPendingSync,
+  removeFromPendingSync,
+  incrementRetryCount,
+} from '@/services/syncQueue';
+
+/** Guard: prevents concurrent sync runs for the same uid. */
+const syncInFlight = new Set<string>();
 
 /** User-scoped local cache key — prevents cross-user data leakage on shared devices. */
 function localInvoicesKey(uid: string): string {
@@ -66,11 +73,85 @@ interface InvoiceContextType {
 
 const InvoiceContext = createContext<InvoiceContextType | null>(null);
 
+/**
+ * Merge Firestore invoices with local-only pending-sync invoices.
+ * Local invoices that exist only in AsyncStorage (not yet synced) are
+ * prepended so they remain visible in the list while waiting for sync.
+ */
+async function mergeWithLocalPending(uid: string, firestoreInvoices: Invoice[]): Promise<Invoice[]> {
+  try {
+    const pendingItems = await getPendingSync(uid);
+    if (pendingItems.length === 0) return firestoreInvoices;
+
+    const firestoreIds = new Set(firestoreInvoices.map((i) => i.id));
+    // Only keep local invoices that haven't made it to Firestore yet
+    const localOnly = pendingItems
+      .filter((p) => !firestoreIds.has(p.invoice.id))
+      .map((p) => ({ ...p.invoice, pendingSync: true }));
+
+    if (localOnly.length > 0) {
+      console.log('[InvoiceContext] Merging', localOnly.length, 'pending-sync invoice(s) with Firestore data');
+    }
+
+    return [...localOnly, ...firestoreInvoices];
+  } catch (err) {
+    console.warn('[InvoiceContext] Failed to merge local pending invoices:', err);
+    return firestoreInvoices;
+  }
+}
+
+/**
+ * Upload all queued offline invoices to Firestore now that we're online.
+ * Uses syncInFlight to prevent concurrent runs for the same uid.
+ * Runs fire-and-forget — never blocks the UI.
+ */
+async function processSyncQueue(
+  uid: string,
+  createFn: (data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>) => Promise<Invoice>
+): Promise<void> {
+  if (syncInFlight.has(uid)) {
+    console.log('[SyncQueue] Sync already in progress for uid:', uid, '— skipping');
+    return;
+  }
+  syncInFlight.add(uid);
+
+  try {
+    const pending = await getPendingSync(uid);
+    if (pending.length === 0) return;
+
+    console.log('[SyncQueue] Processing', pending.length, 'pending invoice(s) for uid:', uid);
+
+    for (const item of pending) {
+      if (item.retryCount >= 5) {
+        console.warn('[SyncQueue] Skipping', item.invoice.id, '— too many retries (', item.retryCount, ')');
+        continue;
+      }
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } = item.invoice;
+        const saved = await createFn({ ...data });
+        console.log('[SyncQueue] ✓ Synced offline invoice', item.invoice.id, '→ Firestore id:', saved.id);
+        // Key removal by both uid + invoiceId to avoid cross-user collisions
+        await removeFromPendingSync(item.invoice.id, uid);
+      } catch (err) {
+        console.error('[SyncQueue] ✗ Failed to sync invoice', item.invoice.id, ':', err);
+        await incrementRetryCount(item.invoice.id, uid);
+      }
+    }
+  } finally {
+    syncInFlight.delete(uid);
+  }
+}
+
 export function InvoiceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
+
+  // Tracks whether the last Firestore snapshot was an error (offline/permission).
+  // Reset to false on every successful snapshot.
+  const wasOfflineRef = useRef(false);
 
   useEffect(() => {
     if (!user) {
@@ -78,6 +159,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       setInvoices([]);
       setIsLoading(false);
       setIsOffline(false);
+      wasOfflineRef.current = false;
       return;
     }
 
@@ -89,18 +171,33 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
     const uid = user.uid;
     const unsub = subscribeToInvoices(
       uid,
-      (data) => {
+      async (data) => {
         console.log('[InvoiceContext] ✓ Firestore snapshot received —', data.length, 'invoices');
-        setInvoices(data);
+        wasOfflineRef.current = false;
+
+        // Always attempt to drain the sync queue on every successful snapshot.
+        // The in-flight guard in processSyncQueue prevents concurrent runs.
+        processSyncQueue(uid, async (invoiceData) => {
+          const result = await createInvoiceDoc(uid, invoiceData);
+          if (isSupabaseConfigured()) {
+            syncInvoiceToSupabase(result, uid).catch(() => {});
+          }
+          return result;
+        }).catch((e) => console.error('[InvoiceContext] Sync queue error:', e));
+
+        // Merge Firestore data with any still-pending local invoices
+        const merged = await mergeWithLocalPending(uid, data);
+        setInvoices(merged);
         setIsLoading(false);
         setIsOffline(false);
         // Keep local cache in sync for offline fallback
-        saveLocalInvoices(uid, data);
+        saveLocalInvoices(uid, merged);
       },
       async (err) => {
         console.error('[InvoiceContext] ✗ Firestore subscription error:', err);
         console.log('[InvoiceContext] Falling back to AsyncStorage local cache...');
         setIsOffline(true);
+        wasOfflineRef.current = true;
         const local = await loadLocalInvoices(uid);
         setInvoices(local);
         setIsLoading(false);
@@ -138,8 +235,9 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   const updateInvoice = useCallback(
     async (id: string, updates: Partial<Invoice>) => {
       if (!user) {
-        console.error('[InvoiceContext][update] ✗ User is not authenticated!');
-        return;
+        // Throw so callers can detect the failure and fall back to local storage
+        console.error('[InvoiceContext][update] ✗ User is not authenticated — cannot update Firestore!');
+        throw new Error('Not authenticated');
       }
       console.log('[InvoiceContext][update] Updating invoice', id, 'for user:', user.uid);
 

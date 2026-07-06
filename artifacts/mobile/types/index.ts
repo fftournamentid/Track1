@@ -62,6 +62,8 @@ export interface Invoice {
   pdfUrl?: string;
   pdfName?: string;
   pdfCreatedAt?: string;
+  /** True when this invoice was saved locally and is waiting to be uploaded to Firestore. */
+  pendingSync?: boolean;
 }
 
 export interface AppSettings {

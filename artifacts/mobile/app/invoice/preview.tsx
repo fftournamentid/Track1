@@ -40,6 +40,7 @@ import {
   savePDFToDownloads,
   downloadForWeb,
 } from '@/services/pdfService';
+import { addToPendingSync } from '@/services/syncQueue';
 import { getTemplateById, type TemplateStyle } from '@/services/invoiceTemplates';
 import type { Invoice } from '@/types';
 
@@ -645,43 +646,66 @@ export default function InvoicePreviewScreen() {
       return;
     }
     setSaving(true);
+
+    const uid = user?.uid;
+    console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId, '| uid:', uid ?? 'NOT AUTHENTICATED');
+
     try {
+      // Strip generated fields before writing — Firestore / local storage re-adds them
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, ...data } = invoice;
-
-      console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId);
-
-      const uid = user?.uid;
-      console.log('[Save] Current user uid:', uid ?? 'NOT AUTHENTICATED');
+      const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } = invoice as Invoice & { pendingSync?: boolean };
 
       let savedId: string | null = null;
+      let savedOffline = false;
 
-      try {
-        if (editId) {
-          console.log('[Save] Updating existing invoice in Firestore, id:', editId);
-          await updateInvoice(editId, data);
-          savedId = editId;
-          console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
-        } else {
-          console.log('[Save] Creating new invoice in Firestore...');
-          const saved = await createInvoice({ ...data, status: data.status || 'pending' });
-          savedId = saved.id;
-          console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
-        }
-      } catch (firestoreErr) {
-        console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
-        if (!uid) {
-          showToast('Save failed: not signed in', 'error');
-          setSaving(false);
-          return;
-        }
+      // ── 1. Attempt Firestore (cloud) save ─────────────────────────────────
+      //    If unauthenticated, skip straight to local fallback.
+      let firestoreSkipped = false;
+      if (!uid) {
+        console.log('[Save] No user — skipping Firestore, saving locally');
+        firestoreSkipped = true;
+      }
+
+      if (!firestoreSkipped) {
         try {
-          savedId = await saveLocalFallback(invoice, uid, editId);
+          if (editId) {
+            console.log('[Save] Updating existing invoice in Firestore, id:', editId);
+            await updateInvoice(editId, data);
+            savedId = editId;
+            console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
+          } else {
+            console.log('[Save] Creating new invoice in Firestore...');
+            const saved = await createInvoice({ ...data, status: data.status || 'pending' });
+            savedId = saved.id;
+            console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
+          }
+        } catch (firestoreErr) {
+          console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
+          // Fall through to local fallback below
+          firestoreSkipped = true;
+        }
+      }
+
+      // ── 2. Local fallback — save on device, queue for sync if authenticated ─
+      if (firestoreSkipped && savedId === null) {
+        // Use uid if available; for unauthenticated users use a guest key
+        const storageUid = uid ?? 'guest';
+        try {
+          savedId = await saveLocalFallback(invoice, storageUid, editId);
           console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
-          // Immediately surface the invoice in the Invoices tab list
-          const localInvoice: Invoice = { ...invoice, id: savedId };
+
+          const localInvoice: Invoice = { ...invoice, id: savedId, pendingSync: !!uid };
           await addLocalInvoice(localInvoice);
-          showToast('Saved locally (offline — will sync when online)', 'success');
+
+          if (uid) {
+            // Authenticated but offline — queue for background sync when online
+            await addToPendingSync(localInvoice, uid);
+            console.log('[Save] ✓ Invoice queued for background sync. id:', savedId);
+          } else {
+            console.log('[Save] Guest save — no sync queue (user not signed in).');
+          }
+
+          savedOffline = true;
         } catch (localErr) {
           console.error('[Save] ✗ AsyncStorage fallback also FAILED:', localErr);
           const msg = localErr instanceof Error ? localErr.message : String(localErr);
@@ -691,17 +715,32 @@ export default function InvoicePreviewScreen() {
         }
       }
 
+      // ── 3. Cleanup and feedback ───────────────────────────────────────────
       await clearDraft();
       await clearPreviewData();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      Alert.alert('✓ Invoice saved', undefined, [
-        { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
-        { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: savedId } }) },
-      ]);
+      if (savedOffline) {
+        showToast('Saved locally — will sync to cloud when online ☁️', 'success');
+        // Give the toast a moment to appear before the Alert
+        await new Promise((r) => setTimeout(r, 600));
+      }
+
+      console.log('[Save] ✓ Save complete. savedId:', savedId, '| savedOffline:', savedOffline);
+
+      Alert.alert(
+        savedOffline ? '✓ Saved Offline' : '✓ Invoice Saved',
+        savedOffline ? 'Invoice saved on device. It will sync to cloud automatically when you\'re online.' : undefined,
+        [
+          { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
+          { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: savedId } }) },
+        ]
+      );
     } catch (err) {
-      console.error('[Preview] Save error:', err);
-      Alert.alert('Save Failed', String(err instanceof Error ? err.message : err));
+      console.error('[Preview] Unexpected save error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Save failed: ${msg}`, 'error');
+      Alert.alert('Save Failed', msg);
     } finally {
       setSaving(false);
     }
@@ -747,28 +786,43 @@ export default function InvoicePreviewScreen() {
     setSharingPDF(true);
     try {
       if (Platform.OS === 'web') {
-        await downloadForWeb(invoice, invoice.templateId ?? 'classic');
-        showToast('Invoice downloaded. Share the file manually.');
+        // Web: Web Share API if available, otherwise download HTML as fallback
+        const templateId = invoice.templateId ?? 'classic';
+        if (typeof navigator !== 'undefined' && navigator.share) {
+          try {
+            // Generate HTML blob and share as a file via Web Share API
+            const { buildInvoiceHTML } = await import('@/services/invoiceTemplates');
+            const html = await buildInvoiceHTML(invoice, templateId);
+            const blob = new Blob([html], { type: 'text/html' });
+            const file = new File([blob], `Invoice_${invoice.invoiceNumber}.html`, { type: 'text/html' });
+            await navigator.share({ title: `Invoice #${invoice.invoiceNumber}`, files: [file] });
+            console.log('[PDF][Share] ✓ Web Share API used.');
+            return;
+          } catch (shareErr) {
+            // User cancelled or share failed — fall through to download
+            console.warn('[PDF][Share] Web Share API failed, falling back to download:', shareErr);
+          }
+        }
+        await downloadForWeb(invoice, templateId);
+        showToast('Invoice downloaded. Open the file and share manually.');
         return;
       }
+
       const templateId = invoice.templateId ?? 'classic';
-      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
-      const shareUri = publicUrl ?? uri;
-      await sharePDF(shareUri, `Invoice — ${filename}`);
-      console.log('[PDF][Share] ✓ Share dialog opened.');
+      console.log('[PDF][Share] Generating PDF for share, templateId:', templateId);
+
+      // Always share the LOCAL file uri — never the remote publicUrl.
+      // Using publicUrl would re-download the PDF from Firebase Storage before
+      // sharing, which wastes bandwidth and adds latency for the user.
+      const { uri, filename } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
+      console.log('[PDF][Share] PDF ready at local uri:', uri, '| filename:', filename);
+
+      await sharePDF(uri, `Invoice — ${filename}`);
+      console.log('[PDF][Share] ✓ Native share sheet opened. User can share to WhatsApp, Gmail, Telegram, Drive, etc.');
     } catch (err) {
-
-      console.error('[Preview] Share PDF error:', err);
-      Alert.alert(
-        'Share Failed',
-        String(err instanceof Error ? err.message : err),
-        [{ text: 'OK' }]
-      );
-
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[PDF][Share] ✗ Error:', err);
+      console.error('[PDF][Share] ✗ Error:', msg, err);
       showToast(`Share failed: ${msg}`, 'error');
-
     } finally {
       setSharingPDF(false);
     }
