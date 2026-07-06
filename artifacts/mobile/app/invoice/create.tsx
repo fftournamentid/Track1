@@ -404,13 +404,17 @@ export default function CreateInvoiceScreen() {
       } else {
         const inv = await createInvoice(data);
         await clearDraft();
-        Alert.alert('✓ Invoice saved successfully', undefined, [
-          { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
-          { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } }) },
-        ]);
+        // Navigate immediately — invoice is already in the list via optimistic update in context
+        router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } });
       }
     } catch (err) {
-      Alert.alert('Error saving invoice', String(err));
+      const msg = String(err);
+      // Surface no-internet error clearly
+      if (msg.toLowerCase().includes('no internet') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('offline')) {
+        Alert.alert('No Internet Connection', 'Please connect to the internet and try again.');
+      } else {
+        Alert.alert('Error saving invoice', msg);
+      }
     } finally {
       setIsSaving(false);
     }

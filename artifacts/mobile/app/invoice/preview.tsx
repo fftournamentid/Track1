@@ -28,7 +28,6 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -41,7 +40,6 @@ import {
   downloadForWeb,
   sharePDFWeb,
 } from '@/services/pdfService';
-import { addToPendingSync } from '@/services/syncQueue';
 import { getTemplateById, shouldShowQrCode, type TemplateStyle } from '@/services/invoiceTemplates';
 import { APP_NAME, APP_LOGO_DATA_URI } from '@/constants/appBranding';
 import type { Invoice } from '@/types';
@@ -50,46 +48,12 @@ import type { Invoice } from '@/types';
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function localInvoicesKey(uid: string): string {
-  return `@TruckInvoice:local_invoices_fallback:${uid}`;
-}
 
 interface PreviewPayload {
   invoice: Invoice;
   editId?: string;
 }
 
-async function saveLocalFallback(invoice: Invoice, uid: string, editId?: string): Promise<string> {
-  const key = localInvoicesKey(uid);
-  console.log('[Save][LocalFallback] Saving invoice to AsyncStorage, key:', key);
-  try {
-    const raw = await AsyncStorage.getItem(key);
-    const existing: Invoice[] = raw ? JSON.parse(raw) : [];
-    const now = new Date().toISOString();
-    let savedId: string;
-    let updated: Invoice[];
-
-    if (editId) {
-      savedId = editId;
-      updated = existing.map((inv) =>
-        inv.id === editId ? { ...inv, ...invoice, id: editId, updatedAt: now } : inv
-      );
-      if (!updated.find((i) => i.id === editId)) {
-        updated.push({ ...invoice, id: editId, updatedAt: now });
-      }
-    } else {
-      savedId = invoice.id || `local_${Date.now()}`;
-      updated = [{ ...invoice, id: savedId, createdAt: now, updatedAt: now }, ...existing];
-    }
-
-    await AsyncStorage.setItem(key, JSON.stringify(updated));
-    console.log('[Save][LocalFallback] ✓ Saved', updated.length, 'invoices locally. savedId:', savedId);
-    return savedId;
-  } catch (err) {
-    console.error('[Save][LocalFallback] AsyncStorage write failed:', err);
-    throw err;
-  }
-}
 
 function fmtAmt(amount: number): string {
   return new Intl.NumberFormat('en-IN', {
@@ -391,7 +355,7 @@ export default function InvoicePreviewScreen() {
   const router = useRouter();
   const { invoiceId: fallbackInvoiceId, templateId: fallbackTemplateId } = useLocalSearchParams<{ invoiceId?: string; templateId?: string }>();
   const insets = useSafeAreaInsets();
-  const { createInvoice, updateInvoice, addLocalInvoice, getInvoiceById } = useInvoices();
+  const { createInvoice, updateInvoice, getInvoiceById } = useInvoices();
   const { settings } = useSettings();
   const { user } = useAuth();
 
@@ -455,106 +419,48 @@ export default function InvoicePreviewScreen() {
     console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId, '| uid:', uid ?? 'NOT AUTHENTICATED');
 
     try {
-      // Strip generated fields before writing — Firestore / local storage re-adds them
+      if (!uid) {
+        throw new Error('Not authenticated. Please sign in and try again.');
+      }
+
+      // Strip generated fields before writing
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } = invoice as Invoice & { pendingSync?: boolean };
 
-      let savedId: string | null = null;
-      let savedOffline = false;
+      let savedId: string;
 
-      // ── 1. Attempt Firestore (cloud) save ─────────────────────────────────
-      //    If unauthenticated, skip straight to local fallback.
-      let firestoreSkipped = false;
-      if (!uid) {
-        console.log('[Save] No user — skipping Firestore, saving locally');
-        firestoreSkipped = true;
+      if (editId) {
+        console.log('[Save] Updating existing invoice in Firestore, id:', editId);
+        await updateInvoice(editId, data);
+        savedId = editId;
+        console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
+      } else {
+        console.log('[Save] Creating new invoice in Firestore...');
+        const saved = await createInvoice({ ...data, status: data.status || 'pending' });
+        savedId = saved.id;
+        console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
       }
 
-      if (!firestoreSkipped) {
-        try {
-          if (editId) {
-            console.log('[Save] Updating existing invoice in Firestore, id:', editId);
-            await updateInvoice(editId, data);
-            savedId = editId;
-            console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
-            // Optimistic local mirror so the change is instantly visible in the
-            // list even before any Firestore realtime snapshot round-trips back.
-            await addLocalInvoice({ ...invoice, ...data, id: savedId } as Invoice);
-          } else {
-            console.log('[Save] Creating new invoice in Firestore...');
-            const saved = await createInvoice({ ...data, status: data.status || 'pending' });
-            savedId = saved.id;
-            console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
-            // Optimistic local mirror — makes the new invoice appear in the
-            // Invoices list instantly instead of waiting on the Firestore listener.
-            await addLocalInvoice(saved);
-          }
-        } catch (firestoreErr) {
-          console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
-          // Fall through to local fallback below
-          firestoreSkipped = true;
-        }
-      }
-
-      // ── 2. Local fallback — save on device, queue for sync if authenticated ─
-      if (firestoreSkipped && savedId === null) {
-        // Use uid if available; for unauthenticated users use a guest key
-        const storageUid = uid ?? 'guest';
-        try {
-          savedId = await saveLocalFallback(invoice, storageUid, editId);
-          console.log('[Save] ✓ AsyncStorage fallback succeeded. id:', savedId);
-
-          const localInvoice: Invoice = { ...invoice, id: savedId, pendingSync: !!uid };
-          await addLocalInvoice(localInvoice);
-
-          if (uid) {
-            // Authenticated but offline — queue for background sync when online
-            await addToPendingSync(localInvoice, uid);
-            console.log('[Save] ✓ Invoice queued for background sync. id:', savedId);
-          } else {
-            console.log('[Save] Guest save — no sync queue (user not signed in).');
-          }
-
-          savedOffline = true;
-        } catch (localErr) {
-          console.error('[Save] ✗ AsyncStorage fallback also FAILED:', localErr);
-          const msg = localErr instanceof Error ? localErr.message : String(localErr);
-          showToast(`Save failed: ${msg}`, 'error');
-          setSaving(false);
-          return;
-        }
-      }
-
-      // ── 3. Cleanup and feedback ───────────────────────────────────────────
       await clearDraft();
       await clearPreviewData();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      console.log('[Save] ✓ Save complete. savedId:', savedId);
 
-      if (savedOffline) {
-        showToast('Saved locally — will sync to cloud when online ☁️', 'success');
-        // Give the toast a moment to appear before the Alert
-        await new Promise((r) => setTimeout(r, 600));
-      }
-
-      console.log('[Save] ✓ Save complete. savedId:', savedId, '| savedOffline:', savedOffline);
-
-      Alert.alert(
-        savedOffline ? '✓ Saved Offline' : '✓ Invoice Saved',
-        savedOffline ? 'Invoice saved on device. It will sync to cloud automatically when you\'re online.' : undefined,
-        [
-          { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
-          { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: savedId ?? '' } }) },
-        ]
-      );
+      // Navigate immediately — invoice is already in the list via optimistic update
+      router.replace({ pathname: '/invoice/[id]', params: { id: savedId } });
     } catch (err) {
-      console.error('[Preview] Unexpected save error:', err);
+      console.error('[Preview] Save error:', err);
       const msg = err instanceof Error ? err.message : String(err);
-      showToast(`Save failed: ${msg}`, 'error');
-      Alert.alert('Save Failed', msg);
+      if (msg.toLowerCase().includes('no internet') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('offline')) {
+        Alert.alert('No Internet Connection', 'Please connect to the internet and try again.');
+      } else {
+        showToast(`Save failed: ${msg}`, 'error');
+        Alert.alert('Save Failed', msg);
+      }
     } finally {
       setSaving(false);
     }
-  }, [invoice, editId, createInvoice, updateInvoice, addLocalInvoice, router, user?.uid]);
+  }, [invoice, editId, createInvoice, updateInvoice, router, user?.uid]);
 
   const handleDownloadPDF = useCallback(async () => {
     if (!invoice) return;

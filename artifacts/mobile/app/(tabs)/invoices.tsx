@@ -134,7 +134,7 @@ export default function InvoicesScreen() {
           <View style={[styles.offlineBanner, { backgroundColor: '#FEF3C7', borderColor: '#F59E0B' }]}>
             <Feather name="wifi-off" size={13} color="#92400E" />
             <Text style={[styles.offlineText, { color: '#92400E' }]}>
-              Offline — showing locally saved invoices
+              No internet connection. Please connect and save again.
             </Text>
           </View>
         )}

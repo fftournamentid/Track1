@@ -14,7 +14,7 @@ import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
 import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
-import { generateAndSaveInvoicePDF, openPDF } from '@/services/pdfService';
+import { generateAndSaveInvoicePDF, openPDF, sharePDF } from '@/services/pdfService';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Invoice, InvoiceStatus } from '@/types';
 
@@ -126,6 +126,9 @@ export default function InvoiceDetailScreen() {
 
   // Generation loading
   const [generating, setGenerating] = useState(false);
+  // Per-button loading for quick-share actions
+  const [sharingPDF, setSharingPDF] = useState(false);
+  const [sharingWhatsApp, setSharingWhatsApp] = useState(false);
 
   // Toast
   const [toastVisible, setToastVisible] = useState(false);
@@ -432,30 +435,48 @@ export default function InvoiceDetailScreen() {
             <View style={[styles.actionsRow, { marginTop: 10 }]}>
               <ActionBtn
                 icon="share-2"
-                label="Share PDF"
+                label={sharingPDF ? 'Preparing PDF…' : 'Share PDF'}
+                loading={sharingPDF}
                 onPress={async () => {
-                  if (!invoice.pdfUrl) return;
-                  const { sharePDF: doShare } = await import('@/services/pdfService');
+                  if (sharingPDF || sharingWhatsApp) return;
+                  setSharingPDF(true);
                   try {
-                    await doShare(invoice.pdfUrl, `Invoice — ${invoice.pdfName}`);
+                    console.log('[PDF][Share] Generating PDF for share...');
+                    const { uri } = await generateAndSaveInvoicePDF(
+                      invoice, invoice.templateId ?? 'classic', false, user?.uid
+                    );
+                    console.log('[PDF] PDF generated, uri:', uri);
+                    await sharePDF(uri, `Invoice — ${invoice.invoiceNumber}`);
+                    console.log('[PDF] PDF shared');
                   } catch (err) {
-                    console.error('[PDF][Share] ✗ Error:', err);
+                    console.error('[PDF] Share failed:', err);
                     showToast('Unable to share PDF. Please try again.', 'error');
+                  } finally {
+                    setSharingPDF(false);
                   }
                 }}
                 variant="accent"
               />
               <ActionBtn
                 icon="message-circle"
-                label="WhatsApp"
+                label={sharingWhatsApp ? 'Preparing PDF…' : 'WhatsApp'}
+                loading={sharingWhatsApp}
                 onPress={async () => {
-                  if (!invoice.pdfUrl) return;
-                  const { sharePDF: doShare } = await import('@/services/pdfService');
+                  if (sharingPDF || sharingWhatsApp) return;
+                  setSharingWhatsApp(true);
                   try {
-                    await doShare(invoice.pdfUrl, 'Send Invoice via WhatsApp');
+                    console.log('[PDF][Share] Generating PDF for WhatsApp...');
+                    const { uri } = await generateAndSaveInvoicePDF(
+                      invoice, invoice.templateId ?? 'classic', false, user?.uid
+                    );
+                    console.log('[PDF] PDF generated, uri:', uri);
+                    await sharePDF(uri, 'Send Invoice via WhatsApp');
+                    console.log('[PDF] PDF shared');
                   } catch (err) {
-                    console.error('[PDF][Share] ✗ Error:', err);
+                    console.error('[PDF] Share failed:', err);
                     showToast('Unable to share PDF. Please try again.', 'error');
+                  } finally {
+                    setSharingWhatsApp(false);
                   }
                 }}
                 variant="success"
