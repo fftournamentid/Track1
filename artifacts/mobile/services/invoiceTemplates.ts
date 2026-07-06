@@ -23,6 +23,7 @@ import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
+import { APP_NAME, APP_LOGO_DATA_URI } from '@/constants/appBranding';
 
 // ─── Template descriptor ──────────────────────────────────────────────────────
 
@@ -456,6 +457,21 @@ function chevronDivider(bg: string, height = 10): string {
   </div>`;
 }
 
+/**
+ * Decides whether the UPI QR payment block should be visible on an invoice.
+ *
+ * - Manual override (`invoice.showQrCode` explicitly `true`/`false`) always wins.
+ * - Otherwise auto-decide from the money flow:
+ *     - balance < 0 (settlementStatus 'receive') → owner owes the driver → show QR
+ *       so the owner can scan & pay the driver.
+ *     - balance >= 0 (driver holds excess money, or fully settled) → hide QR,
+ *       nothing to pay via UPI.
+ */
+export function shouldShowQrCode(invoice: Invoice): boolean {
+  if (typeof invoice.showQrCode === 'boolean') return invoice.showQrCode;
+  return invoice.balance < 0;
+}
+
 /** Build QR URL for UPI payment */
 function qrUrl(upiId: string, amount: number, currency: string, size = 120): string {
   const upiData = `upi://pay?pa=${encodeURIComponent(upiId)}&am=${amount > 0 ? amount : ''}&cu=${currency}`;
@@ -634,8 +650,8 @@ function renderA5Invoice(
       <td style="padding:7px 10px;font-size:11.5px;font-weight:800;color:${t.amountColor};text-align:right;white-space:nowrap;">${cur}&nbsp;${fmt(item.amount)}</td>
     </tr>`).join('');
 
-  // ── QR payment section (only when UPI ID exists) ──────────────────────────
-  const qrSection = biz.upiId ? (() => {
+  // ── QR payment section (only when UPI ID exists AND QR is visible) ────────
+  const qrSection = (biz.upiId && shouldShowQrCode(invoice)) ? (() => {
     const upiLink = `upi://pay?pa=${encodeURIComponent(biz.upiId)}&pn=${encodeURIComponent((biz.ownerName || biz.companyName || 'Business').replace(/[&=?]/g, ''))}&am=${Math.abs(invoice.balance).toFixed(2)}&cu=${cur}`;
     const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=88x88&bgcolor=ffffff&color=000000&qzone=1&data=${encodeURIComponent(upiLink)}`;
     return `
@@ -671,6 +687,13 @@ function renderA5Invoice(
 </style></head><body>
 <div class="page">
   ${draftOverlay}
+
+  <!-- ══ APP BRANDING STRIP (top-left, every invoice) ══ -->
+  <div style="display:flex;align-items:center;gap:6px;padding:6px 17px;background:${isDark ? '#0a0a0a' : '#fff'};">
+    <img src="${APP_LOGO_DATA_URI}" style="width:16px;height:16px;border-radius:4px;display:block;" />
+    <span style="font-size:9.5px;font-weight:800;color:${isDark ? '#E2E8F0' : '#334155'};letter-spacing:-0.1px;">${APP_NAME}</span>
+    <span style="font-size:7px;color:${isDark ? '#6B7280' : '#94A3B8'};">· Generated with ${APP_NAME}</span>
+  </div>
 
   <!-- ══ HEADER BAND ══ -->
   <div style="background:${headerBg};padding:13px 17px;display:flex;justify-content:space-between;align-items:flex-start;">
@@ -866,16 +889,17 @@ export async function generatePDFWithTemplate(
   invoice: Invoice,
   templateId: string,
 ): Promise<{ uri: string }> {
-  // Web: expo-print not supported — return an HTML blob URI
+  // Web: expo-print has no web implementation. Render a REAL PDF binary
+  // (not HTML) via html2canvas + jsPDF so web behaves like native.
   if (Platform.OS === 'web') {
     const html = await generateInvoiceHTML(invoice, templateId);
-    if (typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
-      const blob = new Blob([html], { type: 'text/html' });
-      return { uri: URL.createObjectURL(blob) };
+    const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import('./webPdfGenerator');
+    const blob = await renderHtmlToPdfBlob(html);
+    const validHeader = await blobHasValidPdfHeader(blob);
+    if (!validHeader) {
+      throw new Error('Unable to generate PDF.');
     }
-    // Fallback data URI
-    const encoded = encodeURIComponent(html);
-    return { uri: `data:text/html;charset=utf-8,${encoded}` };
+    return { uri: URL.createObjectURL(blob) };
   }
 
   const html = await generateInvoiceHTML(invoice, templateId);

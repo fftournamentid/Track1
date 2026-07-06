@@ -106,6 +106,8 @@ export default function CreateInvoiceScreen() {
   ]);
   const [paymentTerms, setPaymentTerms] = useState(settings.defaultPaymentTerms);
   const [notes, setNotes] = useState('');
+  // undefined = auto-decide (show when owner owes driver, hide otherwise); true/false = manual override
+  const [showQrCode, setShowQrCode] = useState<boolean | undefined>(undefined);
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -144,6 +146,7 @@ export default function CreateInvoiceScreen() {
         setExpenses(inv.expenses.length > 0 ? inv.expenses : [{ id: generateId(), name: '', amount: 0 }]);
         setPaymentTerms(inv.paymentTerms ?? '');
         setNotes(inv.notes ?? '');
+        setShowQrCode(inv.showQrCode);
         if (inv.templateId) setSelectedTemplateId(inv.templateId);
       }
       initializedRef.current = true;
@@ -283,11 +286,12 @@ export default function CreateInvoiceScreen() {
     updatedAt: new Date().toISOString(),
     downloadCount: 0,
     templateId: selectedTemplateId,
+    showQrCode,
   }), [
     editId, invoiceNumber, date, dueDate, isEditing, getInvoiceById, profile,
     clientName, clientPhone, clientAddress, clientGST, fromLocation, toLocation,
     truckNumber, driverName, expenses, advanceNum, totalExpenses, balance,
-    settlementStatus, settings.defaultCurrency, paymentTerms, notes, selectedTemplateId,
+    settlementStatus, settings.defaultCurrency, paymentTerms, notes, selectedTemplateId, showQrCode,
   ]);
 
   // ─── Preview: save draft + invoice data then navigate ───────────────────────
@@ -385,6 +389,7 @@ export default function CreateInvoiceScreen() {
         paymentTerms: paymentTerms.trim() || undefined,
         notes: notes.trim() || undefined,
         templateId: selectedTemplateId,
+        showQrCode,
       };
 
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -667,6 +672,38 @@ export default function CreateInvoiceScreen() {
           <Field label="Notes" value={notes} onChangeText={setNotes} multiline placeholder="Additional notes..." />
         </Section>
 
+        {/* QR Payment Code visibility */}
+        <Section title="QR Payment Code">
+          <Pressable
+            onPress={() => setShowQrCode((prev) => !(prev ?? balance < 0))}
+            style={styles.qrToggleRow}
+            hitSlop={6}
+          >
+            <View
+              style={[
+                styles.checkbox,
+                { borderColor: colors.primary },
+                (showQrCode ?? balance < 0) && { backgroundColor: colors.primary },
+              ]}
+            >
+              {(showQrCode ?? balance < 0) && <Feather name="check" size={13} color="#fff" />}
+            </View>
+            <Text style={[styles.qrToggleLabel, { color: colors.foreground }]}>Show QR Code</Text>
+          </Pressable>
+          <Text style={[styles.qrToggleHint, { color: colors.mutedForeground }]}>
+            {showQrCode === undefined
+              ? balance < 0
+                ? 'Auto: shown — the owner owes the driver money.'
+                : 'Auto: hidden — the driver holds excess or the invoice is settled.'
+              : 'Manually overridden. '}
+            {showQrCode !== undefined && (
+              <Text style={{ color: colors.primary, fontWeight: '700' }} onPress={() => setShowQrCode(undefined)}>
+                Reset to auto
+              </Text>
+            )}
+          </Text>
+        </Section>
+
         {/* Bottom action row */}
         <View style={styles.bottomRow}>
           <Pressable
@@ -723,6 +760,13 @@ const styles = StyleSheet.create({
   },
   previewBtnTxt: { fontSize: 12, fontWeight: '700' },
   saveBtn: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, minWidth: 56, alignItems: 'center' },
+  qrToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  checkbox: {
+    width: 21, height: 21, borderRadius: 5, borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  qrToggleLabel: { fontSize: 14, fontWeight: '600' },
+  qrToggleHint: { fontSize: 12, lineHeight: 17 },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   content: { padding: 16 },
   templateBar: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 14 },

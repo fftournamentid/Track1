@@ -64,6 +64,15 @@ export interface Invoice {
   pdfCreatedAt?: string;
   /** True when this invoice was saved locally and is waiting to be uploaded to Firestore. */
   pendingSync?: boolean;
+  /**
+   * Manual override for the QR payment code visibility.
+   * - `true`  → always show the QR code (if a UPI ID is configured).
+   * - `false` → always hide the QR code.
+   * - `undefined` → auto-decide: show when the owner owes the driver money
+   *   (balance < 0 / settlementStatus 'receive'), hide otherwise (driver
+   *   holds excess money or the invoice is fully settled).
+   */
+  showQrCode?: boolean;
 }
 
 export interface AppSettings {

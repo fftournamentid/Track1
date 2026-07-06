@@ -60,6 +60,8 @@
     "expo-intent-launcher": "^13.0.8",
     "expo-print": "^15.0.8",
     "expo-sharing": "^14.0.8",
-    "firebase": "^12.15.0"
+    "firebase": "^12.15.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1"
   }
 }

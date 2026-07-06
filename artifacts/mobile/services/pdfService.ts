@@ -62,10 +62,11 @@ export async function generateAndSaveInvoicePDF(
     platform: Platform.OS,
   });
 
-  // Web: expo-print not supported → return HTML blob URI
+  // Web: generatePDFWithTemplate now renders a REAL PDF binary (html2canvas + jsPDF),
+  // not HTML — the filename correctly ends in .pdf.
   if (Platform.OS === 'web') {
-    console.log('[PDF] Web platform — generating HTML blob URI');
-    const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.html`;
+    console.log('[PDF] Web platform — generating real PDF blob URI');
+    const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
     const result = await generatePDFWithTemplate(invoice, templateId);
     return { uri: result.uri, filename };
   }
@@ -386,16 +387,67 @@ export async function savePDFToDownloads(uri: string, filename: string): Promise
   });
 }
 
-/** Web-only: download as HTML file (browser print → Save as PDF). */
+/**
+ * Web-only: generates a REAL PDF binary (via html2canvas + jsPDF, see
+ * webPdfGenerator.ts) and triggers a browser download of the `.pdf` file.
+ * Previously this downloaded raw HTML — that is no longer the case.
+ */
 export async function downloadForWeb(invoice: Invoice, templateId = 'classic'): Promise<void> {
   const html = await buildInvoiceHTML(invoice, templateId);
-  const blob = new Blob([html], { type: 'text/html' });
+  const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import('./webPdfGenerator');
+  const blob = await renderHtmlToPdfBlob(html);
+  const validHeader = await blobHasValidPdfHeader(blob);
+  if (!validHeader) {
+    throw new Error('Unable to generate PDF.');
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Invoice_${safeName(invoice.invoiceNumber)}_invoice.html`;
+  a.download = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Web-only: shares a REAL PDF file via the Web Share API (`navigator.share`
+ * with a File), when the browser supports sharing files. Falls back to
+ * triggering a `.pdf` download when Web Share (or file sharing) isn't
+ * available — never falls back to HTML.
+ */
+export async function sharePDFWeb(invoice: Invoice, templateId = 'classic'): Promise<'shared' | 'downloaded'> {
+  const html = await buildInvoiceHTML(invoice, templateId);
+  const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import('./webPdfGenerator');
+  const blob = await renderHtmlToPdfBlob(html);
+  const validHeader = await blobHasValidPdfHeader(blob);
+  if (!validHeader) {
+    throw new Error('Unable to generate PDF.');
+  }
+  const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
+  const file = new File([blob], filename, { type: 'application/pdf' });
+
+  if (
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function' &&
+    navigator.canShare({ files: [file] })
+  ) {
+    try {
+      await navigator.share({ title: `Invoice #${invoice.invoiceNumber}`, files: [file] });
+      return 'shared';
+    } catch (shareErr) {
+      console.warn('[PDF][share][web] navigator.share failed/cancelled, falling back to download:', shareErr);
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  return 'downloaded';
 }

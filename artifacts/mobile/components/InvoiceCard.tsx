@@ -4,7 +4,40 @@ import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import type { Invoice } from '@/types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { getTemplateById } from '@/services/invoiceTemplates';
+import { getTemplateById, shouldShowQrCode } from '@/services/invoiceTemplates';
+
+// Tiny visual mimic of the actual invoice paper — colored header band with
+// faux text lines + a white body strip — so the list shows a real preview
+// thumbnail instead of a generic file icon.
+function MiniPreview({ invoice, accentColor }: { invoice: Invoice; accentColor: string }) {
+  const showQr = shouldShowQrCode(invoice);
+  return (
+    <View style={styles.miniPaper}>
+      <View style={[styles.miniHeader, { backgroundColor: accentColor }]}>
+        <View style={styles.miniHeaderLineWrap}>
+          <View style={styles.miniLineLight} />
+          <View style={[styles.miniLineLight, { width: '55%', marginTop: 3 }]} />
+        </View>
+      </View>
+      <View style={styles.miniBody}>
+        <View style={styles.miniLineDark} />
+        <View style={[styles.miniLineDark, { width: '65%', marginTop: 3 }]} />
+        <View style={styles.miniBodyBottom}>
+          <View style={[styles.miniAmountChip, { backgroundColor: accentColor + '22' }]}>
+            <Text style={[styles.miniAmountText, { color: accentColor }]} numberOfLines={1}>
+              {formatCurrency(Math.abs(invoice.balance), invoice.currency).replace(/\.00$/, '')}
+            </Text>
+          </View>
+          {showQr && (
+            <View style={styles.miniQrDot}>
+              <Feather name="grid" size={7} color="#fff" />
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
 
 interface Props {
   invoice: Invoice;
@@ -44,9 +77,7 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
       <View style={styles.cardBody}>
         <View style={styles.topRow}>
           <View style={styles.iconWrap}>
-            <View style={[styles.docIcon, { backgroundColor: accentColor + '1A' }]}>
-              <Feather name="file-text" size={16} color={accentColor} />
-            </View>
+            <MiniPreview invoice={invoice} accentColor={accentColor} />
           </View>
           <View style={styles.leftTop}>
             <Text style={[styles.invNumber, { color: accentColor }]} numberOfLines={1}>
@@ -110,9 +141,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  iconWrap: { marginRight: 10, paddingTop: 1 },
-  docIcon: {
-    width: 32, height: 32, borderRadius: 8,
+  iconWrap: { marginRight: 12 },
+  miniPaper: {
+    width: 44, height: 56, borderRadius: 6, overflow: 'hidden',
+    backgroundColor: '#fff', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.08)',
+  },
+  miniHeader: { height: 18, padding: 5, justifyContent: 'center' },
+  miniHeaderLineWrap: { gap: 0 },
+  miniLineLight: { height: 2.5, width: '80%', borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.85)' },
+  miniBody: { flex: 1, padding: 5, justifyContent: 'space-between' },
+  miniLineDark: { height: 2.5, width: '85%', borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.14)' },
+  miniBodyBottom: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  miniAmountChip: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, maxWidth: 32 },
+  miniAmountText: { fontSize: 6.5, fontWeight: '800' },
+  miniQrDot: {
+    width: 12, height: 12, borderRadius: 3, backgroundColor: '#0F172A',
     alignItems: 'center', justifyContent: 'center',
   },
   leftTop: { flex: 1, marginRight: 12 },
@@ -122,10 +165,10 @@ const styles = StyleSheet.create({
   amount: { fontSize: 16, fontWeight: '800', marginBottom: 5 },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: 10, marginLeft: 42 },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 10, marginLeft: 56 },
   bottomRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingLeft: 42,
+    paddingLeft: 56,
   },
   routeRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   route: { fontSize: 12, marginLeft: 4, flex: 1 },

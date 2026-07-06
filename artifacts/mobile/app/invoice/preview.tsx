@@ -39,9 +39,11 @@ import {
   sharePDF,
   savePDFToDownloads,
   downloadForWeb,
+  sharePDFWeb,
 } from '@/services/pdfService';
 import { addToPendingSync } from '@/services/syncQueue';
-import { getTemplateById, type TemplateStyle } from '@/services/invoiceTemplates';
+import { getTemplateById, shouldShowQrCode, type TemplateStyle } from '@/services/invoiceTemplates';
+import { APP_NAME, APP_LOGO_DATA_URI } from '@/constants/appBranding';
 import type { Invoice } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,8 +135,9 @@ function PaperDocument({ invoice, currency, templateId }: {
   const headerBg = isDark ? t.headerBg : t.primary;
   const bodyBg   = isDark ? t.bodyBg   : '#ffffff';
 
-  // UPI QR code (only rendered when UPI ID is set)
-  const upiQrUrl = biz.upiId
+  // UPI QR code — only rendered when a UPI ID is set AND the QR should be
+  // visible (manual toggle override, or auto: owner owes driver money).
+  const upiQrUrl = biz.upiId && shouldShowQrCode(invoice)
     ? `https://api.qrserver.com/v1/create-qr-code/?size=88x88&bgcolor=ffffff&color=000000&qzone=1&data=${encodeURIComponent(
         `upi://pay?pa=${encodeURIComponent(biz.upiId)}&pn=${encodeURIComponent((biz.ownerName || biz.companyName || 'Business').replace(/[&=?]/g, ''))}&am=${Math.abs(invoice.balance).toFixed(2)}&cu=${invoice.currency || 'INR'}`
       )}`
@@ -154,6 +157,13 @@ function PaperDocument({ invoice, currency, templateId }: {
           <Text style={[a5.watermark, isDark && { color: 'rgba(255,255,255,0.03)' }]}>DRAFT</Text>
         </View>
       )}
+
+      {/* ══ APP BRANDING STRIP (top-left, every invoice) ══ */}
+      <View style={[a5.brandStrip, { backgroundColor: isDark ? '#0a0a0a' : '#fff' }]}>
+        <Image source={{ uri: APP_LOGO_DATA_URI }} style={a5.brandLogo} resizeMode="contain" />
+        <Text style={[a5.brandName, { color: isDark ? '#E2E8F0' : '#334155' }]}>{APP_NAME}</Text>
+        <Text style={[a5.brandTag, { color: isDark ? '#6B7280' : '#94A3B8' }]}>· Generated with {APP_NAME}</Text>
+      </View>
 
       {/* ══ HEADER BAND ══ */}
       <View style={[a5.headerBand, { backgroundColor: headerBg }]}>
@@ -467,11 +477,17 @@ export default function InvoicePreviewScreen() {
             await updateInvoice(editId, data);
             savedId = editId;
             console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
+            // Optimistic local mirror so the change is instantly visible in the
+            // list even before any Firestore realtime snapshot round-trips back.
+            await addLocalInvoice({ ...invoice, ...data, id: savedId } as Invoice);
           } else {
             console.log('[Save] Creating new invoice in Firestore...');
             const saved = await createInvoice({ ...data, status: data.status || 'pending' });
             savedId = saved.id;
             console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
+            // Optimistic local mirror — makes the new invoice appear in the
+            // Invoices list instantly instead of waiting on the Firestore listener.
+            await addLocalInvoice(saved);
           }
         } catch (firestoreErr) {
           console.error('[Save] ✗ Firestore write FAILED:', firestoreErr);
@@ -548,7 +564,8 @@ export default function InvoicePreviewScreen() {
     try {
       if (Platform.OS === 'web') {
         await downloadForWeb(invoice, invoice.templateId ?? 'classic');
-        showToast('Invoice downloaded as HTML. Open in browser and print to save as PDF.');
+        showToast('PDF saved to Downloads.');
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         return;
       }
       const templateId = invoice.templateId ?? 'classic';
@@ -559,8 +576,8 @@ export default function InvoicePreviewScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       console.error('[PDF][Download] ✗ Error:', err);
-      Alert.alert('PDF generation failed. Please try again.', undefined, [{ text: 'OK' }]);
-      showToast('PDF generation failed. Please try again.', 'error');
+      Alert.alert('Unable to generate PDF.', undefined, [{ text: 'OK' }]);
+      showToast('Unable to generate PDF.', 'error');
     } finally {
       setDownloadingPDF(false);
     }
@@ -573,25 +590,12 @@ export default function InvoicePreviewScreen() {
     showToast('Preparing PDF...');
     try {
       if (Platform.OS === 'web') {
-        // Web: Web Share API if available, otherwise download HTML as fallback
+        // Web: renders a REAL PDF binary and shares it via the Web Share API
+        // (files) when supported, otherwise downloads the .pdf directly.
         const templateId = invoice.templateId ?? 'classic';
-        if (typeof navigator !== 'undefined' && navigator.share) {
-          try {
-            // Generate HTML blob and share as a file via Web Share API
-            const { buildInvoiceHTML } = await import('@/services/invoiceTemplates');
-            const html = await buildInvoiceHTML(invoice, templateId);
-            const blob = new Blob([html], { type: 'text/html' });
-            const file = new File([blob], `Invoice_${invoice.invoiceNumber}.html`, { type: 'text/html' });
-            await navigator.share({ title: `Invoice #${invoice.invoiceNumber}`, files: [file] });
-            console.log('[PDF][Share] ✓ Web Share API used.');
-            return;
-          } catch (shareErr) {
-            // User cancelled or share failed — fall through to download
-            console.warn('[PDF][Share] Web Share API failed, falling back to download:', shareErr);
-          }
-        }
-        await downloadForWeb(invoice, templateId);
-        showToast('Invoice downloaded. Open the file and share manually.');
+        const result = await sharePDFWeb(invoice, templateId);
+        console.log('[PDF][Share] web result:', result);
+        showToast(result === 'shared' ? 'Shared successfully.' : 'PDF saved to Downloads.');
         return;
       }
 
@@ -608,7 +612,7 @@ export default function InvoicePreviewScreen() {
       console.log('[PDF][Share] ✓ Native share sheet opened. User can share to WhatsApp, Gmail, Telegram, Drive, etc.');
     } catch (err) {
       console.error('[PDF][Share] ✗ Error:', err);
-      showToast('Unable to share PDF. Please try again.', 'error');
+      showToast('Unable to generate PDF.', 'error');
     } finally {
       setSharingPDF(false);
     }
@@ -824,6 +828,15 @@ const a5 = StyleSheet.create({
     transform: [{ rotate: '-45deg' }], zIndex: 0,
   },
   watermark: { fontSize: 48, fontWeight: '900', color: 'rgba(128,128,128,0.05)', letterSpacing: 8 },
+
+  // ── App branding strip (top-left, every invoice) ──
+  brandStrip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 6, paddingHorizontal: 14,
+  },
+  brandLogo: { width: 16, height: 16, borderRadius: 4 },
+  brandName: { fontSize: 9.5, fontWeight: '800', letterSpacing: -0.1 },
+  brandTag: { fontSize: 7 },
 
   // ── Header band ──
   headerBand: {
