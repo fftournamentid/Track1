@@ -1553,5 +1553,68 @@ export async function generateInvoiceHTML(
   }
 }
 
+// ─── Additional exports required by pdfService and preview ────────────────────
+
+/**
+ * Get a TemplateStyle by ID.
+ * Falls back to the first template if not found.
+ */
+export function getTemplateById(id: string): TemplateStyle {
+  return INVOICE_TEMPLATES.find((t) => t.id === id) ?? INVOICE_TEMPLATES[0];
+}
+
+/**
+ * Build the invoice HTML string — convenience alias for generateInvoiceHTML.
+ * Used by pdfService.downloadForWeb and web-platform PDF generation.
+ */
+export async function buildInvoiceHTML(
+  invoice: Invoice,
+  templateId: string,
+): Promise<string> {
+  return generateInvoiceHTML(invoice, templateId);
+}
+
+/**
+ * Generate a PDF file from an invoice using expo-print.
+ * On web (expo-print not available) returns an HTML blob URI instead.
+ *
+ * Verifies the output is at least 1 KB and retries once on failure.
+ */
+export async function generatePDFWithTemplate(
+  invoice: Invoice,
+  templateId: string,
+): Promise<{ uri: string }> {
+  // Web: expo-print not supported — return an HTML blob URI
+  if (Platform.OS === 'web') {
+    const html = await generateInvoiceHTML(invoice, templateId);
+    if (typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
+      const blob = new Blob([html], { type: 'text/html' });
+      return { uri: URL.createObjectURL(blob) };
+    }
+    // Fallback data URI
+    const encoded = encodeURIComponent(html);
+    return { uri: `data:text/html;charset=utf-8,${encoded}` };
+  }
+
+  const html = await generateInvoiceHTML(invoice, templateId);
+
+  async function tryPrint(): Promise<{ uri: string }> {
+    const result = await Print.printToFileAsync({ html, base64: false });
+    const info = await FileSystem.getInfoAsync(result.uri);
+    const size = info.exists ? ((info as { exists: true; size?: number }).size ?? 0) : 0;
+    if (size < 1024) {
+      throw new Error(`PDF too small: ${size} bytes`);
+    }
+    return { uri: result.uri };
+  }
+
+  try {
+    return await tryPrint();
+  } catch {
+    // Retry once
+    return await tryPrint();
+  }
+}
+
 // Legacy export used by pdfService
 export { generateInvoiceHTML as default };
