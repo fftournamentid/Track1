@@ -192,11 +192,24 @@ export async function openPDF(uri: string): Promise<void> {
   });
 }
 
-/** Share a PDF URI via the system share sheet. Handles remote URLs by downloading first. */
+/**
+ * Share a PDF file via the native system share sheet.
+ *
+ * Android fix: expo-sharing passes `file://` URIs through its own FileProvider
+ * whose path config may NOT cover documentDirectory, causing a silent
+ * IllegalArgumentException (WhatsApp/Telegram/Gmail receive nothing).
+ * Fix: call FileSystem.getContentUriAsync() to obtain a proper content://
+ * URI backed by Expo's FileProvider (which IS configured for documentDirectory),
+ * then pass that URI to shareAsync. The content:// URI includes
+ * FLAG_GRANT_READ_URI_PERMISSION so all receiving apps can read the file.
+ *
+ * iOS: expo-sharing works fine with file:// URIs.
+ * Web: opens the URI in a new tab (or falls back to download).
+ */
 export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promise<void> {
   console.log('[PDF][share] sharePDF called — uri:', uri, '| platform:', Platform.OS);
 
-  // Web: Sharing API not available — open the URI in a new tab as fallback
+  // ── Web ──────────────────────────────────────────────────────────────────
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined') {
       window.open(uri, '_blank');
@@ -204,14 +217,17 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
     return;
   }
 
+  // ── Ensure we have a LOCAL file ──────────────────────────────────────────
+  // Remote URLs are downloaded to documentDirectory (not cacheDirectory) so
+  // that getContentUriAsync works on Android.
   let localUri = uri;
 
   if (uri.startsWith('http://') || uri.startsWith('https://')) {
     const filename = decodeURIComponent(uri.split('/').pop() ?? 'invoice.pdf').split('?')[0];
-    const dest = `${FileSystem.cacheDirectory}${filename}`;
+    const dest = `${FileSystem.documentDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
-      console.log('[PDF][share] Downloading remote URL to cache:', dest);
+      console.log('[PDF][share] Downloading remote URL to documentDirectory:', dest);
       const dl = await FileSystem.downloadAsync(uri, dest);
       localUri = dl.uri;
     } else {
@@ -220,15 +236,63 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
     console.log('[PDF][share] Local URI ready:', localUri);
   }
 
+  // ── Verify file exists and is valid ────────────────────────────────────────
+  const info = await FileSystem.getInfoAsync(localUri);
+  if (!info.exists) {
+    throw new Error('PDF file not found. Please generate the PDF first.');
+  }
+  const fileSize = (info as { exists: true; size?: number }).size ?? 0;
+  if (fileSize < 1024) {
+    throw new Error(`PDF is too small (${fileSize} B) — generation may have failed.`);
+  }
+  console.log('[PDF][share] File verified — size:', fileSize, 'bytes, uri:', localUri);
+
+  // ── Android: content:// URI for reliable app-to-app sharing ─────────────
+  // WhatsApp, Telegram, Gmail, Drive, Nearby Share all require a
+  // content:// URI; a raw file:// URI is blocked by StrictMode on Android 7+.
+  if (Platform.OS === 'android') {
+    let shareUri = localUri;
+    try {
+      shareUri = await FileSystem.getContentUriAsync(localUri);
+      console.log('[PDF][share] Android: obtained content URI:', shareUri);
+    } catch (contentUriErr) {
+      console.warn('[PDF][share] getContentUriAsync failed — will try file:// directly:', contentUriErr);
+    }
+
+    const canShare = await Sharing.isAvailableAsync();
+    if (!canShare) throw new Error('Unable to share PDF. Please try again.');
+
+    try {
+      await Sharing.shareAsync(shareUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: title,
+        UTI: 'com.adobe.pdf',
+      });
+      console.log('[PDF][share] ✓ Android share sheet opened successfully.');
+      return;
+    } catch (shareErr) {
+      console.warn('[PDF][share] shareAsync with content URI failed, retrying with file URI:', shareErr);
+      // Last resort: original file:// URI
+      await Sharing.shareAsync(localUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: title,
+        UTI: 'com.adobe.pdf',
+      });
+      console.log('[PDF][share] ✓ Android fallback share sheet opened.');
+      return;
+    }
+  }
+
+  // ── iOS / other ──────────────────────────────────────────────────────────
   const canShare = await Sharing.isAvailableAsync();
-  if (!canShare) throw new Error('Sharing is not available on this device.');
+  if (!canShare) throw new Error('Unable to share PDF. Please try again.');
 
   await Sharing.shareAsync(localUri, {
     mimeType: 'application/pdf',
     dialogTitle: title,
     UTI: 'com.adobe.pdf',
   });
-  console.log('[PDF][share] ✓ Share dialog opened.');
+  console.log('[PDF][share] ✓ Share sheet opened successfully.');
 }
 
 /**
