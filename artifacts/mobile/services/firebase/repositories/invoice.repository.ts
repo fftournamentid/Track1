@@ -12,7 +12,7 @@ import {
   type Unsubscribe,
   type Timestamp,
 } from 'firebase/firestore';
-import { db } from '../config';
+import { auth, db } from '../config';
 import type { Invoice } from '@/types';
 
 type RawInvoice = Omit<Invoice, 'createdAt' | 'updatedAt'> & {
@@ -59,6 +59,24 @@ export async function createInvoiceDoc(
   data: Omit<Invoice, 'id' | 'createdAt' | 'updatedAt' | 'downloadCount'>
 ): Promise<Invoice> {
 
+  // ── Auth guard: verify Firebase Auth state before touching Firestore ────────
+  // Firestore security rules reject writes from unauthenticated callers with a
+  // PERMISSION_DENIED error. Checking auth.currentUser here gives a clear,
+  // actionable error message before the round-trip ever leaves the device.
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    const msg = '[Firestore][create] ✗ User is not authenticated — cannot write invoice document. Please sign in and retry.';
+    console.error(msg);
+    throw new Error(msg);
+  }
+  if (currentUser.uid !== uid) {
+    const msg = `[Firestore][create] ✗ UID mismatch — auth token uid="${currentUser.uid}" does not match requested uid="${uid}". Aborting write.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+  console.log('[Firestore][create] ✓ Auth verified — uid:', currentUser.uid);
+
+  // ── Strip undefined values ───────────────────────────────────────────────────
   // Firestore throws on undefined values unless ignoreUndefinedProperties is set.
   // Strip them out here so optional fields (dueDate, clientPhone, etc.) are omitted.
   const sanitized: Record<string, unknown> = {};
@@ -66,11 +84,11 @@ export async function createInvoiceDoc(
     if (v !== undefined) sanitized[k] = v;
   }
 
-
   console.log('[Firestore][create] Creating invoice doc for uid:', uid, '| invoiceNumber:', data.invoiceNumber);
 
   const payload = {
     ...sanitized,
+    userId: currentUser.uid,   // anchor doc to the authenticated token uid
     downloadCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -80,8 +98,18 @@ export async function createInvoiceDoc(
     console.log('[Firestore][create] ✓ Created doc with id:', ref.id);
     const now = new Date().toISOString();
     return { ...data, id: ref.id, downloadCount: 0, createdAt: now, updatedAt: now };
-  } catch (err) {
-    console.error('[Firestore][create] ✗ addDoc failed:', err);
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code ?? '';
+    if (code === 'permission-denied') {
+      console.error(
+        '[Firestore][create] ✗ PERMISSION_DENIED — Firestore rules rejected the write.',
+        'uid:', uid,
+        '| invoiceNumber:', data.invoiceNumber,
+        '| err:', err,
+      );
+    } else {
+      console.error('[Firestore][create] ✗ addDoc failed — code:', code, '| err:', err);
+    }
     throw err;
   }
 }

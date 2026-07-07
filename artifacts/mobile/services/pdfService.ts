@@ -7,7 +7,8 @@ import {
   generatePDFWithTemplate,
   hasValidPdfHeader,
 } from "./invoiceTemplates";
-import { uploadPDFToSupabase } from "./supabaseStorage";
+import { uploadPDFToSupabase, SupabaseUploadError } from "./supabaseStorage";
+import { auth } from "./firebase/config";
 
 export interface PDFResult {
   uri: string;
@@ -86,22 +87,40 @@ export async function generateAndSaveInvoicePDF(
       console.log("[PDF] ✓ Valid cached file found at:", dest);
       let publicUrl: string | undefined;
       if (userId) {
-        console.log("[Supabase] Uploading cached PDF — userId:", userId);
-        try {
-          const uploaded = await uploadPDFToSupabase(dest, filename, userId);
-          if (uploaded) {
-            publicUrl = uploaded;
-            console.log(
-              "[Supabase] ✓ PDF upload (cache path) succeeded:",
-              publicUrl,
-            );
-          } else {
-            console.warn(
-              "[Supabase] PDF upload returned null — check env vars",
-            );
+        // Verify auth.currentUser before attempting upload — permission errors
+        // surface here as PERMISSION_DENIED if the token has expired or is absent.
+        const currentUser = auth.currentUser;
+        if (!currentUser || currentUser.uid !== userId) {
+          console.warn(
+            "[Supabase] Skipping cached-PDF upload — auth.currentUser uid",
+            currentUser?.uid ?? "(none)",
+            "does not match requested userId:",
+            userId,
+          );
+        } else {
+          console.log("[Supabase] Uploading cached PDF — userId:", userId);
+          try {
+            const uploaded = await uploadPDFToSupabase(dest, filename, userId);
+            if (uploaded) {
+              publicUrl = uploaded;
+              console.log(
+                "[Supabase] ✓ PDF upload (cache path) succeeded:",
+                publicUrl,
+              );
+            } else {
+              console.warn(
+                "[Supabase] PDF upload returned null — check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY",
+              );
+            }
+          } catch (uploadErr: unknown) {
+            if (uploadErr instanceof SupabaseUploadError && (uploadErr.status === 401 || uploadErr.status === 403)) {
+              console.error(
+                `[Supabase] ✗ Permission denied (HTTP ${uploadErr.status}) uploading cached PDF — check Supabase bucket RLS policies and anon key. Body: ${uploadErr.body}`,
+              );
+            } else {
+              console.warn("[Supabase] PDF upload threw (non-fatal):", uploadErr);
+            }
           }
-        } catch (uploadErr) {
-          console.warn("[Supabase] PDF upload threw (non-fatal):", uploadErr);
         }
       }
       return { uri: dest, filename, publicUrl };
@@ -147,29 +166,48 @@ export async function generateAndSaveInvoicePDF(
   }
 
   // Upload to Supabase Storage
+  // Auth is re-verified here (not just at createInvoiceDoc) because PDF upload
+  // can be triggered independently (e.g. from the detail screen) after the doc
+  // was already saved. A stale/expired token would otherwise cause a silent skip.
   let publicUrl: string | undefined;
   if (userId) {
-    console.log(
-      "[Supabase] Uploading PDF — userId:",
-      userId,
-      "| filename:",
-      filename,
-    );
-    try {
-      const uploaded = await uploadPDFToSupabase(dest, filename, userId);
-      if (uploaded) {
-        publicUrl = uploaded;
-        console.log("[Supabase] ✓ PDF upload succeeded:", publicUrl);
-      } else {
-        console.warn(
-          "[Supabase] PDF upload returned null — check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY env vars",
-        );
-      }
-    } catch (uploadErr) {
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.uid !== userId) {
       console.warn(
-        "[Supabase] PDF upload threw (non-fatal, using local URI):",
-        uploadErr,
+        "[Supabase] Skipping PDF upload — auth.currentUser uid",
+        currentUser?.uid ?? "(none)",
+        "does not match requested userId:",
+        userId,
       );
+    } else {
+      console.log(
+        "[Supabase] ✓ Auth verified — uploading PDF | userId:",
+        userId,
+        "| filename:",
+        filename,
+      );
+      try {
+        const uploaded = await uploadPDFToSupabase(dest, filename, userId);
+        if (uploaded) {
+          publicUrl = uploaded;
+          console.log("[Supabase] ✓ PDF upload succeeded:", publicUrl);
+        } else {
+          console.warn(
+            "[Supabase] PDF upload returned null — check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY env vars",
+          );
+        }
+      } catch (uploadErr: unknown) {
+        if (uploadErr instanceof SupabaseUploadError && (uploadErr.status === 401 || uploadErr.status === 403)) {
+          console.error(
+            `[Supabase] ✗ Permission denied (HTTP ${uploadErr.status}) uploading PDF — check Supabase bucket RLS policies and anon key. Body: ${uploadErr.body}`,
+          );
+        } else {
+          console.warn(
+            "[Supabase] PDF upload threw (non-fatal, using local URI):",
+            uploadErr,
+          );
+        }
+      }
     }
   } else {
     console.log("[PDF] No userId — skipping Supabase Storage upload");

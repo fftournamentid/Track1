@@ -42,9 +42,30 @@ function authHeaders(extra: Record<string, string> = {}): Record<string, string>
 }
 
 /**
+ * Thrown by uploadFile when the Supabase Storage REST API returns an HTTP
+ * error. Callers can check `.status` to differentiate permission failures
+ * (401 / 403) from other server-side errors without relying on Firebase-style
+ * error codes.
+ */
+export class SupabaseUploadError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly body: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'SupabaseUploadError';
+  }
+}
+
+/**
  * Upload a local file (any type) to a Supabase Storage bucket via REST.
- * Uses expo-file-system to read the file as base64, then uploads with fetch.
- * Returns the public URL on success, null on failure.
+ * Fetches the local URI as a Blob stream; falls back to base64 on Android
+ * if the Blob is empty. Returns the public URL on success.
+ *
+ * Throws SupabaseUploadError on HTTP 4xx/5xx so callers can detect
+ * permission failures (401/403) vs. other errors.
+ * Returns null only when env vars are missing (i.e. upload is intentionally skipped).
  */
 async function uploadFile(
   localUri: string,
@@ -59,68 +80,72 @@ async function uploadFile(
 
   console.log(`[Supabase] Uploading ${bucket}/${path} from:`, localUri);
 
-  try {
-    // Read file as base64 then convert to Uint8Array (works on all Expo platforms)
-    console.log('[Supabase] Reading file as base64...');
+  // Fetch the local file URI as a Blob stream — works with file:// URIs on Expo.
+  // Falls back to base64 read if fetch returns an empty/zero-byte blob (Android edge case).
+  console.log('[Supabase] Fetching local file as Blob — uri:', localUri);
+  const fileResponse = await fetch(localUri);
+  let blob = await fileResponse.blob();
+  console.log('[Supabase] Blob size:', blob.size, 'bytes | type:', blob.type || '(none)');
+
+  if (blob.size === 0) {
+    console.warn('[Supabase] Blob is empty — falling back to base64 read...');
     const base64 = await FileSystem.readAsStringAsync(localUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    console.log('[Supabase] base64 length:', base64.length, 'chars');
-
-    // Decode base64 → Uint8Array
     const binary = atob(base64);
     const len = binary.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-    console.log('[Supabase] Decoded to Uint8Array,', bytes.length, 'bytes');
-
-    const url = storageUrl(bucket, path);
-    console.log('[Supabase] POST', url);
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: authHeaders({
-        'Content-Type': contentType,
-        'x-upsert': 'true',
-      }),
-      body: bytes,
-    });
-
-    console.log('[Supabase] POST response status:', response.status);
-
-    if (response.ok) {
-      const pub = publicUrl(bucket, path);
-      console.log('[Supabase] ✓ POST upload succeeded. Public URL:', pub);
-      return pub;
-    }
-
-    // Try PUT for upsert if POST fails (bucket policy differences)
-    const postText = await response.text();
-    console.warn(`[Supabase] POST failed (${response.status}): ${postText} — retrying with PUT...`);
-
-    const putResponse = await fetch(url, {
-      method: 'PUT',
-      headers: authHeaders({
-        'Content-Type': contentType,
-        'x-upsert': 'true',
-      }),
-      body: bytes,
-    });
-
-    console.log('[Supabase] PUT response status:', putResponse.status);
-
-    if (!putResponse.ok) {
-      const putText = await putResponse.text();
-      throw new Error(`Upload failed. POST ${response.status}: ${postText} | PUT ${putResponse.status}: ${putText}`);
-    }
-
-    const pub = publicUrl(bucket, path);
-    console.log('[Supabase] ✓ PUT upload succeeded. Public URL:', pub);
-    return pub;
-  } catch (err) {
-    console.error(`[Supabase] ✗ Upload to ${bucket}/${path} failed:`, err);
-    return null;
+    blob = new Blob([bytes], { type: contentType });
+    console.log('[Supabase] Fallback blob size:', blob.size, 'bytes');
   }
+
+  const url = storageUrl(bucket, path);
+  console.log('[Supabase] POST', url);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: authHeaders({
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    }),
+    body: blob,
+  });
+
+  console.log('[Supabase] POST response status:', response.status);
+
+  if (response.ok) {
+    const pub = publicUrl(bucket, path);
+    console.log('[Supabase] ✓ POST upload succeeded. Public URL:', pub);
+    return pub;
+  }
+
+  // Try PUT for upsert if POST fails (bucket policy differences)
+  const postText = await response.text();
+  console.warn(`[Supabase] POST failed (${response.status}): ${postText} — retrying with PUT...`);
+
+  const putResponse = await fetch(url, {
+    method: 'PUT',
+    headers: authHeaders({
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    }),
+    body: blob,
+  });
+
+  console.log('[Supabase] PUT response status:', putResponse.status);
+
+  if (!putResponse.ok) {
+    const putText = await putResponse.text();
+    const finalStatus = putResponse.status;
+    const msg = `Upload failed. POST ${response.status}: ${postText} | PUT ${finalStatus}: ${putText}`;
+    console.error(`[Supabase] ✗ ${msg}`);
+    throw new SupabaseUploadError(finalStatus, putText, msg);
+  }
+
+  const pub = publicUrl(bucket, path);
+  console.log('[Supabase] ✓ PUT upload succeeded. Public URL:', pub);
+  return pub;
 }
 
 /**
