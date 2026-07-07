@@ -17,3 +17,4 @@
 - [Invoice templates — layouts](invoice-template-layouts.md) — unified A5 renderer shared across all template color schemes; see a5-invoice-renderer.md for the RN/HTML parity rule.
 - [A5 unified invoice renderer](a5-invoice-renderer.md) — all templates share one renderA5Invoice (HTML) + PaperDocument (RN); settlement note must appear in BOTH to keep parity.
 - [PDF binary verification + A5 print size](pdf-verification-and-a5-print-size.md) — size>1KB alone doesn't prove a real PDF; always check the %PDF- magic header; also pass explicit width/height (not just @page CSS) to printToFileAsync for reliable A5 output.
+- [Phase 3 — credit gate + forever login](phase3-credit-gate.md) — admobService needs .web.ts shim; checkAndConsumeCredit is atomic via SQLite EXCLUSIVE transaction; onAuthStateChanged must use epoch ref to prevent stale async callbacks; PremiumSyncDialog wired into preview.tsx with lastPdfRef retry pattern.

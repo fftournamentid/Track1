@@ -1,14 +1,28 @@
-import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
-import { Platform } from "react-native";
-import type { Invoice } from "@/types";
+/**
+ * pdfService.ts — Local-first PDF pipeline with credit-gated cloud sync
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Phase 3 architecture:
+ *   1. Generate PDF via expo-print / html2canvas+jsPDF
+ *   2. Copy immediately to documentDirectory (permanent, survives app kill)
+ *   3. Record in SQLite pdf_history (local list shows instantly)
+ *   4. Attempt Supabase upload ONLY if premium OR credits available
+ *      — on success: consume 1 credit
+ *      — on no credits: set cloudUploadBlocked=true (caller shows dialog)
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
+import type { Invoice } from '@/types';
 import {
   buildInvoiceHTML,
   generatePDFWithTemplate,
   hasValidPdfHeader,
-} from "./invoiceTemplates";
-import { uploadPDFToSupabase, SupabaseUploadError } from "./supabaseStorage";
-import { auth } from "./firebase/config";
+} from './invoiceTemplates';
+import { uploadPDFToSupabase, SupabaseUploadError } from './supabaseStorage';
+import { auth } from './firebase/config';
+import { addPdfHistoryEntry } from './sqliteService';
+import { checkAndConsumeCredit } from './syncCreditsService';
 
 export interface PDFResult {
   uri: string;
@@ -17,24 +31,29 @@ export interface PDFResult {
 export interface SavedPDF {
   uri: string;
   filename: string;
-  /** Supabase Storage public download URL if upload succeeded, undefined otherwise. */
+  /** Supabase Storage public download URL — present only when upload succeeded. */
   publicUrl?: string;
+  /**
+   * True when the user has no cloud upload credits left and is not premium.
+   * Callers should surface the PremiumSyncDialog in this case.
+   */
+  cloudUploadBlocked?: boolean;
 }
 
 function safeName(s: string): string {
-  return s.replace(/[^a-zA-Z0-9-]/g, "_");
+  return s.replace(/[^a-zA-Z0-9-]/g, '_');
 }
 
 /**
- * Validates a cached/local file is a real, complete PDF: exists, > 1 KB, and
- * starts with the `%PDF-` magic header. Skips the header check for non-PDF
- * (e.g. `.html`) files, which are only ever produced on web.
+ * Validates that a local file is a real, complete PDF:
+ * exists, > 1 KB, and starts with the `%PDF-` magic header.
+ * Skips the header check for non-PDF files (e.g. `.html` — web-only).
  */
 async function fileExistsAndValid(uri: string): Promise<boolean> {
   try {
     const info = await FileSystem.getInfoAsync(uri);
     if (!info.exists || (info.size ?? 0) <= 1024) return false;
-    if (uri.toLowerCase().endsWith(".pdf")) {
+    if (uri.toLowerCase().endsWith('.pdf')) {
       return await hasValidPdfHeader(uri);
     }
     return true;
@@ -44,416 +63,325 @@ async function fileExistsAndValid(uri: string): Promise<boolean> {
 }
 
 /**
- * Generates a PDF for the invoice, saves it locally, and uploads to Supabase Storage.
+ * Record a PDF generation event to the local SQLite history.
+ * Fire-and-forget — never blocks the PDF pipeline.
+ */
+function recordLocalPdfHistory(
+  invoice: Invoice,
+  filename: string,
+  fileUri: string,
+  templateId: string,
+  userId: string,
+): void {
+  addPdfHistoryEntry({
+    userUid: userId,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    templateId,
+    fileUri,
+    fileName: filename,
+    sharedVia: '',
+  }).catch((err) =>
+    console.warn('[PDF] Non-fatal: pdf_history SQLite insert failed:', err),
+  );
+}
+
+/**
+ * Attempt to upload a local PDF to Supabase Storage, guarded by the
+ * credit/premium system.
  *
- * Cache key = invoiceNumber + templateId so switching templates always regenerates.
- * Pass forceRegenerate=true to bypass cache (e.g. invoice data changed).
- * Pass userId to enable Supabase Storage upload; omit/undefined for guest/preview scenarios.
+ * Returns:
+ *   { publicUrl }          — upload succeeded; 1 credit consumed (free users)
+ *   { blocked: true }      — no credits and not premium; caller shows dialog
+ *   { publicUrl: undefined } — upload failed for a technical reason (non-fatal)
+ */
+async function attemptCloudUpload(
+  localUri: string,
+  filename: string,
+  userId: string,
+): Promise<{ publicUrl?: string; blocked?: boolean }> {
+  // Atomic credit check-and-consume in a single SQLite transaction.
+  // Prevents concurrent PDF operations from both passing the gate.
+  const { allowed } = await checkAndConsumeCredit(userId);
+  if (!allowed) {
+    console.log('[PDF] Cloud upload blocked — no credits for user', userId);
+    return { blocked: true };
+  }
+
+  // Verify Firebase Auth token is still valid
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== userId) {
+    console.warn(
+      '[Supabase] Skipping upload — auth.currentUser uid',
+      currentUser?.uid ?? '(none)',
+      'does not match requested userId:',
+      userId,
+    );
+    return {};
+  }
+
+  try {
+    const uploaded = await uploadPDFToSupabase(localUri, filename, userId);
+    if (uploaded) {
+      console.log('[PDF] ✓ Cloud upload succeeded:', uploaded);
+      return { publicUrl: uploaded };
+    }
+    console.warn('[Supabase] Upload returned null — env vars may be missing');
+    return {};
+  } catch (uploadErr: unknown) {
+    if (
+      uploadErr instanceof SupabaseUploadError &&
+      (uploadErr.status === 401 || uploadErr.status === 403)
+    ) {
+      console.error(
+        `[Supabase] ✗ Permission denied (HTTP ${uploadErr.status}) — check bucket RLS. Body: ${uploadErr.body}`,
+      );
+    } else {
+      console.warn('[Supabase] Upload threw (non-fatal):', uploadErr);
+    }
+    return {};
+  }
+}
+
+/**
+ * Retry a cloud upload for a PDF that was previously blocked (no credits).
+ * Call this from `PremiumSyncDialog.onCreditGranted` after the user
+ * watches a rewarded ad or upgrades to premium.
  *
- * Returns { uri, filename, publicUrl? }
- * publicUrl is the Supabase Storage public download URL; undefined if upload was skipped or failed.
+ * Does NOT regenerate the PDF — uses the already-saved local file.
+ */
+export async function uploadSavedPDFToCloud(
+  localUri: string,
+  filename: string,
+  userId: string,
+): Promise<{ publicUrl?: string; blocked?: boolean }> {
+  return attemptCloudUpload(localUri, filename, userId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main export
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate a PDF, save it permanently to documentDirectory, record it in
+ * the local SQLite history, then attempt a credit-gated cloud upload.
+ *
+ * @param invoice          The invoice to render.
+ * @param templateId       Template key (default: 'classic').
+ * @param forceRegenerate  Bypass the local cache and regenerate the PDF.
+ * @param userId           Firebase UID — enables cloud upload gate check.
  */
 export async function generateAndSaveInvoicePDF(
   invoice: Invoice,
-  templateId = "classic",
+  templateId = 'classic',
   forceRegenerate = false,
   userId?: string,
 ): Promise<SavedPDF> {
-  console.log("[PDF] generateAndSaveInvoicePDF —", {
+  console.log('[PDF] generateAndSaveInvoicePDF —', {
     invoiceNumber: invoice.invoiceNumber,
     templateId,
     forceRegenerate,
-    userId: userId ?? "(none — upload will be skipped)",
+    userId: userId ?? '(none — cloud upload skipped)',
     platform: Platform.OS,
   });
 
-  // Web: generatePDFWithTemplate now renders a REAL PDF binary (html2canvas + jsPDF),
-  // not HTML — the filename correctly ends in .pdf.
-  if (Platform.OS === "web") {
-    console.log("[PDF] Web platform — generating real PDF blob URI");
+  // ── Web path ──────────────────────────────────────────────────────────────
+  // html2canvas + jsPDF produces a real PDF binary blob URL — no filesystem.
+  if (Platform.OS === 'web') {
+    console.log('[PDF] Web — generating real PDF blob URI');
     const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
     const result = await generatePDFWithTemplate(invoice, templateId);
     return { uri: result.uri, filename };
   }
 
+  // ── Mobile path ───────────────────────────────────────────────────────────
   const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
   const dest = `${FileSystem.documentDirectory}${filename}`;
-  console.log("[PDF] Target path:", dest);
+  console.log('[PDF] Target path:', dest);
 
-  // Return cached local file if valid and not forcing
+  // ── Cached file path ──────────────────────────────────────────────────────
   if (!forceRegenerate) {
     const cached = await fileExistsAndValid(dest);
     if (cached) {
-      console.log("[PDF] ✓ Valid cached file found at:", dest);
-      let publicUrl: string | undefined;
+      console.log('[PDF] ✓ Valid cached file found at:', dest);
+
+      // Record to local SQLite history (idempotent — upsert by id not needed here,
+      // duplicate entries are harmless and natural for re-downloads)
       if (userId) {
-        // Verify auth.currentUser before attempting upload — permission errors
-        // surface here as PERMISSION_DENIED if the token has expired or is absent.
-        const currentUser = auth.currentUser;
-        if (!currentUser || currentUser.uid !== userId) {
-          console.warn(
-            "[Supabase] Skipping cached-PDF upload — auth.currentUser uid",
-            currentUser?.uid ?? "(none)",
-            "does not match requested userId:",
-            userId,
-          );
-        } else {
-          console.log("[Supabase] Uploading cached PDF — userId:", userId);
-          try {
-            const uploaded = await uploadPDFToSupabase(dest, filename, userId);
-            if (uploaded) {
-              publicUrl = uploaded;
-              console.log(
-                "[Supabase] ✓ PDF upload (cache path) succeeded:",
-                publicUrl,
-              );
-            } else {
-              console.warn(
-                "[Supabase] PDF upload returned null — check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY",
-              );
-            }
-          } catch (uploadErr: unknown) {
-            if (uploadErr instanceof SupabaseUploadError && (uploadErr.status === 401 || uploadErr.status === 403)) {
-              console.error(
-                `[Supabase] ✗ Permission denied (HTTP ${uploadErr.status}) uploading cached PDF — check Supabase bucket RLS policies and anon key. Body: ${uploadErr.body}`,
-              );
-            } else {
-              console.warn("[Supabase] PDF upload threw (non-fatal):", uploadErr);
-            }
-          }
-        }
+        recordLocalPdfHistory(invoice, filename, dest, templateId, userId);
       }
-      return { uri: dest, filename, publicUrl };
+
+      if (!userId) {
+        return { uri: dest, filename };
+      }
+
+      const { publicUrl, blocked } = await attemptCloudUpload(dest, filename, userId);
+      return { uri: dest, filename, publicUrl, cloudUploadBlocked: blocked };
     }
-    console.log("[PDF] No valid cache — generating fresh PDF...");
+    console.log('[PDF] No valid cache — generating fresh PDF...');
   } else {
-    console.log("[PDF] forceRegenerate=true — bypassing cache...");
+    console.log('[PDF] forceRegenerate=true — bypassing cache...');
   }
 
-  // Generate fresh PDF
-  console.log("[PDF] Calling generatePDFWithTemplate...");
+  // ── Generate fresh PDF ────────────────────────────────────────────────────
+  console.log('[PDF] Calling generatePDFWithTemplate...');
   const result = await generatePDFWithTemplate(invoice, templateId);
 
-  // On web, generatePDFWithTemplate returns a blob URL which cannot be
-  // copied via FileSystem. Return it directly — no local cache on web.
-  if ((Platform.OS as string) === "web" || result.uri.startsWith("blob:")) {
+  // If generatePDFWithTemplate somehow returned a blob URL on native, return early.
+  if ((Platform.OS as string) === 'web' || result.uri.startsWith('blob:')) {
     return { uri: result.uri, filename, publicUrl: undefined };
   }
 
-  console.log("[PDF] printToFileAsync returned URI:", result.uri);
-  console.log("[PDF] Copying to stable path:", dest);
+  console.log('[PDF] printToFileAsync returned URI:', result.uri);
+  console.log('[PDF] Copying to stable documentDirectory path:', dest);
   await FileSystem.copyAsync({ from: result.uri, to: dest });
 
   const info = await FileSystem.getInfoAsync(dest);
   const size = info.exists
     ? ((info as { exists: true; size?: number }).size ?? 0)
     : 0;
-  console.log(
-    "[PDF] File at dest — exists:",
-    info.exists,
-    "| size:",
-    size,
-    "bytes",
-  );
+  console.log('[PDF] File at dest — exists:', info.exists, '| size:', size, 'bytes');
 
   if (!info.exists || size < 1024) {
-    throw new Error("PDF generation failed. Please try again.");
+    throw new Error('PDF generation failed. Please try again.');
   }
 
   const validHeader = await hasValidPdfHeader(dest);
   if (!validHeader) {
-    throw new Error("PDF generation failed. Please try again.");
+    throw new Error('PDF generation failed. Please try again.');
   }
 
-  // Upload to Supabase Storage
-  // Auth is re-verified here (not just at createInvoiceDoc) because PDF upload
-  // can be triggered independently (e.g. from the detail screen) after the doc
-  // was already saved. A stale/expired token would otherwise cause a silent skip.
-  let publicUrl: string | undefined;
+  // ── Record in local SQLite pdf_history (immediate — before cloud attempt) ─
   if (userId) {
-    const currentUser = auth.currentUser;
-    if (!currentUser || currentUser.uid !== userId) {
-      console.warn(
-        "[Supabase] Skipping PDF upload — auth.currentUser uid",
-        currentUser?.uid ?? "(none)",
-        "does not match requested userId:",
-        userId,
-      );
-    } else {
-      console.log(
-        "[Supabase] ✓ Auth verified — uploading PDF | userId:",
-        userId,
-        "| filename:",
-        filename,
-      );
-      try {
-        const uploaded = await uploadPDFToSupabase(dest, filename, userId);
-        if (uploaded) {
-          publicUrl = uploaded;
-          console.log("[Supabase] ✓ PDF upload succeeded:", publicUrl);
-        } else {
-          console.warn(
-            "[Supabase] PDF upload returned null — check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY env vars",
-          );
-        }
-      } catch (uploadErr: unknown) {
-        if (uploadErr instanceof SupabaseUploadError && (uploadErr.status === 401 || uploadErr.status === 403)) {
-          console.error(
-            `[Supabase] ✗ Permission denied (HTTP ${uploadErr.status}) uploading PDF — check Supabase bucket RLS policies and anon key. Body: ${uploadErr.body}`,
-          );
-        } else {
-          console.warn(
-            "[Supabase] PDF upload threw (non-fatal, using local URI):",
-            uploadErr,
-          );
-        }
-      }
-    }
-  } else {
-    console.log("[PDF] No userId — skipping Supabase Storage upload");
+    recordLocalPdfHistory(invoice, filename, dest, templateId, userId);
   }
 
-  console.log(
-    "[PDF] ✓ generateAndSaveInvoicePDF complete. uri:",
-    dest,
-    "| publicUrl:",
-    publicUrl,
-  );
-  return { uri: dest, filename, publicUrl };
+  // ── Credit-gated cloud upload ─────────────────────────────────────────────
+  if (!userId) {
+    console.log('[PDF] No userId — skipping cloud upload');
+    return { uri: dest, filename };
+  }
+
+  const { publicUrl, blocked } = await attemptCloudUpload(dest, filename, userId);
+  console.log('[PDF] ✓ complete. uri:', dest, '| publicUrl:', publicUrl, '| blocked:', blocked);
+  return { uri: dest, filename, publicUrl, cloudUploadBlocked: blocked };
 }
 
-/** Legacy compat */
+/** Legacy compat — returns a raw PDFResult (uri only). */
 export async function generatePDF(
   invoice: Invoice,
-  templateId = "classic",
+  templateId = 'classic',
 ): Promise<PDFResult> {
   return generatePDFWithTemplate(invoice, templateId);
 }
 
-/**
- * Open a PDF for viewing.
- * Handles both local file:// URIs and remote https:// URLs.
- * For remote URLs, downloads to cache first then opens.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Open / Share / Download — unchanged from original
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function openPDF(uri: string): Promise<void> {
-  console.log("[PDF][open] openPDF called, uri:", uri);
+  console.log('[PDF][open] openPDF called, uri:', uri);
   let localUri = uri;
 
-  // Remote URL → download to cache first
-  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
     const filename = decodeURIComponent(
-      uri.split("/").pop() ?? "invoice.pdf",
-    ).split("?")[0];
+      uri.split('/').pop() ?? 'invoice.pdf',
+    ).split('?')[0];
     const dest = `${FileSystem.cacheDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
-      console.log("[PDF][open] Downloading remote URL to cache:", dest);
       const dl = await FileSystem.downloadAsync(uri, dest);
       localUri = dl.uri;
-      console.log("[PDF][open] Downloaded to:", localUri);
     } else {
       localUri = dest;
-      console.log("[PDF][open] Using cached file:", localUri);
     }
   }
 
-  if (Platform.OS === "android") {
+  if (Platform.OS === 'android') {
     try {
-      const IntentLauncher = await import("expo-intent-launcher");
+      const IntentLauncher = await import('expo-intent-launcher');
       const contentUri = await FileSystem.getContentUriAsync(localUri);
-      console.log("[PDF][open] Android — launching intent for:", contentUri);
-      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
         data: contentUri,
         flags: 1,
-        type: "application/pdf",
+        type: 'application/pdf',
       });
       return;
     } catch (intentErr) {
-      console.warn(
-        "[PDF][open] IntentLauncher failed, falling back to shareAsync:",
-        intentErr,
-      );
+      console.warn('[PDF][open] IntentLauncher failed, falling back to shareAsync:', intentErr);
     }
   }
 
   const canShare = await Sharing.isAvailableAsync();
-  console.log("[PDF][open] Sharing available:", canShare);
-  if (!canShare)
-    throw new Error("Opening PDFs is not supported on this device.");
+  if (!canShare) throw new Error('Opening PDFs is not supported on this device.');
   await Sharing.shareAsync(localUri, {
-    mimeType: "application/pdf",
-    UTI: "com.adobe.pdf",
+    mimeType: 'application/pdf',
+    UTI: 'com.adobe.pdf',
   });
 }
 
-/**
- * Share a PDF file via the native system share sheet.
- *
- * Android fix: expo-sharing passes `file://` URIs through its own FileProvider
- * whose path config may NOT cover documentDirectory, causing a silent
- * IllegalArgumentException (WhatsApp/Telegram/Gmail receive nothing).
- * Fix: call FileSystem.getContentUriAsync() to obtain a proper content://
- * URI backed by Expo's FileProvider (which IS configured for documentDirectory),
- * then pass that URI to shareAsync. The content:// URI includes
- * FLAG_GRANT_READ_URI_PERMISSION so all receiving apps can read the file.
- *
- * iOS: expo-sharing works fine with file:// URIs.
- * Web: opens the URI in a new tab (or falls back to download).
- */
-export async function sharePDF(
-  uri: string,
-  title = "Share Invoice PDF",
-): Promise<void> {
-  console.log(
-    "[PDF][share] sharePDF called — uri:",
-    uri,
-    "| platform:",
-    Platform.OS,
-  );
+export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promise<void> {
+  console.log('[PDF][share] sharePDF — uri:', uri, '| platform:', Platform.OS);
 
-  // ── Web ──────────────────────────────────────────────────────────────────
-  if (Platform.OS === "web") {
-    if (typeof window !== "undefined") {
-      window.open(uri, "_blank");
-    }
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') window.open(uri, '_blank');
     return;
   }
 
-  // ── Ensure we have a LOCAL file ──────────────────────────────────────────
-  // Remote URLs are downloaded to documentDirectory (not cacheDirectory) so
-  // that getContentUriAsync works on Android.
   let localUri = uri;
 
-  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
     const filename = decodeURIComponent(
-      uri.split("/").pop() ?? "invoice.pdf",
-    ).split("?")[0];
+      uri.split('/').pop() ?? 'invoice.pdf',
+    ).split('?')[0];
     const dest = `${FileSystem.documentDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
-      console.log(
-        "[PDF][share] Downloading remote URL to documentDirectory:",
-        dest,
-      );
       const dl = await FileSystem.downloadAsync(uri, dest);
       localUri = dl.uri;
     } else {
       localUri = dest;
     }
-    console.log("[PDF][share] Local URI ready:", localUri);
   }
 
-  // ── Verify file exists and is a valid, complete PDF binary ─────────────────
   const info = await FileSystem.getInfoAsync(localUri);
-  if (!info.exists) {
-    console.error("[PDF][share] Share failed — file not found at:", localUri);
-    throw new Error("Unable to share PDF. Please try again.");
-  }
+  if (!info.exists) throw new Error('Unable to share PDF. Please try again.');
   const fileSize = (info as { exists: true; size?: number }).size ?? 0;
-  if (fileSize < 1024) {
-    console.error(
-      "[PDF][share] Share failed — file too small:",
-      fileSize,
-      "bytes",
-    );
-    throw new Error("Unable to share PDF. Please try again.");
-  }
+  if (fileSize < 1024) throw new Error('Unable to share PDF. Please try again.');
   const validHeader = await hasValidPdfHeader(localUri);
-  if (!validHeader) {
-    console.error(
-      "[PDF][share] Share failed — invalid PDF header at:",
-      localUri,
-    );
-    throw new Error("Unable to share PDF. Please try again.");
-  }
+  if (!validHeader) throw new Error('Unable to share PDF. Please try again.');
 
-  console.log("[PDF] PDF generated ✓");
-  console.log("[PDF] PDF file path:", localUri);
-  console.log(
-    "[PDF][share] File verified — size:",
-    fileSize,
-    "bytes, valid %PDF- header",
-  );
-
-  // ── Android: content:// URI for reliable app-to-app sharing ─────────────
-  // WhatsApp, Telegram, Gmail, Drive, Nearby Share all require a
-  // content:// URI; a raw file:// URI is blocked by Android StrictMode (7+).
-  // IMPORTANT: do NOT fall back to file:// if getContentUriAsync fails — the
-  // share sheet would open but apps cannot read a file:// stream cross-process.
-  if (Platform.OS === "android") {
+  if (Platform.OS === 'android') {
     let contentUri: string;
     try {
       contentUri = await FileSystem.getContentUriAsync(localUri);
-      console.log("[PDF][share] Android: obtained content:// URI:", contentUri);
     } catch (contentUriErr) {
-      console.error(
-        "[PDF][share] Share failed — getContentUriAsync threw:",
-        contentUriErr,
-      );
-      throw new Error(
-        'Unable to share PDF on this device. Please try "Save to Downloads" instead.',
-      );
+      console.error('[PDF][share] getContentUriAsync threw:', contentUriErr);
+      throw new Error('Unable to share PDF on this device. Please try "Save to Downloads" instead.');
     }
-
     const canShare = await Sharing.isAvailableAsync();
-    if (!canShare) throw new Error("Sharing is not available on this device.");
-
-    console.log("[PDF][share] Share started (Android content URI)");
-    try {
-      await Sharing.shareAsync(contentUri, {
-        mimeType: "application/pdf",
-        dialogTitle: title,
-        UTI: "com.adobe.pdf",
-      });
-      console.log("[PDF][share] Share success ✓");
-    } catch (shareErr) {
-      console.error("[PDF][share] Share failed:", shareErr);
-      throw shareErr;
-    }
+    if (!canShare) throw new Error('Sharing is not available on this device.');
+    await Sharing.shareAsync(contentUri, {
+      mimeType: 'application/pdf',
+      dialogTitle: title,
+      UTI: 'com.adobe.pdf',
+    });
     return;
   }
 
-  // ── iOS / other ──────────────────────────────────────────────────────────
   const canShare = await Sharing.isAvailableAsync();
-  if (!canShare) throw new Error("Sharing is not available on this device.");
-
-  console.log("[PDF][share] Share started");
-  try {
-    await Sharing.shareAsync(localUri, {
-      mimeType: "application/pdf",
-      dialogTitle: title,
-      UTI: "com.adobe.pdf",
-    });
-    console.log("[PDF][share] Share success ✓");
-  } catch (shareErr) {
-    console.error("[PDF][share] Share failed:", shareErr);
-    throw shareErr;
-  }
+  if (!canShare) throw new Error('Sharing is not available on this device.');
+  await Sharing.shareAsync(localUri, {
+    mimeType: 'application/pdf',
+    dialogTitle: title,
+    UTI: 'com.adobe.pdf',
+  });
 }
 
-/**
- * Save PDF to device storage.
- * Android: StorageAccessFramework → Downloads folder, falls back to shareAsync.
- * iOS: share sheet → "Save to Files".
- * Web: triggers browser download of the HTML content.
- */
-export async function savePDFToDownloads(
-  uri: string,
-  filename: string,
-): Promise<void> {
-  console.log(
-    "[PDF][download] savePDFToDownloads called — uri:",
-    uri,
-    "| filename:",
-    filename,
-    "| platform:",
-    Platform.OS,
-  );
-
-  // Web: trigger browser download
-  if (Platform.OS === "web") {
-    if (typeof document !== "undefined") {
-      const a = document.createElement("a");
+export async function savePDFToDownloads(uri: string, filename: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    if (typeof document !== 'undefined') {
+      const a = document.createElement('a');
       a.href = uri;
       a.download = filename;
       document.body.appendChild(a);
@@ -465,7 +393,7 @@ export async function savePDFToDownloads(
 
   let localUri = uri;
 
-  if (uri.startsWith("http://") || uri.startsWith("https://")) {
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
     const dest = `${FileSystem.cacheDirectory}${filename}`;
     const exists = await fileExistsAndValid(dest);
     if (!exists) {
@@ -476,15 +404,14 @@ export async function savePDFToDownloads(
     }
   }
 
-  if (Platform.OS === "android") {
+  if (Platform.OS === 'android') {
     try {
-      const perms =
-        await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      const perms = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (perms.granted) {
         const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
           perms.directoryUri,
           filename,
-          "application/pdf",
+          'application/pdf',
         );
         const base64 = await FileSystem.readAsStringAsync(localUri, {
           encoding: FileSystem.EncodingType.Base64,
@@ -492,52 +419,36 @@ export async function savePDFToDownloads(
         await FileSystem.writeAsStringAsync(destUri, base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        console.log("[PDF][download] ✓ Written to SAF uri:", destUri);
         return;
       }
     } catch (safErr) {
-      console.warn(
-        "[PDF][download] SAF failed, falling back to shareAsync:",
-        safErr,
-      );
+      console.warn('[PDF][download] SAF failed, falling back to shareAsync:', safErr);
     }
     await Sharing.shareAsync(localUri, {
-      mimeType: "application/pdf",
-      dialogTitle: "Save Invoice PDF",
-      UTI: "com.adobe.pdf",
+      mimeType: 'application/pdf',
+      dialogTitle: 'Save Invoice PDF',
+      UTI: 'com.adobe.pdf',
     });
     return;
   }
 
   const canShare = await Sharing.isAvailableAsync();
-  if (!canShare) throw new Error("Saving is not available on this device.");
+  if (!canShare) throw new Error('Saving is not available on this device.');
   await Sharing.shareAsync(localUri, {
-    mimeType: "application/pdf",
-    dialogTitle: "Save Invoice PDF",
-    UTI: "com.adobe.pdf",
+    mimeType: 'application/pdf',
+    dialogTitle: 'Save Invoice PDF',
+    UTI: 'com.adobe.pdf',
   });
 }
 
-/**
- * Web-only: generates a REAL PDF binary (via html2canvas + jsPDF, see
- * webPdfGenerator.ts) and triggers a browser download of the `.pdf` file.
- * Previously this downloaded raw HTML — that is no longer the case.
- */
-export async function downloadForWeb(
-  invoice: Invoice,
-  templateId = "classic",
-): Promise<void> {
+export async function downloadForWeb(invoice: Invoice, templateId = 'classic'): Promise<void> {
   const html = await buildInvoiceHTML(invoice, templateId);
-  const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import(
-    "./webPdfGenerator"
-  );
+  const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import('./webPdfGenerator');
   const blob = await renderHtmlToPdfBlob(html);
   const validHeader = await blobHasValidPdfHeader(blob);
-  if (!validHeader) {
-    throw new Error("Unable to generate PDF.");
-  }
+  if (!validHeader) throw new Error('Unable to generate PDF.');
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
   a.download = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
   document.body.appendChild(a);
@@ -546,55 +457,39 @@ export async function downloadForWeb(
   URL.revokeObjectURL(url);
 }
 
-/**
- * Web-only: shares a REAL PDF file via the Web Share API (`navigator.share`
- * with a File), when the browser supports sharing files. Falls back to
- * triggering a `.pdf` download when Web Share (or file sharing) isn't
- * available — never falls back to HTML.
- */
 export async function sharePDFWeb(
   invoice: Invoice,
-  templateId = "classic",
-): Promise<"shared" | "downloaded"> {
+  templateId = 'classic',
+): Promise<'shared' | 'downloaded'> {
   const html = await buildInvoiceHTML(invoice, templateId);
-  const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import(
-    "./webPdfGenerator"
-  );
+  const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import('./webPdfGenerator');
   const blob = await renderHtmlToPdfBlob(html);
   const validHeader = await blobHasValidPdfHeader(blob);
-  if (!validHeader) {
-    throw new Error("Unable to generate PDF.");
-  }
+  if (!validHeader) throw new Error('Unable to generate PDF.');
   const filename = `Invoice_${safeName(invoice.invoiceNumber)}_${safeName(templateId)}.pdf`;
-  const file = new File([blob], filename, { type: "application/pdf" });
+  const file = new File([blob], filename, { type: 'application/pdf' });
 
   if (
-    typeof navigator !== "undefined" &&
-    typeof navigator.share === "function" &&
-    typeof navigator.canShare === "function" &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function' &&
     navigator.canShare({ files: [file] })
   ) {
     try {
-      await navigator.share({
-        title: `Invoice #${invoice.invoiceNumber}`,
-        files: [file],
-      });
-      return "shared";
+      await navigator.share({ title: `Invoice #${invoice.invoiceNumber}`, files: [file] });
+      return 'shared';
     } catch (shareErr) {
-      console.warn(
-        "[PDF][share][web] navigator.share failed/cancelled, falling back to download:",
-        shareErr,
-      );
+      console.warn('[PDF][share][web] navigator.share failed, falling back to download:', shareErr);
     }
   }
 
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  return "downloaded";
+  return 'downloaded';
 }

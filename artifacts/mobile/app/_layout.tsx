@@ -22,6 +22,7 @@ import { ProfileProvider } from "@/contexts/ProfileContext";
 import { InvoiceProvider } from "@/contexts/InvoiceContext";
 import { useNetworkGate } from "@/hooks/useNetworkGate";
 import { initDatabase } from "@/services/sqliteService";
+import { initAdMob } from "@/services/admobService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -98,10 +99,13 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // ── SQLite: warm the local database as early as possible ──────────────────
+  // ── SQLite + AdMob: warm both services as early as possible ───────────────
   useEffect(() => {
     initDatabase().catch((err) =>
       console.error("[SQLite] Failed to initialise database:", err)
+    );
+    initAdMob().catch((err) =>
+      console.warn("[AdMob] Init failed (non-fatal):", err)
     );
   }, []);
 

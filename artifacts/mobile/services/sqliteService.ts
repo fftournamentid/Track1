@@ -470,6 +470,25 @@ export async function clearSession(): Promise<void> {
   await db.runAsync('DELETE FROM user_session');
 }
 
+/**
+ * Run `fn` inside an EXCLUSIVE SQLite transaction.
+ * Use for read-modify-write operations that must be atomic
+ * (e.g. credit check-and-consume).
+ *
+ * `fn` receives the raw database handle so it can issue queries without
+ * going through the singleton wrapper a second time.
+ */
+export async function runInTransaction<T>(
+  fn: (db: SQLite.SQLiteDatabase) => Promise<T>,
+): Promise<T> {
+  const db = await getDb();
+  let result: T | undefined;
+  await db.withExclusiveTransactionAsync(async () => {
+    result = await fn(db);
+  });
+  return result as T;
+}
+
 // ─── DATABASE LIFECYCLE ───────────────────────────────────────────────────────
 
 /**

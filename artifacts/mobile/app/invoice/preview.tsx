@@ -35,11 +35,13 @@ import Toast from '@/components/Toast';
 import { loadPreviewData, clearPreviewData, clearDraft } from '@/services/draftService';
 import {
   generateAndSaveInvoicePDF,
+  uploadSavedPDFToCloud,
   sharePDF,
   savePDFToDownloads,
   downloadForWeb,
   sharePDFWeb,
 } from '@/services/pdfService';
+import { PremiumSyncDialog } from '@/components/PremiumSyncDialog';
 import { getTemplateById, shouldShowQrCode, type TemplateStyle } from '@/services/invoiceTemplates';
 import { APP_NAME, APP_LOGO_DATA_URI } from '@/constants/appBranding';
 import type { Invoice } from '@/types';
@@ -370,6 +372,11 @@ export default function InvoicePreviewScreen() {
   const [downloadingPDF, setDownloadingPDF] = useState(false);
   const [sharingPDF, setSharingPDF] = useState(false);
 
+  // Cloud-sync credit gate
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  // Stores the last-generated local PDF so we can retry the upload after earning credits
+  const lastPdfRef = useRef<{ uri: string; filename: string } | null>(null);
+
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
@@ -479,11 +486,23 @@ export default function InvoicePreviewScreen() {
         return;
       }
       const templateId = invoice.templateId ?? 'classic';
-      const { uri, filename, publicUrl } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
-      console.log('[PDF][Download] ✓ PDF ready. uri:', uri, '| filename:', filename, '| publicUrl:', publicUrl);
+      const { uri, filename, publicUrl, cloudUploadBlocked } = await generateAndSaveInvoicePDF(
+        invoice, templateId, false, user?.uid,
+      );
+      console.log('[PDF][Download] ✓ uri:', uri, '| publicUrl:', publicUrl, '| blocked:', cloudUploadBlocked);
+
+      // Cache for retry after earning ad credits
+      lastPdfRef.current = { uri, filename };
+
       await savePDFToDownloads(uri, filename);
-      showToast('PDF saved to Downloads.');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      if (cloudUploadBlocked) {
+        showToast('PDF saved locally. Cloud backup needs credits.');
+        setShowSyncDialog(true);
+      } else {
+        showToast('PDF saved to Downloads.');
+      }
     } catch (err) {
       console.error('[PDF][Download] ✗ Error:', err);
       Alert.alert('Unable to generate PDF.', undefined, [{ text: 'OK' }]);
@@ -500,8 +519,6 @@ export default function InvoicePreviewScreen() {
     showToast('Preparing PDF...');
     try {
       if (Platform.OS === 'web') {
-        // Web: renders a REAL PDF binary and shares it via the Web Share API
-        // (files) when supported, otherwise downloads the .pdf directly.
         const templateId = invoice.templateId ?? 'classic';
         const result = await sharePDFWeb(invoice, templateId);
         console.log('[PDF][Share] web result:', result);
@@ -510,16 +527,22 @@ export default function InvoicePreviewScreen() {
       }
 
       const templateId = invoice.templateId ?? 'classic';
-      console.log('[PDF][Share] Generating PDF for share, templateId:', templateId);
+      const { uri, filename, cloudUploadBlocked } = await generateAndSaveInvoicePDF(
+        invoice, templateId, false, user?.uid,
+      );
+      console.log('[PDF][Share] PDF ready — uri:', uri, '| blocked:', cloudUploadBlocked);
 
-      // Always share the LOCAL file uri — never the remote publicUrl.
-      // Using publicUrl would re-download the PDF from Supabase Storage before
-      // sharing, which wastes bandwidth and adds latency for the user.
-      const { uri, filename } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
-      console.log('[PDF][Share] PDF ready at local uri:', uri, '| filename:', filename);
+      // Cache for retry after earning ad credits
+      lastPdfRef.current = { uri, filename };
 
+      // Always share the LOCAL file — never re-download from Supabase for sharing
       await sharePDF(uri, `Invoice — ${filename}`);
-      console.log('[PDF][Share] ✓ Native share sheet opened. User can share to WhatsApp, Gmail, Telegram, Drive, etc.');
+      console.log('[PDF][Share] ✓ Native share sheet opened');
+
+      if (cloudUploadBlocked) {
+        // Give the share sheet time to open before showing the dialog
+        setTimeout(() => setShowSyncDialog(true), 800);
+      }
     } catch (err) {
       console.error('[PDF][Share] ✗ Error:', err);
       showToast('Unable to generate PDF.', 'error');
@@ -662,6 +685,34 @@ export default function InvoicePreviewScreen() {
       </View>
 
       <Toast visible={toastVisible} message={toastMsg} type={toastType} />
+
+      {/* Cloud-sync credit gate — shown when upload is blocked */}
+      {user?.uid ? (
+        <PremiumSyncDialog
+          visible={showSyncDialog}
+          userId={user.uid}
+          onClose={() => setShowSyncDialog(false)}
+          onCreditGranted={async () => {
+            setShowSyncDialog(false);
+            const last = lastPdfRef.current;
+            if (!last || !user?.uid) return;
+            // Retry the Supabase upload now that a credit has been granted
+            try {
+              const { publicUrl, blocked } = await uploadSavedPDFToCloud(
+                last.uri, last.filename, user.uid,
+              );
+              if (publicUrl) {
+                showToast('Invoice backed up to cloud ✓');
+              } else if (blocked) {
+                showToast('Still no credits. Watch one more ad.', 'error');
+                setShowSyncDialog(true);
+              }
+            } catch {
+              showToast('Cloud backup failed. Try again later.', 'error');
+            }
+          }}
+        />
+      ) : null}
     </View>
   );
 }
