@@ -236,6 +236,14 @@ function UsersTab({ users, onGrantPremium, onVerifyUser }: {
                 {u.invoiceCount ?? 0} invoices
                 {(u.totalRevenue ?? 0) > 0 ? `  ·  ${fmtCurrency(u.totalRevenue ?? 0)}` : ''}
               </Text>
+              {u.settings?.defaultTemplateId && (
+                <View style={styles.templateTag}>
+                  <Feather name="layout" size={9} color="#6B7280" />
+                  <Text style={styles.templateTagText}>
+                    {u.settings.defaultTemplateId}
+                  </Text>
+                </View>
+              )}
             </View>
             <View style={styles.userActions}>
               <View style={[styles.activeDot, { backgroundColor: u.isActive ? '#16A34A' : '#D1D5DB' }]} />
@@ -1044,6 +1052,8 @@ const styles = StyleSheet.create({
   roleTagText: { fontSize: 9, fontWeight: '800', color: ORANGE },
   premiumTag: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFF7ED', borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 },
   premiumTagText: { fontSize: 9, fontWeight: '800', color: ORANGE },
+  templateTag: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 },
+  templateTagText: { fontSize: 10, color: '#9CA3AF', textTransform: 'capitalize' },
   userActions: { alignItems: 'flex-end', gap: 6 },
   activeDot: { width: 8, height: 8, borderRadius: 4 },
   grantBtn: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },

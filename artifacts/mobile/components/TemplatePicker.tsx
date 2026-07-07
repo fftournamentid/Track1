@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
-  View, Text, Modal, ScrollView, TouchableOpacity, StyleSheet, Platform,
+  View, Modal, ScrollView, TouchableOpacity, Text, StyleSheet, Platform,
+  type DimensionValue,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -15,128 +16,187 @@ interface Props {
   onGenerate: (templateId: string) => void;
 }
 
-/** A real-looking mini invoice thumbnail — no fake colored lines */
+// ─── Pure-visual mini invoice — ZERO Text nodes ───────────────────────────────
+// Every "text line" is a View rectangle of varying width/height/opacity.
+// Makes each card look like a miniature scanned PDF screenshot.
+
 function MiniInvoice({ tpl }: { tpl: TemplateStyle }) {
+  const ht  = tpl.headerText;
+  const bt  = tpl.bodyText;
+  const ac  = tpl.accent;
+  const mt  = tpl.metaText;
+  const am  = tpl.amountColor;
+  const thT = tpl.tableHeadText;
+  const grT = tpl.grandRowText;
+
+  // Generic block: width, height, color, opacity, borderRadius, marginTop
+  const B = (
+    w: DimensionValue, h: number, color: string,
+    op = 0.75, r = 1, mT = 0,
+  ) => (
+    <View
+      style={{
+        width: w, height: h, borderRadius: r,
+        backgroundColor: color, opacity: op, marginTop: mT,
+      }}
+    />
+  );
+
+  const isTransport = tpl.layout === 'transport-pro';
+  const isDark      = tpl.layout === 'premium-dark';
+  const isGst       = tpl.layout === 'gst-compliance';
+
   return (
     <View style={[mini.root, { backgroundColor: tpl.bodyBg, borderColor: tpl.borderColor }]}>
-      {/* Header band */}
+
+      {/* ── Header band ───────────────────────────────────────── */}
       <View style={[mini.header, { backgroundColor: tpl.headerBg }]}>
-        <View style={mini.headerLeft}>
-          <View style={[mini.logoBox, { backgroundColor: tpl.accent + '40', borderColor: tpl.accent + '60', borderWidth: 0.5 }]}>
-            <Text style={[mini.logoLetter, { color: tpl.headerText }]}>F</Text>
+        {isDark ? (
+          // Premium-dark: centered layout
+          <View style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+            {B('55%', 4, ht, 0.9, 1.5)}
+            {B('36%', 1.5, ac, 0.75, 1, 1)}
+            {B('25%', 1, ht, 0.35, 1, 1)}
           </View>
-          <View>
-            <Text style={[mini.company, { color: tpl.headerText }]}>FleetInvoice</Text>
-            <Text style={[mini.gst, { color: tpl.headerText + 'AA' }]}>GSTIN: 27AAPFU...</Text>
-          </View>
-        </View>
-        <View style={mini.headerRight}>
-          <Text style={[mini.invoiceWord, { color: tpl.accent }]}>INVOICE</Text>
-          <Text style={[mini.invoiceNum, { color: tpl.headerText + 'CC' }]}>#INV-0042</Text>
-        </View>
+        ) : (
+          <>
+            {/* Left: logo + company lines */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+              <View style={[mini.logoBox, {
+                backgroundColor: ac + '45',
+                borderColor: ac + '70',
+                borderWidth: 0.5,
+              }]} />
+              <View style={{ gap: 2 }}>
+                {B(30, 3,   ht, 0.88, 1)}
+                {B(20, 1.5, ht, 0.45, 1, 0.5)}
+              </View>
+            </View>
+            {/* Right: INVOICE label + number */}
+            <View style={{ alignItems: 'flex-end', gap: 1.5 }}>
+              {B(26, 4, ac, 0.95, 1)}
+              {B(18, 1.5, ht, 0.45, 1, 1)}
+            </View>
+          </>
+        )}
       </View>
 
-      {/* Accent divider */}
-      <View style={[mini.divider, { backgroundColor: tpl.accent }]} />
+      {/* ── Transport-Pro route strip ──────────────────────────── */}
+      {isTransport && (
+        <View style={{
+          backgroundColor: ac,
+          flexDirection: 'row', alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 5, paddingVertical: 2.5,
+        }}>
+          {B(22, 2, '#ffffff', 0.85, 1)}
+          {B(6,  2, '#ffffff', 0.5,  1)}
+          {B(22, 2, '#ffffff', 0.85, 1)}
+        </View>
+      )}
 
-      {/* Bill-to + trip row */}
+      {/* ── Accent divider ────────────────────────────────────── */}
+      {!isTransport && (
+        <View style={[mini.divider, { backgroundColor: ac }]} />
+      )}
+
+      {/* ── Bill-to / info row ────────────────────────────────── */}
       <View style={mini.infoRow}>
-        <View style={mini.infoCol}>
-          <Text style={[mini.infoLabel, { color: tpl.metaText }]}>Bill To</Text>
-          <Text style={[mini.infoVal, { color: tpl.bodyText }]}>Rajesh Kumar</Text>
-          <Text style={[mini.infoSub, { color: tpl.metaText }]}>Delhi → Mumbai</Text>
+        <View style={{ gap: 1.5 }}>
+          {B(14, 1.5, mt, 0.45, 0.5)}
+          {B(30, 3,   bt, 0.82, 1, 1.5)}
+          {B(22, 1.5, mt, 0.45, 0.5, 1)}
         </View>
-        <View style={mini.infoColRight}>
-          <Text style={[mini.infoLabel, { color: tpl.metaText }]}>Date</Text>
-          <Text style={[mini.infoVal, { color: tpl.bodyText }]}>06/07/2026</Text>
-          <Text style={[mini.infoSub, { color: tpl.metaText }]}>BR37AF1187</Text>
+        <View style={{ alignItems: 'flex-end', gap: 1.5 }}>
+          {B(14, 1.5, mt, 0.45, 0.5)}
+          {B(24, 2.5, bt, 0.75, 1, 1.5)}
+          {B(18, 1.5, mt, 0.45, 0.5, 1)}
         </View>
       </View>
 
-      {/* Expenses table */}
+      {/* ── GST extra field row ───────────────────────────────── */}
+      {isGst && (
+        <View style={{ flexDirection: 'row', gap: 4, paddingHorizontal: 6, marginBottom: 2 }}>
+          {B(28, 1.5, bt, 0.35, 0.5)}
+          {B(20, 1.5, bt, 0.35, 0.5)}
+          {B(24, 1.5, bt, 0.35, 0.5)}
+        </View>
+      )}
+
+      {/* ── Table header ──────────────────────────────────────── */}
       <View style={[mini.tableHead, { backgroundColor: tpl.tableHeadBg }]}>
-        <Text style={[mini.tableHeadText, { color: tpl.tableHeadText }]}>Description</Text>
-        <Text style={[mini.tableHeadText, { color: tpl.tableHeadText }]}>Amount</Text>
-      </View>
-      <View style={[mini.tableRow, { backgroundColor: tpl.rowAlt }]}>
-        <Text style={[mini.tableCell, { color: tpl.bodyText }]}>Fuel</Text>
-        <Text style={[mini.tableCellAmt, { color: tpl.amountColor }]}>₹4,500</Text>
-      </View>
-      <View style={mini.tableRow}>
-        <Text style={[mini.tableCell, { color: tpl.bodyText }]}>Toll</Text>
-        <Text style={[mini.tableCellAmt, { color: tpl.amountColor }]}>₹800</Text>
+        {B(24, 2, thT, 0.82, 0.5)}
+        {B(16, 2, thT, 0.82, 0.5)}
       </View>
 
-      {/* Grand total bar */}
+      {/* ── Table rows ────────────────────────────────────────── */}
+      {[
+        { bg: tpl.rowAlt, iw: 26 },
+        { bg: 'transparent', iw: 20 },
+        { bg: tpl.rowAlt, iw: 32 },
+      ].map(({ bg, iw }, i) => (
+        <View key={i} style={[mini.tableRow, { backgroundColor: bg }]}>
+          {B(iw, 2.5, bt, 0.58, 1)}
+          {B(16, 2.5, am, 0.88, 1)}
+        </View>
+      ))}
+
+      {/* ── Grand total bar ───────────────────────────────────── */}
       <View style={[mini.grandRow, { backgroundColor: tpl.grandRowBg }]}>
-        <Text style={[mini.grandLabel, { color: tpl.grandRowText }]}>Balance Due</Text>
-        <Text style={[mini.grandAmt, { color: tpl.grandRowText }]}>₹2,200</Text>
+        {B(30, 2.5, grT, 0.68, 1)}
+        {B(22, 4,   grT, 0.95, 1.5)}
       </View>
+
+      {/* ── Premium-dark: gold double border overlay ──────────── */}
+      {isDark && (
+        <View
+          pointerEvents="none"
+          style={[StyleSheet.absoluteFillObject, {
+            borderWidth: 1, borderColor: ac + '50', borderRadius: 3,
+            margin: 2,
+          }]}
+        />
+      )}
     </View>
   );
 }
 
 const mini = StyleSheet.create({
   root: {
-    flex: 1,
-    borderRadius: 3,
-    overflow: 'hidden',
-    borderWidth: 0.5,
+    flex: 1, borderRadius: 3,
+    overflow: 'hidden', borderWidth: 0.5,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 5,
+    paddingHorizontal: 6, paddingVertical: 5,
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   logoBox: {
-    width: 14, height: 14, borderRadius: 2,
-    alignItems: 'center', justifyContent: 'center',
+    width: 13, height: 13, borderRadius: 2,
   },
-  logoLetter: { fontSize: 7, fontWeight: '900' },
-  company: { fontSize: 5.5, fontWeight: '800', letterSpacing: 0.1 },
-  gst: { fontSize: 3.5, marginTop: 0.5 },
-  headerRight: { alignItems: 'flex-end' },
-  invoiceWord: { fontSize: 7, fontWeight: '900', letterSpacing: 0.5 },
-  invoiceNum: { fontSize: 4, marginTop: 1 },
-
   divider: { height: 1.5 },
-
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, paddingVertical: 4 },
-  infoCol: {},
-  infoColRight: { alignItems: 'flex-end' },
-  infoLabel: { fontSize: 3.5, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 1 },
-  infoVal: { fontSize: 5, fontWeight: '700' },
-  infoSub: { fontSize: 3.5, marginTop: 1 },
-
+  infoRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingHorizontal: 6, paddingVertical: 4,
+  },
   tableHead: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 2.5,
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingHorizontal: 6, paddingVertical: 2.5,
   },
-  tableHeadText: { fontSize: 4, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.2 },
   tableRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingHorizontal: 6, paddingVertical: 2.5,
   },
-  tableCell: { fontSize: 4.5 },
-  tableCellAmt: { fontSize: 4.5, fontWeight: '700' },
-
   grandRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 6, paddingVertical: 4,
     marginTop: 2,
   },
-  grandLabel: { fontSize: 5, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.2 },
-  grandAmt: { fontSize: 6, fontWeight: '900' },
 });
+
+// ─── Main TemplatePicker ──────────────────────────────────────────────────────
 
 export default function TemplatePicker({ visible, invoice, onClose, onGenerate }: Props) {
   const insets = useSafeAreaInsets();
@@ -145,8 +205,8 @@ export default function TemplatePicker({ visible, invoice, onClose, onGenerate }
     invoice?.templateId || settings.defaultTemplateId || 'classic'
   );
 
-  const handleGenerate = async () => {
-    if (!invoice) return;
+  const handleUse = async () => {
+    // Persist the selection to Firestore (users/{uid}.settings.defaultTemplateId)
     await updateSettings({ defaultTemplateId: selected });
     onGenerate(selected);
     onClose();
@@ -160,17 +220,16 @@ export default function TemplatePicker({ visible, invoice, onClose, onGenerate }
       onRequestClose={onClose}
     >
       <View style={styles.root}>
-        {/* Header */}
+
+        {/* ── Header ──────────────────────────────────────────── */}
         <View style={[styles.header, { paddingTop: Platform.OS === 'ios' ? 20 : 16 }]}>
-          <View>
-            <Text style={styles.title}>Choose Template</Text>
-            <Text style={styles.subtitle}>Pick a style for your PDF invoice</Text>
-          </View>
+          <Text style={styles.title}>Choose Template</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={10}>
             <Feather name="x" size={22} color="#374151" />
           </TouchableOpacity>
         </View>
 
+        {/* ── Template grid ───────────────────────────────────── */}
         <ScrollView
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
@@ -182,26 +241,21 @@ export default function TemplatePicker({ visible, invoice, onClose, onGenerate }
                 key={tpl.id}
                 style={[styles.card, isSelected && styles.cardSelected]}
                 onPress={() => setSelected(tpl.id)}
-                activeOpacity={0.85}
+                activeOpacity={0.82}
               >
-                {/* Real invoice thumbnail */}
+                {/* Real invoice thumbnail — pure visual blocks */}
                 <View style={styles.previewWrap}>
                   <MiniInvoice tpl={tpl} />
                 </View>
 
-                {/* Card footer */}
+                {/* Card footer — name + selected indicator only */}
                 <View style={styles.cardFooter}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardName}>{tpl.name}</Text>
-                    <View style={styles.colorRow}>
-                      {tpl.previewColors.map((c, i) => (
-                        <View key={i} style={[styles.colorDot, { backgroundColor: c, borderColor: '#E5E7EB' }]} />
-                      ))}
-                    </View>
-                  </View>
+                  <Text style={[styles.cardName, isSelected && { color: '#FF6B00' }]} numberOfLines={1}>
+                    {tpl.name}
+                  </Text>
                   {isSelected ? (
                     <View style={styles.checkBadge}>
-                      <Feather name="check" size={11} color="#fff" />
+                      <Feather name="check" size={10} color="#fff" />
                     </View>
                   ) : (
                     <View style={styles.freeBadge}>
@@ -212,24 +266,25 @@ export default function TemplatePicker({ visible, invoice, onClose, onGenerate }
 
                 {/* Selected ring */}
                 {isSelected && (
-                  <View style={[styles.selectedRing, { borderColor: '#FF6B00' }]} />
+                  <View pointerEvents="none" style={styles.selectedRing} />
                 )}
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
-        {/* Generate button */}
+        {/* ── Action button ───────────────────────────────────── */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={handleGenerate}
+            onPress={handleUse}
             activeOpacity={0.85}
           >
-            <Feather name="file-text" size={18} color="#fff" />
-            <Text style={styles.actionBtnTxt}>Generate PDF</Text>
+            <Feather name="check-circle" size={18} color="#fff" />
+            <Text style={styles.actionBtnTxt}>Use This Template</Text>
           </TouchableOpacity>
         </View>
+
       </View>
     </Modal>
   );
@@ -237,53 +292,63 @@ export default function TemplatePicker({ visible, invoice, onClose, onGenerate }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#F9FAFB' },
+
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 20, paddingBottom: 16,
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
   },
   title: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  subtitle: { fontSize: 13, color: '#6B7280', marginTop: 2 },
   closeBtn: {
     width: 36, height: 36, borderRadius: 18, backgroundColor: '#F3F4F6',
     alignItems: 'center', justifyContent: 'center',
   },
+
   grid: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 12 },
+
   card: {
     width: '47%', backgroundColor: '#fff', borderRadius: 14,
     borderWidth: 2, borderColor: '#E5E7EB', overflow: 'hidden',
   },
   cardSelected: { borderColor: '#FF6B00' },
+
   previewWrap: {
-    height: 130,
+    height: 140,
     margin: 8,
     borderRadius: 4,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
+
   cardFooter: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10,
-    paddingVertical: 9, paddingTop: 4, gap: 8,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 10, paddingVertical: 8,
+    paddingTop: 2, gap: 6,
   },
-  cardName: { fontSize: 12.5, fontWeight: '700', color: '#111827', marginBottom: 4 },
-  colorRow: { flexDirection: 'row', gap: 4 },
-  colorDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 0.5 },
+  cardName: {
+    flex: 1, fontSize: 11.5, fontWeight: '700', color: '#374151',
+  },
+
   freeBadge: {
-    backgroundColor: '#FFF3E8', borderRadius: 4,
-    paddingHorizontal: 6, paddingVertical: 2,
+    backgroundColor: '#F3F4F6', borderRadius: 4,
+    paddingHorizontal: 5, paddingVertical: 2,
   },
-  freeBadgeTxt: { fontSize: 9, fontWeight: '800', color: '#FF6B00', letterSpacing: 0.5 },
+  freeBadgeTxt: { fontSize: 8.5, fontWeight: '800', color: '#9CA3AF', letterSpacing: 0.4 },
+
   checkBadge: {
-    width: 20, height: 20, borderRadius: 10, backgroundColor: '#FF6B00',
+    width: 18, height: 18, borderRadius: 9, backgroundColor: '#FF6B00',
     alignItems: 'center', justifyContent: 'center',
   },
+
   selectedRing: {
-    position: 'absolute', inset: 0, borderRadius: 14, borderWidth: 2,
-  } as never,
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 12, borderWidth: 2, borderColor: '#FF6B00',
+  },
+
   footer: {
     padding: 16, backgroundColor: '#fff',
     borderTopWidth: 1, borderTopColor: '#E5E7EB',
