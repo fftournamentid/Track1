@@ -2,58 +2,125 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ─── Helper functions ──────────────────────────────────────────────────────
+
+    /**
+     * Bootstrap admin: a single hardcoded UID that can never lose admin access.
+     * Used only during initial setup / emergency access.
+     */
     function isBootstrapAdmin() {
       return request.auth != null &&
         request.auth.uid == 'kaqcXOcHHYU7VeSXdLMUR2E66vB3';
     }
 
+    /**
+     * RBAC admin: any user whose Firestore document has role == 'admin'.
+     * NOTE: This performs one extra document read per rule evaluation.
+     * Consider migrating to Firebase Auth Custom Claims to eliminate the read cost.
+     */
     function isAdmin() {
       return request.auth != null &&
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    /** Returns true when the authenticated user's UID matches the given userId. */
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    // User documents & sub-collections
+    // ─── users/{userId} ───────────────────────────────────────────────────────
+    //
+    // Stores: profile, settings, isPremium, role, invoiceCount, totalRevenue, …
+    //
+    // Security intent:
+    //   • Users can read and update their own document, but cannot escalate
+    //     their own role field (prevents self-promotion to admin).
+    //   • Users can create their own document on signup, but cannot include a
+    //     role field in the initial payload.
+    //   • Only admins can delete user documents or set arbitrary role values.
+    //
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isBootstrapAdmin();
-      allow write: if isBootstrapAdmin() || isAdmin() ||
+
+      // CREATE: owner may create their own doc, but must not include a role field.
+      allow create: if isBootstrapAdmin() || isAdmin() ||
+        (isOwner(userId) && !('role' in request.resource.data));
+
+      // UPDATE: owner may update their own doc as long as they do not change
+      // the role field. Admins may change any field including role.
+      allow update: if isBootstrapAdmin() || isAdmin() ||
         (isOwner(userId) && (
           !('role' in request.resource.data) ||
           request.resource.data.role == resource.data.role
         ));
 
+      // DELETE: admin-only; regular users cannot delete their own account doc.
+      allow delete: if isAdmin() || isBootstrapAdmin();
+
+      // ── users/{userId}/invoices/{invoiceId} ─────────────────────────────────
+      //
+      // Per-user invoice subcollection.
+      // Users have full CRUD on their own invoices; admins can do anything.
+      //
       match /invoices/{invoiceId} {
         allow read, write: if isOwner(userId) || isAdmin() || isBootstrapAdmin();
       }
     }
 
-    // Admin collectionGroup read + delete across all user invoices
+    // ─── collectionGroup: invoices ────────────────────────────────────────────
+    //
+    // Admin-only cross-user query via collectionGroup('invoices').
+    // Used in the admin panel to list and delete invoices across all users.
+    // The per-user nested rule above already covers owner+admin access for
+    // direct path access; this rule adds collectionGroup read + delete for admins.
+    //
     match /{path=**}/invoices/{invoiceId} {
-      allow read: if isAdmin() || isBootstrapAdmin();
+      allow read:   if isAdmin() || isBootstrapAdmin();
       allow delete: if isAdmin() || isBootstrapAdmin();
     }
 
-    // Announcements — authenticated users read, admin writes
+    // ─── announcements/{announcementId} ──────────────────────────────────────
+    //
+    // App-wide notices pushed by admins.
+    // All authenticated users can read; only admins can create/update/delete.
+    //
     match /announcements/{announcementId} {
-      allow read: if request.auth != null;
+      allow read:                  if request.auth != null;
       allow create, update, delete: if isAdmin() || isBootstrapAdmin();
     }
 
-    // Premium access codes — admin manages; users can read a specific code by ID only
-    // (prevents full enumeration; client looks up a code by its ID to validate)
+    // ─── premium_codes/{codeId} ───────────────────────────────────────────────
+    //
+    // Access codes managed by admins. The document ID IS the code string
+    // (e.g. "TRUCK2024") so users can validate a code with a single-doc GET
+    // instead of a collection query (which would require list permission).
+    //
+    // Security:
+    //   • Authenticated users may GET a single code by ID (to validate/redeem).
+    //   • Authenticated users may NOT list all codes (prevents enumeration).
+    //   • Only admins may create, update, or delete codes.
+    //
     match /premium_codes/{codeId} {
-      allow get: if request.auth != null;
-      allow list: if isAdmin() || isBootstrapAdmin();
+      allow get:                   if request.auth != null;
+      allow list:                  if isAdmin() || isBootstrapAdmin();
       allow create, update, delete: if isAdmin() || isBootstrapAdmin();
     }
 
-    // Premium users — each user can only create/update their own record (docId == uid)
+    // ─── premium_users/{docId} ────────────────────────────────────────────────
+    //
+    // Records code redemptions. Document ID MUST equal the user's Firebase UID
+    // so that the create rule (request.auth.uid == docId) can be enforced without
+    // an extra document lookup.
+    //
+    // Security:
+    //   • A user may create their own redemption record (docId == uid).
+    //   • A user may read and update their own record.
+    //   • Only admins may delete redemption records.
+    //   • Admins can read/list all records.
+    //
     match /premium_users/{docId} {
-      allow read: if isAdmin() || isBootstrapAdmin() || isOwner(docId);
+      allow read:   if isOwner(docId) || isAdmin() || isBootstrapAdmin();
       allow create: if request.auth != null && request.auth.uid == docId;
       allow update: if isOwner(docId) || isAdmin() || isBootstrapAdmin();
       allow delete: if isAdmin() || isBootstrapAdmin();

@@ -3,7 +3,7 @@
  *
  * Two data sources merged into one unified list:
  *  1. Invoice records (Firestore / local context) that have pdfUrl set
- *  2. Firebase Storage cloud listing — catches PDFs whose invoice record
+ *  2. Supabase Storage cloud listing — catches PDFs whose invoice record
  *     was deleted or whose pdfUrl field wasn't persisted
  *
  * Cloud-only PDFs appear in a separate "Cloud Backup" section.
@@ -26,9 +26,9 @@ import Toast from '@/components/Toast';
 import PDFActionModal from '@/components/PDFActionModal';
 import { openPDF, sharePDF } from '@/services/pdfService';
 import {
-  listUserPDFsFromFirebaseStorage,
+  listUserPDFsFromSupabase,
   type CloudStoredPDF,
-} from '@/services/firebase/firebaseStorage';
+} from '@/services/supabaseStorage';
 import type { Invoice } from '@/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -94,12 +94,12 @@ export default function PDFHistoryScreen() {
     toastTimer.current = setTimeout(() => setToastVisible(false), 3000);
   }
 
-  // Load cloud PDFs from Firebase Storage
+  // Load cloud PDFs from Supabase Storage
   const loadCloudPDFs = useCallback(async (showIndicator = true) => {
     if (!user?.uid) return;
     if (showIndicator) setCloudLoading(true);
     try {
-      const list = await listUserPDFsFromFirebaseStorage(user.uid);
+      const list = await listUserPDFsFromSupabase(user.uid);
       setCloudPDFs(list);
     } catch {
       // non-fatal — cloud listing is a bonus view
@@ -248,7 +248,7 @@ export default function PDFHistoryScreen() {
           <View style={styles.metaRow}>
             <View style={[styles.cloudBadge, { backgroundColor: '#DCFCE7' }]}>
               <Feather name="cloud" size={9} color="#16A34A" />
-              <Text style={[styles.cloudBadgeText, { color: '#15803D' }]}>Firebase Storage</Text>
+              <Text style={[styles.cloudBadgeText, { color: '#15803D' }]}>Supabase</Text>
             </View>
           </View>
         </View>
@@ -346,7 +346,7 @@ export default function PDFHistoryScreen() {
                   Cloud Backup ({cloudOnlyPDFs.length})
                 </Text>
                 <Text style={[styles.sectionHint, { color: colors.mutedForeground }]}>
-                  In Firebase Storage — not in local records
+                  In Supabase Storage — not in local records
                 </Text>
               </View>
               {cloudOnlyPDFs.map((item) => (

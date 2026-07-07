@@ -513,7 +513,7 @@ export default function InvoicePreviewScreen() {
       console.log('[PDF][Share] Generating PDF for share, templateId:', templateId);
 
       // Always share the LOCAL file uri — never the remote publicUrl.
-      // Using publicUrl would re-download the PDF from Firebase Storage before
+      // Using publicUrl would re-download the PDF from Supabase Storage before
       // sharing, which wastes bandwidth and adds latency for the user.
       const { uri, filename } = await generateAndSaveInvoicePDF(invoice, templateId, false, user?.uid);
       console.log('[PDF][Share] PDF ready at local uri:', uri, '| filename:', filename);

@@ -21,6 +21,13 @@ A professional mobile invoice management app for truck operators — create, man
 - Build: esbuild (CJS bundle)
 - Mobile: Expo ~54, React Native 0.81, expo-router ~6
 
+## Cloud Services (Mobile)
+
+- **Firebase Authentication** — user auth only
+- **Cloud Firestore** — all structured data (users, invoices, announcements, premium_codes, premium_users)
+- **Supabase Storage** — all file storage (PDFs, logos, signatures, profile photos)
+- ~~Firebase Storage~~ — **removed**; all file operations use Supabase Storage exclusively
+
 ## Where things live
 
 ```

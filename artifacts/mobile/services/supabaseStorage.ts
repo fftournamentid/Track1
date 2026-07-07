@@ -176,6 +176,62 @@ export async function uploadProfilePhotoToSupabase(
   return uploadFile(localUri, 'logos', `${userId}/profile-photo.${ext}`, mimeType);
 }
 
+// ─── Cloud PDF Listing ────────────────────────────────────────────────────────
+
+export interface CloudStoredPDF {
+  /** Original filename, e.g. "Invoice_INV001_classic.pdf" */
+  name: string;
+  /** Full storage path, e.g. "pdfs/{uid}/Invoice_INV001_classic.pdf" */
+  fullPath: string;
+  /** Supabase public download URL */
+  url: string;
+}
+
+/**
+ * List all PDFs stored in Supabase Storage for a given user.
+ * Path: pdfs/{userId}/
+ * Uses the Supabase Storage REST list API (POST /storage/v1/object/list/pdfs).
+ * Returns an empty array on error (e.g. no internet, missing config).
+ */
+export async function listUserPDFsFromSupabase(
+  userId: string,
+): Promise<CloudStoredPDF[]> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    console.warn('[Supabase][List] Missing env vars — skipping PDF listing');
+    return [];
+  }
+  console.log('[Supabase][List] Listing PDFs for user:', userId);
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/list/pdfs`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        prefix: `${userId}/`,
+        limit: 200,
+        offset: 0,
+        sortBy: { column: 'name', order: 'desc' },
+      }),
+    });
+    if (!res.ok) {
+      console.warn('[Supabase][List] List request failed:', res.status);
+      return [];
+    }
+    const items = (await res.json()) as { name: string }[];
+    const pdfs: CloudStoredPDF[] = items
+      .filter((item) => item.name && item.name.toLowerCase().endsWith('.pdf'))
+      .map((item) => ({
+        name: item.name,
+        fullPath: `pdfs/${userId}/${item.name}`,
+        url: publicUrl('pdfs', `${userId}/${item.name}`),
+      }));
+    console.log('[Supabase][List] Found', pdfs.length, 'PDF(s)');
+    return pdfs;
+  } catch (err) {
+    console.error('[Supabase][List] Failed — returning empty:', err);
+    return [];
+  }
+}
+
 /**
  * Download a remote Supabase PDF URL to a local cache file and return the path.
  * Used when pdfUrl is a public Supabase URL and we need a local file to open/share.

@@ -16,7 +16,7 @@ export interface PDFResult {
 export interface SavedPDF {
   uri: string;
   filename: string;
-  /** Firebase Storage download URL if upload succeeded, undefined otherwise. */
+  /** Supabase Storage public download URL if upload succeeded, undefined otherwise. */
   publicUrl?: string;
 }
 
@@ -43,14 +43,14 @@ async function fileExistsAndValid(uri: string): Promise<boolean> {
 }
 
 /**
- * Generates a PDF for the invoice, saves it locally, and uploads to Firebase Storage.
+ * Generates a PDF for the invoice, saves it locally, and uploads to Supabase Storage.
  *
  * Cache key = invoiceNumber + templateId so switching templates always regenerates.
  * Pass forceRegenerate=true to bypass cache (e.g. invoice data changed).
- * Pass userId to enable Firebase Storage upload; omit/undefined for guest/preview scenarios.
+ * Pass userId to enable Supabase Storage upload; omit/undefined for guest/preview scenarios.
  *
  * Returns { uri, filename, publicUrl? }
- * publicUrl is the Firebase Storage download URL; undefined if upload was skipped or failed.
+ * publicUrl is the Supabase Storage public download URL; undefined if upload was skipped or failed.
  */
 export async function generateAndSaveInvoicePDF(
   invoice: Invoice,
