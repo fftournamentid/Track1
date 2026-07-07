@@ -74,41 +74,69 @@ export async function createInvoiceDoc(
     console.error(msg);
     throw new Error(msg);
   }
-  console.log('[Firestore][create] ✓ Auth verified — uid:', currentUser.uid);
+  // ── Force token refresh ─────────────────────────────────────────────────────
+  // auth.currentUser is a cached JS object — the underlying ID token can expire
+  // (Firebase tokens last 1 hour). Firestore receives the wire token, so a
+  // stale token causes PERMISSION_DENIED even when currentUser looks valid.
+  // Calling getIdToken(false) returns the cached token if still fresh, or
+  // silently fetches a new one if it has expired — no round-trip when unnecessary.
+  try {
+    await currentUser.getIdToken(/* forceRefresh */ false);
+    console.log('[Firestore][create] ✓ Auth token confirmed fresh — uid:', currentUser.uid);
+  } catch (tokenErr) {
+    const msg = `[Firestore][create] ✗ Failed to refresh auth token — user may need to sign in again. Error: ${tokenErr}`;
+    console.error(msg);
+    throw new Error(msg);
+  }
 
   // ── Strip undefined values ───────────────────────────────────────────────────
   // Firestore throws on undefined values unless ignoreUndefinedProperties is set.
   // Strip them out here so optional fields (dueDate, clientPhone, etc.) are omitted.
-  const sanitized: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(data)) {
-    if (v !== undefined) sanitized[k] = v;
+  // Also recursively strip from nested objects (e.g. businessSnapshot fields).
+  function stripUndefined(obj: unknown): unknown {
+    if (Array.isArray(obj)) return obj.map(stripUndefined);
+    if (obj !== null && typeof obj === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        if (v !== undefined) out[k] = stripUndefined(v);
+      }
+      return out;
+    }
+    return obj;
   }
 
-  console.log('[Firestore][create] Creating invoice doc for uid:', uid, '| invoiceNumber:', data.invoiceNumber);
+  const sanitized = stripUndefined(data) as Record<string, unknown>;
+
+  console.log('[Firestore][create] Creating invoice doc — uid:', uid, '| invoiceNumber:', data.invoiceNumber);
 
   const payload = {
     ...sanitized,
-    userId: currentUser.uid,   // anchor doc to the authenticated token uid
+    userId: currentUser.uid,   // explicitly anchor to the authenticated token uid
     downloadCount: 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
+
+  console.log('[Firestore][create] Payload keys:', Object.keys(payload).join(', '));
+
   try {
     const ref = await addDoc(invoicesRef(uid), payload);
     console.log('[Firestore][create] ✓ Created doc with id:', ref.id);
     const now = new Date().toISOString();
     return { ...data, id: ref.id, downloadCount: 0, createdAt: now, updatedAt: now };
   } catch (err: unknown) {
-    const code = (err as { code?: string })?.code ?? '';
+    const firestoreErr = err as { code?: string; message?: string };
+    const code = firestoreErr?.code ?? '(no code)';
+    const message = firestoreErr?.message ?? String(err);
     if (code === 'permission-denied') {
       console.error(
-        '[Firestore][create] ✗ PERMISSION_DENIED — Firestore rules rejected the write.',
-        'uid:', uid,
-        '| invoiceNumber:', data.invoiceNumber,
-        '| err:', err,
+        '[Firestore][create] ✗ PERMISSION_DENIED — Firestore security rules rejected the write.\n' +
+        '  Path: users/' + uid + '/invoices\n' +
+        '  auth.currentUser.uid at write time: ' + currentUser.uid + '\n' +
+        '  Full error: ' + message,
       );
     } else {
-      console.error('[Firestore][create] ✗ addDoc failed — code:', code, '| err:', err);
+      console.error('[Firestore][create] ✗ addDoc failed — code:', code, '| message:', message);
     }
     throw err;
   }
@@ -119,7 +147,30 @@ export async function updateInvoiceDoc(
   invoiceId: string,
   updates: Partial<Invoice>
 ): Promise<void> {
-  console.log('[Firestore][update] Updating invoice', invoiceId, 'for uid:', uid);
+  // ── Auth guard ───────────────────────────────────────────────────────────────
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    const msg = '[Firestore][update] ✗ User is not authenticated — cannot update invoice document.';
+    console.error(msg);
+    throw new Error(msg);
+  }
+  if (currentUser.uid !== uid) {
+    const msg = `[Firestore][update] ✗ UID mismatch — token uid="${currentUser.uid}" !== requested uid="${uid}". Aborting update.`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+
+  // Ensure token is fresh before the write
+  try {
+    await currentUser.getIdToken(false);
+  } catch (tokenErr) {
+    const msg = `[Firestore][update] ✗ Failed to refresh auth token: ${tokenErr}`;
+    console.error(msg);
+    throw new Error(msg);
+  }
+
+  console.log('[Firestore][update] ✓ Auth verified — updating invoice', invoiceId, 'for uid:', uid);
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id: _id, createdAt: _ca, updatedAt: _ua, ...rest } = updates;
 
@@ -135,8 +186,20 @@ export async function updateInvoiceDoc(
       updatedAt: serverTimestamp(),
     });
     console.log('[Firestore][update] ✓ Updated invoice', invoiceId);
-  } catch (err) {
-    console.error('[Firestore][update] ✗ updateDoc failed:', err);
+  } catch (err: unknown) {
+    const firestoreErr = err as { code?: string; message?: string };
+    const code = firestoreErr?.code ?? '(no code)';
+    const message = firestoreErr?.message ?? String(err);
+    if (code === 'permission-denied') {
+      console.error(
+        '[Firestore][update] ✗ PERMISSION_DENIED — Firestore security rules rejected the update.\n' +
+        '  Path: users/' + uid + '/invoices/' + invoiceId + '\n' +
+        '  auth.currentUser.uid at write time: ' + currentUser.uid + '\n' +
+        '  Full error: ' + message,
+      );
+    } else {
+      console.error('[Firestore][update] ✗ updateDoc failed — code:', code, '| message:', message);
+    }
     throw err;
   }
 }
