@@ -117,26 +117,48 @@ export async function createInvoiceDoc(
     updatedAt: serverTimestamp(),
   };
 
-  console.log('[Firestore][create] Payload keys:', Object.keys(payload).join(', '));
+  // ── Full diagnostic trace ────────────────────────────────────────────────────
+  // Logs the exact document path, authenticated UID, and complete serialized
+  // payload so any Firestore rules rejection can be diagnosed from Metro logs.
+  const tracePath = `users/${uid}/invoices`;
+  console.log(
+    '[Firestore][create] TRACE\n' +
+    '  path    : ' + tracePath + '\n' +
+    '  auth uid: ' + currentUser.uid + '\n' +
+    '  payload : ' + JSON.stringify(
+      payload,
+      (_key, val) => (val === undefined ? '(undefined)' : val),
+    ),
+  );
 
   try {
     const ref = await addDoc(invoicesRef(uid), payload);
-    console.log('[Firestore][create] ✓ Created doc with id:', ref.id);
+    console.log('[Firestore][create] ✓ addDoc succeeded — doc id:', ref.id, '| path:', tracePath + '/' + ref.id);
     const now = new Date().toISOString();
     return { ...data, id: ref.id, downloadCount: 0, createdAt: now, updatedAt: now };
   } catch (err: unknown) {
     const firestoreErr = err as { code?: string; message?: string };
     const code = firestoreErr?.code ?? '(no code)';
     const message = firestoreErr?.message ?? String(err);
+    // Serialize all own properties so nothing is hidden by JSON.stringify's
+    // default behaviour of omitting non-enumerable Error fields.
+    const fullErr = JSON.stringify(err, Object.getOwnPropertyNames(err as object));
     if (code === 'permission-denied') {
       console.error(
-        '[Firestore][create] ✗ PERMISSION_DENIED — Firestore security rules rejected the write.\n' +
-        '  Path: users/' + uid + '/invoices\n' +
-        '  auth.currentUser.uid at write time: ' + currentUser.uid + '\n' +
-        '  Full error: ' + message,
+        '[Firestore][create] ✗ PERMISSION_DENIED\n' +
+        '  path             : ' + tracePath + '\n' +
+        '  auth uid at write: ' + currentUser.uid + '\n' +
+        '  LIKELY CAUSE     : Firestore security rules not deployed to Firebase.\n' +
+        '                     Run: firebase deploy --only firestore:rules\n' +
+        '  full error       : ' + fullErr,
       );
     } else {
-      console.error('[Firestore][create] ✗ addDoc failed — code:', code, '| message:', message);
+      console.error(
+        '[Firestore][create] ✗ addDoc failed\n' +
+        '  code : ' + code + '\n' +
+        '  msg  : ' + message + '\n' +
+        '  full : ' + fullErr,
+      );
     }
     throw err;
   }
