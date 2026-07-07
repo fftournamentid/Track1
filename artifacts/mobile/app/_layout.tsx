@@ -15,10 +15,13 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { NoInternetScreen } from "@/components/NoInternetScreen";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import { ProfileProvider } from "@/contexts/ProfileContext";
 import { InvoiceProvider } from "@/contexts/InvoiceContext";
+import { useNetworkGate } from "@/hooks/useNetworkGate";
+import { initDatabase } from "@/services/sqliteService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -95,6 +98,16 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  // ── SQLite: warm the local database as early as possible ──────────────────
+  useEffect(() => {
+    initDatabase().catch((err) =>
+      console.error("[SQLite] Failed to initialise database:", err)
+    );
+  }, []);
+
+  // ── Network gate: null = still probing, true = online, false = offline ────
+  const isConnected = useNetworkGate();
+
   useEffect(() => {
     if (fontsLoaded || fontError) {
       SplashScreen.hideAsync().catch(() => {});
@@ -107,6 +120,14 @@ export default function RootLayout() {
         <ActivityIndicator color="#F57C00" size="large" />
       </View>
     );
+  }
+
+  // Block the entire UI when there is no internet connection.
+  // isConnected === null means the check is still in flight — we let the app
+  // render normally rather than flash a lock screen; the check resolves in
+  // under a second and the overlay appears immediately if offline.
+  if (isConnected === false) {
+    return <NoInternetScreen />;
   }
 
   return (

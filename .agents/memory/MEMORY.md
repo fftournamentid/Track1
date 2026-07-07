@@ -11,6 +11,7 @@
 - [Premium page — FOUNDERS EDITION design](premium-founders.md) — Premium page shows "Early Access Premium / Free for First 100K Users" with no payment options; all templates unlocked (isPremium=true for all); TemplatePicker shows FREE badges not PRO/locked.
 - [Admin panel Firestore rules](admin-firestore-rules.md) — rules cover users, invoices (collectionGroup), announcements, premium_codes (get-only for users), premium_users (owned doc); deploy: firebase deploy --only firestore:rules from project root; rules file also at artifacts/mobile/firestore.rules (keep both in sync).
 - [Supabase Storage in Expo — no SDK](supabase-expo-storage.md) — use fetch REST API; @supabase/supabase-js crashes Metro FallbackWatcher via _tmp_ dirs.
+- [netinfo Metro _tmp_ fix](netinfo-metro-tmp-fix.md) — blockList /_tmp_/ in metro.config.js + .web.ts shim required; Expo 54 pins: netinfo@11.4.1, expo-sqlite@~16.0.10.
 - [Announcement system](announcement-system.md) — subscribeToAllAnnouncements uses single orderBy + client sort (no composite index); subscribeToActiveAnnouncements already correct.
 - [Premium codes realtime](premium-codes-realtime.md) — subscribeToAccessCodes + subscribeToPremiumUsers added; admin screen uses onSnapshot; clear stale errors on fresh snapshot.
 - [Invoice templates — layouts](invoice-template-layouts.md) — unified A5 renderer shared across all template color schemes; see a5-invoice-renderer.md for the RN/HTML parity rule.
