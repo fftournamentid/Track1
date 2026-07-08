@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "FleetInvoice",
-    "slug": "mobile",
+    "slug": "fleet-invoice-ibwyoeka0sxxfxanqwfav",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -50,7 +50,7 @@
         "origin": "https://replit.com/"
       },
       "eas": {
-        "projectId": "288932f3-5413-459d-8c0b-e3d70a65d9f5"
+        "projectId": "1e35b620-d77f-4030-a75e-b6619173584f"
       }
     },
     "owner": "hindustan803200s-organization"

@@ -68,6 +68,7 @@ EXPO_PUBLIC_FIREBASE_APP_ID = "1:730839496282:web:f334382cc9b40335824a63"
 EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID = "G-K8LX3VN1X6"
 EXPO_PUBLIC_SUPABASE_URL = "https://dwdezhmtokuhpgusmezm.supabase.co"
 EXPO_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_qOZaMtsbMtlh8YXFnRgKqw_Hivc_fcx"
+EXPO_TOKEN = "erR8Pv-HiqNh9zbhusruutoJmBDeppxIThRrDpTu"
 
 [nix]
 channel = "stable-25_05"
