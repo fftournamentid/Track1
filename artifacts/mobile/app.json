@@ -44,6 +44,15 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "288932f3-5413-459d-8c0b-e3d70a65d9f5"
+      }
+    },
+    "owner": "hindustan803200s-organization"
   }
 }
