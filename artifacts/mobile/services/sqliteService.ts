@@ -18,14 +18,33 @@ import * as SQLite from 'expo-sqlite';
 import type { Invoice } from '@/types';
 
 // ─── Singleton database handle ───────────────────────────────────────────────
+//
+// Uses a PROMISE singleton rather than a value singleton.
+//
+// Why: initDatabase() (called in _layout.tsx) and AuthContext's getSessionJSON()
+// both call getDb() concurrently at app start. With a plain `_db` value pointer
+// both see null simultaneously, both call openDatabaseAsync, and both run
+// initSchema against the same file — a race that can corrupt the WAL or leave
+// tables half-created.
+//
+// With a promise singleton, the first caller starts the open+schema work and
+// stores the IN-FLIGHT promise. Every subsequent caller awaits the SAME promise
+// and gets the already-initialised handle once it resolves. Zero duplicate opens.
 
-let _db: SQLite.SQLiteDatabase | null = null;
+let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
-async function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (_db) return _db;
-  _db = await SQLite.openDatabaseAsync('fleetinvoice.db');
-  await initSchema(_db);
-  return _db;
+function getDb(): Promise<SQLite.SQLiteDatabase> {
+  if (!_dbPromise) {
+    _dbPromise = SQLite.openDatabaseAsync('fleetinvoice.db').then(async (db) => {
+      await initSchema(db);
+      return db;
+    }).catch((err) => {
+      // Reset so a subsequent call can retry rather than be stuck on a failed promise
+      _dbPromise = null;
+      throw err;
+    });
+  }
+  return _dbPromise;
 }
 
 // ─── Schema initialisation ───────────────────────────────────────────────────
@@ -501,8 +520,9 @@ export async function initDatabase(): Promise<void> {
 
 /** Close the database. Only needed for testing — the app never calls this. */
 export async function closeDatabase(): Promise<void> {
-  if (_db) {
-    await _db.closeAsync();
-    _db = null;
+  if (_dbPromise) {
+    const db = await _dbPromise;
+    _dbPromise = null;
+    await db.closeAsync();
   }
 }

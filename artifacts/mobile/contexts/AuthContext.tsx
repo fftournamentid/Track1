@@ -19,6 +19,21 @@
  *   their captured epoch to the current value before mutating state or writing
  *   to SQLite. If a newer auth event has arrived, stale callbacks are silently
  *   dropped and their Firestore subscriptions are immediately unsubscribed.
+ *
+ * StrictMode safety:
+ *   The Firestore unsubscribe function is stored in a plain `useRef` — NOT
+ *   `useState`. React's useState setter treats function arguments as state
+ *   UPDATER CALLBACKS and calls them twice in StrictMode (development) with
+ *   the same previous state to detect side effects. Storing an unsubscribe in
+ *   useState and tearing it down via `setState(prev => { prev?.(); return null })`
+ *   therefore calls the real Firestore unsubscribe TWICE, killing the listener
+ *   before it can ever fire setIsLoading(false) — causing the infinite spinner.
+ *   A ref is mutated directly and is never subject to React's double-invocation.
+ *
+ * Safety timeout:
+ *   If Firestore doesn't respond within 10 seconds (network issue, permission
+ *   error, cold-start delay), `isLoading` is forced to `false` so the user
+ *   is never permanently blocked on the orange splash screen.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import React, {
@@ -41,6 +56,9 @@ import { cachePremiumStatus, initUserCredits } from '@/services/syncCreditsServi
 
 const ADMIN_UID = 'kaqcXOcHHYU7VeSXdLMUR2E66vB3';
 
+// How long to wait for Firestore before force-clearing the loading state.
+const FIRESTORE_TIMEOUT_MS = 10_000;
+
 // SQLite session keys
 const SESSION_USER_DOC = 'auth:user_doc';
 
@@ -57,7 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [docUnsub, setDocUnsub] = useState<(() => void) | null>(null);
 
   /**
    * Monotonic counter — incremented on every `onAuthStateChanged` invocation.
@@ -66,26 +83,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    */
   const authEpochRef = useRef(0);
 
+  /**
+   * Plain ref for the active Firestore user-document unsubscribe function.
+   *
+   * MUST be a ref, not useState. React calls useState updater functions TWICE
+   * in StrictMode (development) with the same previous value to surface side
+   * effects. Storing the unsub in state and tearing it down via
+   *   `setState(prev => { prev?.(); return null })`
+   * would invoke the real Firestore unsubscribe twice, killing the listener
+   * before it can emit the first snapshot and clear isLoading.
+   */
+  const docUnsubRef = useRef<(() => void) | null>(null);
+
   const refreshUserDoc = useCallback(() => {}, []);
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      // Capture this event's epoch BEFORE any await
+      // ── Capture epoch BEFORE any await ────────────────────────────────────
       const epoch = ++authEpochRef.current;
+
+      // Cancel the previous Firestore subscription synchronously via the ref
+      // (never via a state setter — see StrictMode note above).
+      docUnsubRef.current?.();
+      docUnsubRef.current = null;
 
       setUser(firebaseUser);
 
-      // Tear down the previous Firestore subscription synchronously
-      setDocUnsub((prev) => { prev?.(); return null; });
-
       if (firebaseUser) {
-        // ── FAST PATH: restore userDoc from SQLite cache ─────────────────────
+        // ── Safety timeout ─────────────────────────────────────────────────
+        // If Firestore never responds (network hiccup, cold start, permission
+        // error) this timer ensures the orange splash screen doesn't hang
+        // forever. It is cancelled as soon as Firestore fires its first event.
+        const safetyTimer = setTimeout(() => {
+          if (epoch !== authEpochRef.current) return;
+          console.warn(
+            `[AuthContext] ⚠ Firestore did not respond within ${FIRESTORE_TIMEOUT_MS / 1000}s` +
+            ' — forcing isLoading=false so the app stays usable.',
+          );
+          setIsLoading(false);
+        }, FIRESTORE_TIMEOUT_MS);
+
+        // ── FAST PATH: restore userDoc from SQLite cache ───────────────────
         // Clears isLoading before the Firestore round-trip, so the app is
         // immediately interactive on every subsequent launch.
         try {
           const cached = await getSessionJSON<UserDocument | null>(SESSION_USER_DOC, null);
+
           // Bail if a newer auth event arrived while we were awaiting SQLite
-          if (epoch !== authEpochRef.current) return;
+          if (epoch !== authEpochRef.current) {
+            clearTimeout(safetyTimer);
+            return;
+          }
 
           if (cached) {
             setUserDoc(cached);
@@ -93,12 +141,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.log('[AuthContext] ✓ Session restored from SQLite cache');
           }
         } catch (cacheErr) {
-          if (epoch !== authEpochRef.current) return;
+          if (epoch !== authEpochRef.current) {
+            clearTimeout(safetyTimer);
+            return;
+          }
           console.warn('[AuthContext] SQLite cache read failed (non-fatal):', cacheErr);
         }
 
-        // ── LIVE PATH: Firestore subscription in the background ──────────────
+        // ── LIVE PATH: Firestore subscription in the background ────────────
         const unsubDoc = subscribeToUserDocument(firebaseUser.uid, async (doc) => {
+          // Firestore responded — cancel the safety timer
+          clearTimeout(safetyTimer);
+
           // Drop this callback if a newer auth event has already superseded it
           if (epoch !== authEpochRef.current) {
             console.log('[AuthContext] Dropping stale Firestore callback (epoch mismatch)');
@@ -111,7 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           setUserDoc(doc);
-          setIsLoading(false); // ensures loading clears even if no SQLite cache
+          setIsLoading(false); // ensures loading clears even if SQLite cache was empty
 
           if (doc) {
             // Persist fresh userDoc to SQLite (forever login state)
@@ -128,13 +182,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
 
         // If a newer auth event arrived between starting the subscription and
-        // registering the unsubscribe, cancel it immediately.
+        // receiving its handle back, cancel it immediately.
         if (epoch !== authEpochRef.current) {
+          clearTimeout(safetyTimer);
           unsubDoc();
           return;
         }
 
-        setDocUnsub(() => unsubDoc);
+        // Store via ref — safe from StrictMode double-invocation
+        docUnsubRef.current = unsubDoc;
         updateLastLogin(firebaseUser.uid);
 
       } else {
@@ -152,7 +208,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       unsubAuth();
-      setDocUnsub((prev) => { prev?.(); return null; });
+      // Tear down the Firestore listener directly via the ref — no state setter
+      docUnsubRef.current?.();
+      docUnsubRef.current = null;
     };
   }, []);
 

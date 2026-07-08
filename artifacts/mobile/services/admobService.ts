@@ -40,7 +40,19 @@ let _initialised = false;
 export async function initAdMob(): Promise<void> {
   if (_initialised) return;
   try {
-    await mobileAds().initialize();
+    // 8-second race guard: mobileAds().initialize() can hang indefinitely on
+    // devices that lack Google Play Services (old Android, some emulators).
+    // We resolve (not reject) on timeout so ads are silently disabled rather
+    // than blocking the startup chain.
+    await Promise.race([
+      mobileAds().initialize(),
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          console.warn('[AdMob] initialize() timed out after 8 s — ads disabled for this session');
+          resolve();
+        }, 8_000),
+      ),
+    ]);
     _initialised = true;
     console.log('[AdMob] ✓ SDK initialised');
     // Pre-load both ad types so they are ready on first trigger
