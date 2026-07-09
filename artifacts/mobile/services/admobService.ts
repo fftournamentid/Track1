@@ -27,13 +27,24 @@ try {
   console.warn('[AdMob] Module import failed — ads disabled for this session:', importErr);
 }
 
-// ─── Production Ad Unit IDs ───────────────────────────────────────────────────
+// ─── Ad Unit IDs ─────────────────────────────────────────────────────────────
+// In development (__DEV__) we use Google's official test IDs so the SDK
+// returns immediately and never blocks the UI thread.
+// In production we use the real unit IDs.
 
-export const AD_UNITS = {
+const TEST_IDS = {
+  BANNER_TOP:   'ca-app-pub-3940256099942544/6300978111',
+  INTERSTITIAL: 'ca-app-pub-3940256099942544/1033173712',
+  REWARDED:     'ca-app-pub-3940256099942544/5224354917',
+} as const;
+
+const PROD_IDS = {
   BANNER_TOP:   'ca-app-pub-6673874934806841/6364928482',
   INTERSTITIAL: 'ca-app-pub-6673874934806841/9266423990',
   REWARDED:     'ca-app-pub-6673874934806841/2066590823',
 } as const;
+
+export const AD_UNITS = __DEV__ ? TEST_IDS : PROD_IDS;
 
 export const ADMOB_APP_ID = 'ca-app-pub-6673874934806841~7887105165';
 
@@ -43,6 +54,19 @@ let _initialised = false;
 
 export async function initAdMob(): Promise<void> {
   if (_initialised) return;
+
+  // In development, skip the real initialize() call entirely.
+  // The SDK blocks the JS thread while negotiating with Google's servers using
+  // the production App ID — this causes the post-login freeze.
+  // Test-mode ads load without a blocking initialize() call.
+  if (__DEV__) {
+    _initialised = true;
+    console.log('[AdMob] DEV mode — skipping initialize(), using test ad IDs');
+    _preloadInterstitial();
+    _preloadRewarded();
+    return;
+  }
+
   if (!mobileAds) {
     console.warn('[AdMob] SDK not available — skipping init');
     return;
@@ -168,9 +192,19 @@ function _preloadRewarded(): void {
  * Show a rewarded video ad.
  * Returns true if the user earned the reward (watched the full ad).
  * Returns false on any failure — never throws.
+ *
+ * In __DEV__ mode the reward is granted immediately without showing an ad,
+ * so the "Upload to Cloud" flow is never blocked during local development.
  */
 export function showRewardedVideo(): Promise<boolean> {
   return new Promise((resolve) => {
+    // Dev shortcut — grant reward instantly so the upload flow is testable
+    if (__DEV__) {
+      console.log('[AdMob] DEV mode — rewarded ad bypassed, reward granted automatically');
+      resolve(true);
+      return;
+    }
+
     if (!_rewardedLoaded || !_rewarded || !AdEventType || !RewardedAdEventType) {
       console.log('[AdMob] Rewarded ad not ready — returning false');
       _preloadRewarded();
