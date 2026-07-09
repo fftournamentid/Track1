@@ -13,8 +13,10 @@ import { useColors } from '@/hooks/useColors';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useInvoices } from '@/contexts/InvoiceContext';
 import { signOut, resendEmailVerification } from '@/services/firebase/auth.service';
 import { uploadProfilePhotoToSupabase } from '@/services/supabaseStorage';
+import { restoreFromCloud } from '@/services/cloudUploadService';
 import PremiumBanner from '@/components/PremiumBanner';
 import type { BusinessInfo } from '@/types';
 
@@ -82,6 +84,7 @@ export default function ProfileScreen() {
   const { profile, isLoading: profileLoading, updateProfile } = useProfile();
   const { settings, updateSettings } = useSettings();
   const { user, userDoc } = useAuth();
+  const { refreshInvoices } = useInvoices();
 
   const [form, setForm] = useState<BusinessInfo>(profile);
   const [defaultGstRate, setDefaultGstRate] = useState(settings.defaultGstRate);
@@ -93,6 +96,8 @@ export default function ProfileScreen() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState<{ current: number; total: number } | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userEditedRef = useRef(false);
   const initializedRef = useRef(false);
@@ -256,6 +261,63 @@ export default function ProfileScreen() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleRestoreFromCloud = async () => {
+    if (!user?.uid) return;
+
+    const doRestore = async () => {
+      setIsRestoring(true);
+      setRestoreProgress(null);
+      try {
+        const result = await restoreFromCloud(user.uid, (current, total) => {
+          setRestoreProgress({ current, total });
+        });
+
+        setRestoreProgress(null);
+
+        if (result.status === 'not_configured') {
+          Alert.alert('Not Configured', 'Cloud storage is not set up for this app yet.');
+          return;
+        }
+        if (result.status === 'nothing_to_restore') {
+          Alert.alert('Nothing to Restore', 'No cloud-backed invoices were found for your account.');
+          return;
+        }
+        if (result.status === 'failed') {
+          Alert.alert('Restore Failed', result.reason ?? 'An unknown error occurred. Please try again.');
+          return;
+        }
+        if (result.status === 'success') {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          await refreshInvoices();
+          if (result.restored === 0) {
+            Alert.alert('Already Up to Date', 'All your cloud invoices are already on this device.');
+          } else {
+            Alert.alert(
+              'Restore Complete',
+              `${result.restored} invoice${result.restored === 1 ? '' : 's'} restored to this device.` +
+              (result.skipped > 0 ? `\n${result.skipped} already up to date.` : ''),
+            );
+          }
+        }
+      } catch (err) {
+        Alert.alert('Error', 'Restore failed unexpectedly. Please try again.');
+        console.error('[ProfileScreen] Restore error:', err);
+      } finally {
+        setIsRestoring(false);
+        setRestoreProgress(null);
+      }
+    };
+
+    Alert.alert(
+      'Restore from Cloud',
+      'This will download your cloud-backed invoices and merge them with the ones on this device. Your existing invoices will not be deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Restore', onPress: doRestore },
+      ],
+    );
   };
 
   const handleSignOut = () => {
@@ -454,6 +516,52 @@ export default function ProfileScreen() {
               >
                 <Feather name="edit-2" size={16} color="#fff" />
                 <Text style={styles.editProfileBtnText}>Edit Profile</Text>
+              </Pressable>
+            </View>
+
+            {/* Cloud Backup & Restore */}
+            <View style={[
+              styles.cloudCard,
+              {
+                backgroundColor: colors.card, borderColor: colors.border,
+                shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 8, elevation: 4,
+              },
+            ]}>
+              <View style={styles.cloudCardHeader}>
+                <View style={[styles.cloudIconBox, { backgroundColor: '#EFF6FF' }]}>
+                  <Feather name="cloud" size={18} color="#2563EB" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cloudCardTitle, { color: colors.foreground }]}>Cloud Backup</Text>
+                  <Text style={[styles.cloudCardSub, { color: colors.mutedForeground }]}>
+                    Recover your uploaded invoices on a new device
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={handleRestoreFromCloud}
+                disabled={isRestoring}
+                style={({ pressed }) => [
+                  styles.restoreBtn,
+                  { borderColor: '#2563EB', opacity: pressed || isRestoring ? 0.7 : 1 },
+                ]}
+              >
+                {isRestoring ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <ActivityIndicator size="small" color="#2563EB" />
+                    <Text style={[styles.restoreBtnText, { color: '#2563EB' }]}>
+                      {restoreProgress
+                        ? `Restoring ${restoreProgress.current} of ${restoreProgress.total}…`
+                        : 'Connecting to cloud…'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Feather name="download-cloud" size={16} color="#2563EB" />
+                    <Text style={[styles.restoreBtnText, { color: '#2563EB' }]}>Restore from Cloud</Text>
+                  </View>
+                )}
               </Pressable>
             </View>
 
@@ -740,6 +848,21 @@ const styles = StyleSheet.create({
   sigHint: { fontSize: 13 },
   gstRow: { flexDirection: 'row', gap: 8 },
   gstBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 8, borderWidth: 1 },
+  cloudCard: {
+    borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 14,
+  },
+  cloudCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  cloudIconBox: {
+    width: 40, height: 40, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  cloudCardTitle: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
+  cloudCardSub: { fontSize: 12 },
+  restoreBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderRadius: 12, paddingVertical: 12,
+  },
+  restoreBtnText: { fontSize: 14, fontWeight: '700' },
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, borderRadius: 14, paddingVertical: 15,

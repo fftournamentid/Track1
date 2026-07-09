@@ -53,6 +53,7 @@ interface InvoiceContextType {
   renameInvoice: (id: string, name: string) => Promise<void>;
   getInvoiceById: (id: string) => Invoice | undefined;
   incrementDownloadCount: (id: string) => Promise<void>;
+  refreshInvoices: () => Promise<void>;
 }
 
 const InvoiceContext = createContext<InvoiceContextType | null>(null);
@@ -260,6 +261,17 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
     [updateInvoice],
   );
 
+  const refreshInvoices = useCallback(async (): Promise<void> => {
+    if (!user) return;
+    try {
+      const local = await getLocalInvoices(user.uid);
+      setInvoices(local);
+      console.log('[InvoiceContext] ✓ Refreshed from SQLite —', local.length, 'invoices');
+    } catch (err) {
+      console.warn('[InvoiceContext] refreshInvoices failed:', err);
+    }
+  }, [user]);
+
   const getInvoiceById = useCallback(
     (id: string) => invoices.find((i) => i.id === id),
     [invoices],
@@ -280,7 +292,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         createInvoice, updateInvoice, deleteInvoice,
         toggleFavorite, archiveInvoice, restoreInvoice,
         duplicateInvoice, renameInvoice, getInvoiceById,
-        incrementDownloadCount,
+        incrementDownloadCount, refreshInvoices,
       }}
     >
       {children}

@@ -12,8 +12,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { getSessionJSON, setSessionJSON } from './sqliteService';
-import { syncInvoiceToSupabase, isSupabaseConfigured } from './supabaseSync';
+import { getSessionJSON, setSessionJSON, upsertLocalInvoice, getLocalInvoices } from './sqliteService';
+import { syncInvoiceToSupabase, isSupabaseConfigured, fetchInvoicesFromSupabase } from './supabaseSync';
 import { showRewardedVideo } from './admobService';
 import { isPremiumUser } from './syncCreditsService';
 import type { Invoice } from '@/types';
@@ -116,5 +116,77 @@ export async function uploadInvoiceToCloud(
   } catch (err) {
     console.error('[CloudUpload] Unexpected error:', err);
     return { status: 'upload_failed', reason: String(err) };
+  }
+}
+
+// ─── Restore from Cloud ───────────────────────────────────────────────────────
+
+export type RestoreResult =
+  | { status: 'success'; restored: number; skipped: number }
+  | { status: 'nothing_to_restore' }
+  | { status: 'not_configured' }
+  | { status: 'failed'; reason: string };
+
+/**
+ * Restore all cloud-backed invoices for a user to the local SQLite database.
+ *
+ * Strategy: fetch all invoices from Supabase → compare by id against the
+ * existing local set → upsert any that are missing or older than the cloud
+ * version.  This is non-destructive — it never deletes local-only invoices.
+ *
+ * @param userId     Firebase UID
+ * @param onProgress Optional callback called after each restored invoice
+ *                   with (restoredSoFar, total).
+ */
+export async function restoreFromCloud(
+  userId: string,
+  onProgress?: (current: number, total: number) => void,
+): Promise<RestoreResult> {
+  try {
+    if (!isSupabaseConfigured()) {
+      console.warn('[CloudRestore] Supabase not configured');
+      return { status: 'not_configured' };
+    }
+
+    console.log('[CloudRestore] Fetching invoices from Supabase…');
+    const cloudInvoices = await fetchInvoicesFromSupabase(userId);
+
+    if (cloudInvoices.length === 0) {
+      console.log('[CloudRestore] No cloud invoices found');
+      return { status: 'nothing_to_restore' };
+    }
+
+    console.log(`[CloudRestore] Found ${cloudInvoices.length} cloud invoices — comparing with local…`);
+
+    // Build a map of local invoices (id → updatedAt) so we can skip ones that
+    // are already up-to-date locally.
+    const localInvoices = await getLocalInvoices(userId);
+    const localMap = new Map<string, string>(
+      localInvoices.map((inv) => [inv.id, inv.updatedAt ?? ''])
+    );
+
+    let restored = 0;
+    let skipped  = 0;
+
+    for (const inv of cloudInvoices) {
+      const localUpdatedAt = localMap.get(inv.id);
+
+      // Skip if we already have this invoice and it's at least as recent
+      if (localUpdatedAt && localUpdatedAt >= (inv.updatedAt ?? '')) {
+        skipped++;
+        continue;
+      }
+
+      await upsertLocalInvoice(inv, userId);
+      restored++;
+
+      if (onProgress) onProgress(restored, cloudInvoices.length - skipped);
+    }
+
+    console.log(`[CloudRestore] ✓ Done — restored ${restored}, skipped ${skipped} (already current)`);
+    return { status: 'success', restored, skipped };
+  } catch (err) {
+    console.error('[CloudRestore] Unexpected error:', err);
+    return { status: 'failed', reason: String(err) };
   }
 }
