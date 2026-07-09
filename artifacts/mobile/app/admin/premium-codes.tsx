@@ -164,7 +164,7 @@ export default function PremiumCodesScreen() {
 
       {loading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <ActivityIndicator color={ORANGE} size="large" />
+          <ActivityIndicator color="#2563EB" size="large" />
           <Text style={{ color: '#6B7280', fontSize: 13 }}>Connecting realtime…</Text>
         </View>
       ) : tab === 'codes' ? (

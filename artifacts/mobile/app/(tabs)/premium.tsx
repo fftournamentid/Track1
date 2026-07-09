@@ -21,11 +21,10 @@ const MUTED     = 'rgba(255,255,255,0.55)';
 
 // ─── Benefits list (shared) ───────────────────────────────────────────────────
 const BENEFITS: { icon: keyof typeof Feather.glyphMap; title: string; desc: string }[] = [
-  { icon: 'file-text', title: 'Unlimited Invoices',    desc: 'No caps — create as many as you need.' },
-  { icon: 'layout',    title: 'All Premium Templates', desc: 'Every invoice template unlocked.' },
-  { icon: 'share-2',   title: 'PDF Sharing',           desc: 'Share via WhatsApp, email, or any app.' },
-  { icon: 'zap',       title: 'Priority Updates',      desc: 'Get new features before everyone else.' },
-  { icon: 'shield',    title: 'Lifetime Access',        desc: 'Access never expires — yours forever.' },
+  { icon: 'cloud',     title: 'Unlimited Cloud Upload', desc: 'Back up every invoice with no monthly caps.' },
+  { icon: 'layout',    title: 'Unlimited Templates',    desc: 'Every invoice template unlocked, always.' },
+  { icon: 'zap',       title: 'Ad-Free Experience',     desc: 'No interruptions — just your invoices.' },
+  { icon: 'shield',    title: '100% Full Access',       desc: 'Every feature, unlocked for good.' },
 ];
 
 // ─── Glowing background orbs ──────────────────────────────────────────────────
@@ -129,9 +128,9 @@ const icon3d = StyleSheet.create({
 });
 
 // ─── Benefit row ──────────────────────────────────────────────────────────────
-function BenefitRow({ icon, title, desc }: { icon: keyof typeof Feather.glyphMap; title: string; desc: string }) {
+function BenefitRow({ icon, title, desc, isLast }: { icon: keyof typeof Feather.glyphMap; title: string; desc: string; isLast?: boolean }) {
   return (
-    <View style={br.row}>
+    <View style={[br.row, isLast && { borderBottomWidth: 0 }]}>
       <View style={br.iconBox}>
         <Feather name={icon} size={15} color={GOLD} />
       </View>
@@ -364,20 +363,9 @@ function PremiumActiveScreen() {
           <Feather name="gift" size={16} color={GOLD} />
           <Text style={as.cardTitle}>Your Premium Benefits</Text>
         </View>
-        {BENEFITS.map((b) => (
-          <BenefitRow key={b.title} {...b} />
+        {BENEFITS.map((b, i) => (
+          <BenefitRow key={b.title} {...b} isLast={i === BENEFITS.length - 1} />
         ))}
-        {/* Bonus row */}
-        <View style={[br.row, { borderBottomWidth: 0 }]}>
-          <View style={br.iconBox}>
-            <Feather name="cloud" size={15} color={GOLD} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={br.title}>Cloud Backup</Text>
-            <Text style={br.desc}>All invoices backed up to the cloud automatically.</Text>
-          </View>
-          <Ionicons name="checkmark-circle" size={18} color="#22C55E" />
-        </View>
       </View>
 
       {/* Trust row */}

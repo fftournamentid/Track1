@@ -288,7 +288,7 @@ export default function PDFHistoryScreen() {
           disabled={refreshing || cloudLoading}
         >
           {refreshing || cloudLoading
-            ? <ActivityIndicator size="small" color={colors.primary} />
+            ? <ActivityIndicator size="small" color="#2563EB" />
             : <Feather name="refresh-cw" size={18} color={colors.mutedForeground} />
           }
         </Pressable>
@@ -333,7 +333,7 @@ export default function PDFHistoryScreen() {
           {/* ── Cloud-only PDFs ── */}
           {cloudLoading && cloudPDFs.length === 0 ? (
             <View style={styles.cloudLoadingRow}>
-              <ActivityIndicator size="small" color={colors.primary} />
+              <ActivityIndicator size="small" color="#2563EB" />
               <Text style={[styles.cloudLoadingText, { color: colors.mutedForeground }]}>
                 Checking cloud backup…
               </Text>

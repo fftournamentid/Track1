@@ -29,7 +29,7 @@ const queryClient = new QueryClient();
 
 const LoadingScreen = () => (
   <View style={{ flex: 1, backgroundColor: "#FF6B00", alignItems: "center", justifyContent: "center" }}>
-    <ActivityIndicator color="#F57C00" size="large" />
+    <ActivityIndicator color="#FFFFFF" size="large" />
   </View>
 );
 
@@ -145,7 +145,7 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) {
     return (
       <View style={{ flex: 1, backgroundColor: "#FF6B00", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color="#F57C00" size="large" />
+        <ActivityIndicator color="#FFFFFF" size="large" />
       </View>
     );
   }

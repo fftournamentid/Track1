@@ -10,7 +10,6 @@ import StatCard from '@/components/StatCard';
 import SectionHeader from '@/components/SectionHeader';
 import InvoiceCard from '@/components/InvoiceCard';
 import EmptyState from '@/components/EmptyState';
-import PremiumBanner from '@/components/PremiumBanner';
 import { formatCurrencyCompact, isSameMonth } from '@/utils/formatters';
 import { subscribeToActiveAnnouncements } from '@/services/announcementService';
 import type { Announcement } from '@/types';
@@ -204,8 +203,6 @@ export default function DashboardScreen() {
           ))}
         </View>
       )}
-
-      <PremiumBanner />
 
       {/* Stats Grid */}
       <View style={styles.gridRow}>

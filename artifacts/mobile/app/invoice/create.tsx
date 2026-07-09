@@ -90,15 +90,19 @@ function DateField({
       </Text>
       <Pressable
         onPress={() => { setIosPending(date); setShow(true); }}
-        style={[
+        hitSlop={8}
+        android_ripple={{ color: colors.secondary }}
+        style={({ pressed }) => [
           fStyles.dateBox,
           { borderColor: colors.border, backgroundColor: colors.card },
+          pressed && { opacity: 0.6 },
         ]}
       >
         <Feather name="calendar" size={16} color={colors.primary} />
         <Text style={[fStyles.dateText, { color: value ? colors.foreground : colors.mutedForeground }]} numberOfLines={1}>
           {value || (placeholder ?? 'Select date')}
         </Text>
+        <Feather name="chevron-down" size={16} color={colors.mutedForeground} />
       </Pressable>
 
       {/* Android: native inline picker */}
@@ -646,7 +650,7 @@ export default function CreateInvoiceScreen() {
             style={[styles.previewBtn, { borderColor: colors.border, backgroundColor: colors.secondary }]}
           >
             {isPreviewing ? (
-              <ActivityIndicator color={colors.primary} size="small" />
+              <ActivityIndicator color="#2563EB" size="small" />
             ) : (
               <>
                 <Feather name="eye" size={14} color={colors.primary} />
@@ -935,7 +939,7 @@ export default function CreateInvoiceScreen() {
             style={[styles.bottomPreviewBtn, { borderColor: colors.primary, backgroundColor: colors.secondary }]}
           >
             {isPreviewing ? (
-              <ActivityIndicator color={colors.primary} size="small" />
+              <ActivityIndicator color="#2563EB" size="small" />
             ) : (
               <>
                 <Feather name="eye" size={16} color={colors.primary} />

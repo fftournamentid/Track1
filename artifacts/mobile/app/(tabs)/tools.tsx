@@ -922,7 +922,7 @@ function QrPayment() {
       >
         <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Generate QR Code</Text>
       </TouchableOpacity>
-      {loading && <ActivityIndicator color="#FF6B00" style={{ marginTop: 24 }} />}
+      {loading && <ActivityIndicator color="#2563EB" style={{ marginTop: 24 }} />}
       {!!qrUrl && !loading && (
         <View style={{ alignItems: 'center', marginTop: 24 }}>
           {/* White bg intentional for QR code readability */}

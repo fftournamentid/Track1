@@ -558,7 +558,7 @@ export default function InvoicePreviewScreen() {
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: '#e8e8e8' }]}>
-        <ActivityIndicator color="#FF6B00" size="large" />
+        <ActivityIndicator color="#2563EB" size="large" />
       </View>
     );
   }
@@ -651,7 +651,7 @@ export default function InvoicePreviewScreen() {
           ]}
         >
           {downloadingPDF ? (
-            <ActivityIndicator color="#FF6B00" size="small" />
+            <ActivityIndicator color="#2563EB" size="small" />
           ) : (
             <>
               <Feather name="download" size={16} color="#FF6B00" />

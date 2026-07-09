@@ -504,7 +504,7 @@ export default function InvoiceDetailScreen() {
           <View style={[styles.actionsRow, { marginTop: 8 }]}>
             {dupLoading ? (
               <View style={[abStyles.btn, { borderColor: colors.border, backgroundColor: colors.secondary }]}>
-                <ActivityIndicator color={colors.primary} size="small" />
+                <ActivityIndicator color="#2563EB" size="small" />
               </View>
             ) : (
               <ActionBtn icon="copy" label="Duplicate" onPress={handleDuplicate} />

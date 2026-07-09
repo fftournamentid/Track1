@@ -6,7 +6,7 @@ export default function LoadingView({ label }: { label?: string }) {
   const colors = useColors();
   return (
     <View style={styles.container}>
-      <ActivityIndicator size="large" color={colors.primary} />
+      <ActivityIndicator size="large" color="#2563EB" />
       {label ? <Text style={[styles.label, { color: colors.mutedForeground }]}>{label}</Text> : null}
     </View>
   );

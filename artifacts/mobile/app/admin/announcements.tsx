@@ -154,7 +154,7 @@ export default function AnnouncementsScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} size="large" />
+          <ActivityIndicator color="#2563EB" size="large" />
         </View>
       ) : items.length === 0 ? (
         <View style={styles.center}>
@@ -195,7 +195,7 @@ export default function AnnouncementsScreen() {
                   </View>
                   <View style={styles.cardRight}>
                     {togglingId === item.id ? (
-                      <ActivityIndicator size="small" color={ORANGE} />
+                      <ActivityIndicator size="small" color="#2563EB" />
                     ) : (
                       <Switch
                         value={item.active}

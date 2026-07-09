@@ -146,7 +146,7 @@ export default function TemplateSelectScreen() {
           ))}
         </View>
 
-        {/* Premium — unlocked for all founders */}
+        {/* Premium — gated behind promo code redemption or paid subscription */}
         <View style={styles.premiumHeaderRow}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>
             Premium Templates

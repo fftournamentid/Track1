@@ -85,7 +85,7 @@ function DashboardTab({ users, loading, onRefresh }: {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={ORANGE} size="large" />
+        <ActivityIndicator color="#2563EB" size="large" />
         <Text style={styles.loadingText}>Loading dashboard…</Text>
       </View>
     );
@@ -372,7 +372,7 @@ function InvoicesTab() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator color={ORANGE} size="large" />
+        <ActivityIndicator color="#2563EB" size="large" />
         <Text style={styles.loadingText}>Loading invoices…</Text>
       </View>
     );
@@ -468,17 +468,6 @@ function PremiumTab({ users }: { users: UserWithInvoices[] }) {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
     >
-      <View style={styles.foundersBanner}>
-        <Text style={{ fontSize: 28 }}>🚀</Text>
-        <Text style={styles.foundersTitle}>FOUNDERS EDITION</Text>
-        <Text style={styles.foundersSubtitle}>Early Access Premium</Text>
-        <Text style={styles.foundersDesc}>Free for First 100,000 Users</Text>
-        <View style={styles.foundersProgress}>
-          <View style={[styles.foundersProgressFill, { width: `${Math.min((users.length / 100000) * 100, 100)}%` }]} />
-        </View>
-        <Text style={styles.foundersCount}>{users.length.toLocaleString()} / 100,000 members</Text>
-      </View>
-
       <View style={styles.premiumStats}>
         <View style={styles.premiumStatItem}>
           <Text style={styles.premiumStatNum}>{premiumUsers.length}</Text>
@@ -505,11 +494,11 @@ function PremiumTab({ users }: { users: UserWithInvoices[] }) {
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.userName} numberOfLines={1}>{u.displayName || 'Unnamed'}</Text>
             <Text style={styles.userEmail} numberOfLines={1}>{u.email}</Text>
-            <Text style={styles.userMeta}>Plan: {u.premiumPlanId ?? 'founders'} · {u.invoiceCount ?? 0} invoices</Text>
+            <Text style={styles.userMeta}>Plan: {u.premiumPlanId ?? 'premium'} · {u.invoiceCount ?? 0} invoices</Text>
           </View>
           <View style={[styles.premiumTag, { paddingHorizontal: 8, paddingVertical: 4 }]}>
             <Feather name="star" size={10} color={ORANGE} />
-            <Text style={[styles.premiumTagText, { fontSize: 10 }]}>FOUNDERS</Text>
+            <Text style={[styles.premiumTagText, { fontSize: 10 }]}>PREMIUM</Text>
           </View>
         </View>
       ))}
@@ -920,18 +909,18 @@ export default function AdminScreen() {
         )}
         {tab === 'users' && (
           loading
-            ? <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
+            ? <View style={styles.center}><ActivityIndicator color="#2563EB" size="large" /></View>
             : <UsersTab users={users} onGrantPremium={handleGrantPremium} onVerifyUser={handleVerifyUser} />
         )}
         {tab === 'invoices' && <InvoicesTab />}
         {tab === 'premium' && (
           loading
-            ? <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
+            ? <View style={styles.center}><ActivityIndicator color="#2563EB" size="large" /></View>
             : <PremiumTab users={users} />
         )}
         {tab === 'analytics' && (
           loading
-            ? <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
+            ? <View style={styles.center}><ActivityIndicator color="#2563EB" size="large" /></View>
             : <AnalyticsTab users={users} />
         )}
         {tab === 'more' && (
@@ -1072,20 +1061,6 @@ const styles = StyleSheet.create({
   invMeta: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
   statusBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   statusText: { fontSize: 9, fontWeight: '800' },
-
-  foundersBanner: {
-    backgroundColor: NAVY, borderRadius: 20, padding: 24,
-    alignItems: 'center', marginTop: 8, gap: 6,
-  },
-  foundersTitle: { fontSize: 20, fontWeight: '900', color: ORANGE, letterSpacing: 1 },
-  foundersSubtitle: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  foundersDesc: { fontSize: 12, color: 'rgba(255,255,255,0.7)' },
-  foundersProgress: {
-    width: '100%', height: 6, backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 3, marginTop: 10,
-  },
-  foundersProgressFill: { height: 6, backgroundColor: ORANGE, borderRadius: 3, minWidth: 4 },
-  foundersCount: { fontSize: 11, color: 'rgba(255,255,255,0.6)' },
 
   premiumStats: {
     flexDirection: 'row', backgroundColor: '#fff', borderRadius: 14,

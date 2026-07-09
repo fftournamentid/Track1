@@ -17,7 +17,6 @@ import { useInvoices } from '@/contexts/InvoiceContext';
 import { signOut, resendEmailVerification } from '@/services/firebase/auth.service';
 import { uploadProfilePhotoToSupabase } from '@/services/supabaseStorage';
 import { restoreFromCloud } from '@/services/cloudUploadService';
-import PremiumBanner from '@/components/PremiumBanner';
 import type { BusinessInfo } from '@/types';
 
 const GST_OPTIONS = [0, 5, 12, 18, 28];
@@ -363,7 +362,7 @@ export default function ProfileScreen() {
   if (profileLoading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator color={colors.primary} size="large" />
+        <ActivityIndicator color="#2563EB" size="large" />
       </View>
     );
   }
@@ -379,8 +378,6 @@ export default function ProfileScreen() {
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
           Auto-fills every new invoice
         </Text>
-
-        <PremiumBanner />
 
         {/* Account info */}
         {user?.email ? (
@@ -432,7 +429,7 @@ export default function ProfileScreen() {
                     style={({ pressed }) => [styles.resendBtn, { opacity: pressed || isSendingVerification ? 0.7 : 1 }]}
                   >
                     {isSendingVerification
-                      ? <ActivityIndicator size={10} color={colors.primary} />
+                      ? <ActivityIndicator size={10} color="#2563EB" />
                       : <Text style={[styles.resendBtnText, { color: colors.primary }]}>Resend Email</Text>}
                   </Pressable>
                 </View>

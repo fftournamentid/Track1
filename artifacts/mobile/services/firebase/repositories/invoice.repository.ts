@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   deleteField,
@@ -160,6 +161,63 @@ export async function createInvoiceDoc(
         '  full : ' + fullErr,
       );
     }
+    throw err;
+  }
+}
+
+/**
+ * Create or update an invoice doc at a CALLER-CHOSEN id (uses `setDoc`, not
+ * `addDoc`). This lets the local-first write path use the same id on-device
+ * and in Firestore from the very first save — no id-swap after sync, so the
+ * app never has to rewrite in-memory state or break an in-flight navigation
+ * route just because the background cloud sync completed.
+ */
+export async function setInvoiceDoc(
+  uid: string,
+  id: string,
+  data: Partial<Invoice>,
+  isNew: boolean,
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('[Firestore][set] ✗ User is not authenticated — cannot write invoice document.');
+  }
+  if (currentUser.uid !== uid) {
+    throw new Error(`[Firestore][set] ✗ UID mismatch — token uid="${currentUser.uid}" !== requested uid="${uid}".`);
+  }
+  await currentUser.getIdToken(false);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...rest } = data;
+
+  function stripUndefined(obj: unknown): unknown {
+    if (Array.isArray(obj)) return obj.map(stripUndefined);
+    if (obj !== null && typeof obj === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        if (v !== undefined) out[k] = stripUndefined(v);
+      }
+      return out;
+    }
+    return obj;
+  }
+
+  const payload: Record<string, unknown> = {
+    ...(stripUndefined(rest) as Record<string, unknown>),
+    userId: currentUser.uid,
+    updatedAt: serverTimestamp(),
+  };
+  if (isNew) {
+    payload.createdAt = serverTimestamp();
+    payload.downloadCount = data.downloadCount ?? 0;
+  }
+
+  try {
+    await setDoc(doc(db, 'users', uid, 'invoices', id), payload, { merge: true });
+    console.log('[Firestore][set] ✓ setDoc succeeded — id:', id, '| isNew:', isNew);
+  } catch (err: unknown) {
+    const firestoreErr = err as { code?: string; message?: string };
+    console.error('[Firestore][set] ✗ setDoc failed — code:', firestoreErr?.code, '| message:', firestoreErr?.message);
     throw err;
   }
 }

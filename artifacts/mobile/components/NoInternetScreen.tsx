@@ -61,7 +61,7 @@ export function NoInternetScreen() {
       <Text style={styles.title}>No Internet Connection</Text>
 
       <Text style={styles.message}>
-        Please enable Mobile Data or Wi-Fi to continue using FleetInvoice
+        Please turn on your network connection to continue using the app.
       </Text>
 
       <View style={styles.pill}>
