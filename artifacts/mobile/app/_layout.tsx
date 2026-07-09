@@ -22,7 +22,6 @@ import { ProfileProvider } from "@/contexts/ProfileContext";
 import { InvoiceProvider } from "@/contexts/InvoiceContext";
 import { useNetworkGate } from "@/hooks/useNetworkGate";
 import { initDatabase } from "@/services/sqliteService";
-import { initAdMob } from "@/services/admobService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -44,7 +43,6 @@ function RootLayoutNav() {
   const inAdminGroup = seg[0] === "admin";
   const isAdmin = userDoc?.role === "admin";
 
-  // Determine whether a redirect is needed right now.
   const needsRedirect =
     !isLoading &&
     ((!user && !inAuthGroup) ||
@@ -70,9 +68,6 @@ function RootLayoutNav() {
     }
   }, [user, userDoc, isLoading, segments]);
 
-  // Show the loading screen while Firebase is initialising OR while a
-  // redirect is in flight. This prevents the bare white <Stack> from
-  // flashing on screen before navigation settles.
   if (isLoading || needsRedirect) {
     return <LoadingScreen />;
   }
@@ -99,17 +94,33 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
-  // ── SQLite + AdMob: warm both services as early as possible ───────────────
+  // ── SQLite: init local database as early as possible ─────────────────────
   useEffect(() => {
     initDatabase().catch((err) =>
       console.error("[SQLite] Failed to initialise database:", err)
     );
-    initAdMob().catch((err) =>
-      console.warn("[AdMob] Init failed (non-fatal):", err)
-    );
   }, []);
 
-  // ── Network gate: null = still probing, true = online, false = offline ────
+  // ── AdMob: initialise in a completely isolated try/catch ──────────────────
+  // This is intentionally separate from the SQLite effect and runs AFTER a
+  // short delay so the app shell renders first. Any crash in AdMob (broken
+  // native module, missing Play Services, newArch incompatibility) is caught
+  // here and logged — it NEVER propagates to crash the app.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const { initAdMob } = await import("@/services/admobService");
+          await initAdMob();
+        } catch (err) {
+          console.warn("[AdMob] initAdMob failed (non-fatal — ads disabled):", err);
+        }
+      })();
+    }, 1500); // small delay ensures the UI is mounted before ads init
+    return () => clearTimeout(timer);
+  }, []);
+
+  // ── Network gate ──────────────────────────────────────────────────────────
   const isConnected = useNetworkGate();
 
   useEffect(() => {
@@ -127,9 +138,8 @@ export default function RootLayout() {
   }
 
   // Block the entire UI when there is no internet connection.
-  // isConnected === null means the check is still in flight — we let the app
-  // render normally rather than flash a lock screen; the check resolves in
-  // under a second and the overlay appears immediately if offline.
+  // isConnected === null means the check is still in flight — let the app
+  // render normally rather than flash a lock screen.
   if (isConnected === false) {
     return <NoInternetScreen />;
   }

@@ -1,17 +1,24 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, Pressable,
-  ScrollView, Modal, Platform,
+  ScrollView, Modal, Alert, Platform, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
+import { useAuth } from '@/contexts/AuthContext';
 import InvoiceCard from '@/components/InvoiceCard';
 import EmptyState from '@/components/EmptyState';
 import SearchBar from '@/components/SearchBar';
 import type { FilterStatus, SortField, SortOrder } from '@/types';
+import {
+  uploadInvoiceToCloud,
+  getMonthlyUploadCount,
+  MONTHLY_UPLOAD_LIMIT,
+} from '@/services/cloudUploadService';
+import type { Invoice } from '@/types';
 
 const FILTERS: { key: FilterStatus; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -27,12 +34,71 @@ export default function InvoicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { invoices, isOffline } = useInvoices();
+  const { user } = useAuth();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [sortVisible, setSortVisible] = useState(false);
+
+  // ── Cloud upload state ─────────────────────────────────────────────────────
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
+  const [monthlyUsed, setMonthlyUsed] = useState<number>(0);
+
+  // Load monthly usage on mount
+  React.useEffect(() => {
+    if (!user) return;
+    getMonthlyUploadCount(user.uid)
+      .then(setMonthlyUsed)
+      .catch(() => {});
+  }, [user]);
+
+  const handleUpload = useCallback(async (invoice: Invoice) => {
+    if (!user) return;
+    if (uploadingId) return; // prevent concurrent uploads
+
+    setUploadingId(invoice.id);
+    try {
+      const result = await uploadInvoiceToCloud(invoice, user.uid);
+
+      if (result.status === 'success') {
+        setUploadedIds((prev) => new Set(prev).add(invoice.id));
+        setMonthlyUsed((n) => n + 1);
+        Alert.alert(
+          '✓ Uploaded',
+          `Invoice ${invoice.invoiceNumber} has been backed up to the cloud.`,
+          [{ text: 'OK' }],
+        );
+      } else if (result.status === 'quota_exceeded') {
+        Alert.alert(
+          'Monthly Limit Reached',
+          `You've used ${result.used} of ${result.limit} free cloud uploads this month.\n\nYour quota resets at the start of next month.`,
+          [{ text: 'OK' }],
+        );
+      } else if (result.status === 'ad_not_watched') {
+        Alert.alert(
+          'Watch an Ad to Upload',
+          'Please watch the full ad to earn your cloud upload. Tap the Upload button again to try.',
+          [{ text: 'OK' }],
+        );
+      } else if (result.status === 'not_configured') {
+        Alert.alert(
+          'Cloud Not Available',
+          'Cloud backup is not configured for this installation.',
+          [{ text: 'OK' }],
+        );
+      } else {
+        Alert.alert('Upload Failed', 'Could not upload to cloud. Please check your connection and try again.', [{ text: 'OK' }]);
+      }
+    } catch (err) {
+      console.error('[Invoices] Upload error:', err);
+      Alert.alert('Upload Failed', 'An unexpected error occurred. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setUploadingId(null);
+    }
+  }, [user, uploadingId]);
 
   const filtered = useMemo(() => {
     let list = [...invoices];
@@ -53,7 +119,7 @@ export default function InvoicesScreen() {
           i.invoiceNumber.toLowerCase().includes(q) ||
           i.fromLocation.toLowerCase().includes(q) ||
           i.toLocation.toLowerCase().includes(q) ||
-          (i.customName?.toLowerCase().includes(q) ?? false)
+          (i.customName?.toLowerCase().includes(q) ?? false),
       );
     }
 
@@ -70,6 +136,7 @@ export default function InvoicesScreen() {
   }, [invoices, filter, search, sortField, sortOrder]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+  const remainingUploads = Math.max(0, MONTHLY_UPLOAD_LIMIT - monthlyUsed);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -117,32 +184,35 @@ export default function InvoicesScreen() {
                 },
               ]}
             >
-              <Text
-                style={[
-                  styles.chipText,
-                  { color: filter === f.key ? '#fff' : colors.mutedForeground },
-                ]}
-              >
+              <Text style={[styles.chipText, { color: filter === f.key ? '#fff' : colors.mutedForeground }]}>
                 {f.label}
               </Text>
             </Pressable>
           ))}
         </ScrollView>
 
-        {/* Offline banner — only shown on this tab, saving is the only blocked action */}
+        {/* Offline banner */}
         {isOffline && (
           <View style={[styles.offlineBanner, { backgroundColor: '#FFF3E8', borderColor: '#FF6B00' }]}>
             <Feather name="wifi-off" size={13} color="#FF6B00" />
             <Text style={[styles.offlineText, { color: '#FF6B00' }]}>
-              Internet is required only to save invoices.
+              Showing locally saved invoices — changes sync when back online.
             </Text>
           </View>
         )}
 
-        {/* Count */}
-        <Text style={[styles.count, { color: colors.mutedForeground }]}>
-          {filtered.length} invoice{filtered.length !== 1 ? 's' : ''}
-        </Text>
+        {/* Cloud upload quota pill */}
+        <View style={styles.quotaRow}>
+          <Text style={[styles.count, { color: colors.mutedForeground }]}>
+            {filtered.length} invoice{filtered.length !== 1 ? 's' : ''}
+          </Text>
+          <View style={[styles.quotaPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Feather name="cloud" size={11} color={colors.mutedForeground} />
+            <Text style={[styles.quotaText, { color: colors.mutedForeground }]}>
+              {remainingUploads}/{MONTHLY_UPLOAD_LIMIT} uploads left
+            </Text>
+          </View>
+        </View>
       </View>
 
       {/* List */}
@@ -150,10 +220,47 @@ export default function InvoicesScreen() {
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <InvoiceCard
-            invoice={item}
-            onPress={() => router.push({ pathname: '/invoice/[id]', params: { id: item.id } })}
-          />
+          <View style={styles.cardWrapper}>
+            <InvoiceCard
+              invoice={item}
+              onPress={() => router.push({ pathname: '/invoice/[id]', params: { id: item.id } })}
+            />
+            {/* Upload to Cloud button */}
+            <View style={[styles.uploadRow, { borderColor: colors.border }]}>
+              {uploadedIds.has(item.id) ? (
+                <View style={[styles.uploadedBadge, { backgroundColor: '#DCFCE7' }]}>
+                  <Feather name="check-circle" size={12} color="#15803D" />
+                  <Text style={[styles.uploadedText, { color: '#15803D' }]}>Uploaded to Cloud</Text>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => handleUpload(item)}
+                  disabled={uploadingId === item.id}
+                  style={({ pressed }) => [
+                    styles.uploadBtn,
+                    {
+                      backgroundColor: uploadingId === item.id ? colors.muted : '#EEF2FF',
+                      borderColor: '#6366F1',
+                      opacity: pressed ? 0.8 : 1,
+                    },
+                  ]}
+                  hitSlop={4}
+                >
+                  {uploadingId === item.id ? (
+                    <ActivityIndicator size={11} color="#6366F1" />
+                  ) : (
+                    <Feather name="upload-cloud" size={12} color="#6366F1" />
+                  )}
+                  <Text style={[styles.uploadBtnText, { color: '#6366F1' }]}>
+                    {uploadingId === item.id ? 'Uploading…' : 'Upload to Cloud'}
+                  </Text>
+                </Pressable>
+              )}
+              <Text style={[styles.uploadHint, { color: colors.mutedForeground }]}>
+                Watch an ad · {remainingUploads} free left
+              </Text>
+            </View>
+          </View>
         )}
         contentContainerStyle={[
           styles.listContent,
@@ -238,67 +345,67 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconOnlyBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 34, height: 34, borderRadius: 10, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
   },
   sortBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    borderWidth: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1,
   },
   sortBtnText: { fontSize: 13, fontWeight: '600' },
   inner: { paddingHorizontal: 16 },
   chipScroll: { marginBottom: 8 },
   chipContent: { gap: 8, paddingRight: 4 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
+  chip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   chipText: { fontSize: 13, fontWeight: '600' },
-  count: { fontSize: 12, marginBottom: 8 },
+  quotaRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 8,
+  },
+  count: { fontSize: 12 },
+  quotaPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 99, borderWidth: 1,
+  },
+  quotaText: { fontSize: 11, fontWeight: '600' },
   listContent: { paddingHorizontal: 16 },
   listEmpty: { flex: 1 },
+
+  // ── Per-invoice card wrapper with upload button ────────────────────────────
+  cardWrapper: { marginBottom: 4 },
+  uploadRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10, paddingVertical: 6,
+    marginBottom: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  uploadBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 8, borderWidth: 1,
+  },
+  uploadBtnText: { fontSize: 12, fontWeight: '600' },
+  uploadedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
+  },
+  uploadedText: { fontSize: 12, fontWeight: '600' },
+  uploadHint: { fontSize: 11 },
+
   fab: {
-    position: 'absolute',
-    right: 20,
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    position: 'absolute', right: 20, width: 54, height: 54,
+    borderRadius: 27, alignItems: 'center', justifyContent: 'center',
+    elevation: 6, shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 6,
   },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sortSheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    paddingBottom: 40,
-  },
+  sortSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 },
   sortTitle: { fontSize: 17, fontWeight: '700', marginBottom: 16 },
   sortOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    marginBottom: 8,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 13, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, marginBottom: 8,
   },
   sortOptionText: { fontSize: 15, fontWeight: '500' },
   offlineBanner: {
@@ -306,5 +413,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 7,
     borderRadius: 8, borderWidth: 1, marginBottom: 8,
   },
-  offlineText: { fontSize: 12, fontWeight: '600' },
+  offlineText: { fontSize: 12, fontWeight: '600', flex: 1 },
 });
