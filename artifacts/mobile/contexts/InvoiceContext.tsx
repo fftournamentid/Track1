@@ -97,6 +97,11 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   // latest locally-pending items without needing `invoices` in its deps
   // (which would tear down/rebuild the Firestore subscription every write).
   const invoicesRef = useRef<Invoice[]>([]);
+  // Per-invoice write tokens: each call to updateInvoice stamps a monotonic
+  // token; the Firestore .then() callback only clears pendingSync when its
+  // own token is still the latest, preventing a slower older write from
+  // overwriting the sync state of a newer pending write.
+  const writeTokensRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     invoicesRef.current = invoices;
   }, [invoices]);
@@ -257,32 +262,44 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         ? { ...existing, ...updates, updatedAt }
         : undefined;
 
-      // 1. Immediate state update (optimistic) — never waits on the network.
+      // Write token: monotonically increasing per invoice ID so the background
+      // Firestore callback can detect whether a newer write has already superseded it.
+      const writeToken = Date.now();
+      writeTokensRef.current.set(id, writeToken);
+
+      // 1. Immediate state update (optimistic) — mark pendingSync:true so the
+      //    "Synced" filter correctly excludes this invoice until Firestore confirms.
       setInvoices((prev) =>
-        prev.map((inv) => (inv.id === id ? { ...inv, ...updates, updatedAt } : inv)),
+        prev.map((inv) => (inv.id === id ? { ...inv, ...updates, updatedAt, pendingSync: true } : inv)),
       );
 
       // 2. SQLite write (permanent local storage) — always happens, online or not.
       try {
-        await updateLocalInvoice(id, { ...updates, updatedAt });
+        await updateLocalInvoice(id, { ...updates, updatedAt, pendingSync: true });
       } catch (err) {
         console.warn('[InvoiceContext] SQLite update failed (non-fatal):', err);
       }
 
-      // 3. Background Firestore sync — only when a live session exists.
-      //    Uses the SAME id the invoice was created with (setDoc/merge), so
-      //    this works identically whether the invoice has synced before or not.
+      // 3. Background Firestore sync — fire-and-forget, never blocks the caller.
+      //    Mirrors createInvoice: SQLite is source of truth; Firestore is a
+      //    best-effort background mirror. The spinner is never frozen waiting
+      //    for a network round-trip.
       if (hasActiveSession(uidLocal)) {
-        try {
-          await setInvoiceDoc(uidLocal, id, mergedForSync ?? updates, /* isNew */ false);
-          removeFromPendingSync(id, uidLocal).catch(() => {});
-          setInvoices((prev) =>
-            prev.map((i) => (i.id === id ? { ...i, pendingSync: false } : i)),
-          );
-        } catch (err) {
-          console.warn('[InvoiceContext] Background Firestore update failed (non-fatal):', err);
-          if (mergedForSync) addToPendingSync(mergedForSync, uidLocal, /* isNew */ false).catch(() => {});
-        }
+        setInvoiceDoc(uidLocal, id, mergedForSync ?? updates, /* isNew */ false)
+          .then(() => {
+            // Only clear pendingSync if no newer write has already been issued
+            // for this invoice. Without this guard, a slow prior write's .then()
+            // can mark the invoice "synced" even when the latest write failed.
+            if (writeTokensRef.current.get(id) !== writeToken) return;
+            removeFromPendingSync(id, uidLocal).catch(() => {});
+            setInvoices((prev) =>
+              prev.map((i) => (i.id === id ? { ...i, pendingSync: false } : i)),
+            );
+          })
+          .catch((err) => {
+            console.warn('[InvoiceContext] Background Firestore update failed — queued for retry:', err);
+            if (mergedForSync) addToPendingSync(mergedForSync, uidLocal, /* isNew */ false).catch(() => {});
+          });
       } else if (mergedForSync) {
         addToPendingSync(mergedForSync, uidLocal, /* isNew */ false).catch(() => {});
       }

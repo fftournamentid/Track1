@@ -197,13 +197,19 @@ function CftCalc() {
   const [recordSearch, setRecordSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Storage key: scoped to user when signed in, falls back to anonymous so
+  // records are saved locally even when the user is not authenticated.
+  const cftStorageKey = user?.uid ? cftRecordsKey(user.uid) : '@FleetInvoice:cft_records:anonymous';
+
   useEffect(() => {
-    if (!user?.uid) return;
-    AsyncStorage.getItem(cftRecordsKey(user.uid)).then((raw) => {
+    // Clear stale in-memory records first so prior-user data never bleeds
+    // into the new session while the async load is in flight.
+    setRecords([]);
+    AsyncStorage.getItem(cftStorageKey).then((raw) => {
       if (!raw) return;
       try { setRecords(JSON.parse(raw) as CftRecord[]); } catch { /* ignore corrupt */ }
     });
-  }, [user?.uid]);
+  }, [cftStorageKey]);
 
   const calcCft = useCallback((): { cft: number; amount: number } => {
     let cft = 0;
@@ -248,7 +254,8 @@ function CftCalc() {
   };
 
   const saveRecord = async () => {
-    if (!user?.uid) { Alert.alert('Not signed in', 'Please log in to save records.'); return; }
+    // No sign-in check: saves always go to local AsyncStorage.
+    // Scoped key keeps signed-in records separate from anonymous ones.
     const calc = result ?? calcCft();
     if (calc.cft <= 0) { Alert.alert('No Dimensions', 'Enter dimensions before saving.'); return; }
     setSaving(true);
@@ -268,7 +275,7 @@ function CftCalc() {
         savedAt: new Date().toISOString(),
       };
       const updated = [newRec, ...records];
-      await AsyncStorage.setItem(cftRecordsKey(user.uid), JSON.stringify(updated));
+      await AsyncStorage.setItem(cftStorageKey, JSON.stringify(updated));
       setRecords(updated);
       Alert.alert('✓ Saved', `CFT record for ${newRec.customerName} saved.`);
     } catch { Alert.alert('Error', 'Failed to save. Try again.'); }
@@ -276,9 +283,8 @@ function CftCalc() {
   };
 
   const deleteRecord = async (id: string) => {
-    if (!user?.uid) return;
     const updated = records.filter((r) => r.id !== id);
-    await AsyncStorage.setItem(cftRecordsKey(user.uid), JSON.stringify(updated));
+    await AsyncStorage.setItem(cftStorageKey, JSON.stringify(updated));
     setRecords(updated);
   };
 

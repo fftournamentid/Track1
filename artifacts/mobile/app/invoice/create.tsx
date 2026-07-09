@@ -69,6 +69,10 @@ function DateField({
   // iOS: show inline picker in a modal
   const [iosPending, setIosPending] = useState<Date>(date);
 
+  // Web: ref-based click so the native date picker opens from a user-gesture context.
+  // The <input> is always rendered (hidden) so .click() works reliably.
+  const webInputRef = React.useRef<any>(null);
+
   const handleChange = (_: unknown, selected?: Date) => {
     if (Platform.OS === 'android') {
       setShow(false);
@@ -83,13 +87,24 @@ function DateField({
     setShow(false);
   };
 
+  const handlePress = () => {
+    if (Platform.OS === 'web') {
+      // Programmatic click propagates as a user gesture, so the browser
+      // opens its native date-picker dialog.
+      webInputRef.current?.click();
+    } else {
+      setIosPending(date);
+      setShow(true);
+    }
+  };
+
   return (
     <View style={fStyles.wrap}>
       <Text style={[fStyles.label, { color: colors.mutedForeground }]}>
         {label}{required ? ' *' : ''}
       </Text>
       <Pressable
-        onPress={() => { setIosPending(date); setShow(true); }}
+        onPress={handlePress}
         hitSlop={8}
         android_ripple={{ color: colors.secondary }}
         style={({ pressed }) => [
@@ -145,24 +160,20 @@ function DateField({
         </Modal>
       )}
 
-      {/* Web: native date input hidden behind styled box */}
-      {Platform.OS === 'web' && show && (
-        <View style={{ position: 'absolute', opacity: 0, top: 0, left: 0 }}>
-          <input
-            type="date"
-            autoFocus
-            value={value ? `${value.split('/')[2]}-${value.split('/')[1]}-${value.split('/')[0]}` : ''}
-            onChange={(e) => {
-              if (e.target.value) {
-                const [y, m, d] = e.target.value.split('-');
-                onChange(`${d}/${m}/${y}`);
-              }
-              setShow(false);
-            }}
-            onBlur={() => setShow(false)}
-            style={{ opacity: 0, position: 'absolute' }}
-          />
-        </View>
+      {/* Web: always-rendered hidden input; triggered via ref.click() from handlePress. */}
+      {Platform.OS === 'web' && (
+        <input
+          ref={webInputRef}
+          type="date"
+          value={value ? `${value.split('/')[2]}-${value.split('/')[1]}-${value.split('/')[0]}` : ''}
+          onChange={(e) => {
+            if (e.target.value) {
+              const [y, m, d] = e.target.value.split('-');
+              onChange(`${d}/${m}/${y}`);
+            }
+          }}
+          style={{ position: 'absolute', opacity: 0, width: 1, height: 1, top: 0, left: 0 } as React.CSSProperties}
+        />
       )}
     </View>
   );
@@ -605,17 +616,9 @@ export default function CreateInvoiceScreen() {
         router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } });
       }
     } catch (err) {
-      const msg = String(err);
-      if (
-        msg.toLowerCase().includes('internet') ||
-        msg.toLowerCase().includes('network') ||
-        msg.toLowerCase().includes('offline') ||
-        msg.toLowerCase().includes('unavailable')
-      ) {
-        Alert.alert('Unable to save invoice', 'Internet is required to save invoices. Please connect and try again.');
-      } else {
-        Alert.alert('Unable to save invoice', msg);
-      }
+      // Saves are local-first — the only errors here are from SQLite failures
+      // or missing authentication, not from network issues.
+      Alert.alert('Unable to save invoice', String(err));
     } finally {
       setIsSaving(false);
     }

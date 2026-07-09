@@ -15,7 +15,11 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { signOut, resendEmailVerification } from '@/services/firebase/auth.service';
-import { uploadProfilePhotoToSupabase } from '@/services/supabaseStorage';
+import {
+  uploadProfilePhotoToSupabase,
+  uploadLogoToSupabase,
+  uploadSignatureToSupabase,
+} from '@/services/supabaseStorage';
 import { restoreFromCloud } from '@/services/cloudUploadService';
 import type { BusinessInfo } from '@/types';
 
@@ -93,6 +97,8 @@ export default function ProfileScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isSendingVerification, setIsSendingVerification] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isRestoring, setIsRestoring] = useState(false);
@@ -239,7 +245,34 @@ export default function ProfileScreen() {
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]) {
-      setField(field, result.assets[0].uri);
+      const localUri = result.assets[0].uri;
+      const mimeType = result.assets[0].mimeType ?? 'image/jpeg';
+
+      // Immediately show the local file so the UI feels instant.
+      setField(field, localUri);
+
+      // Upload to Supabase Storage in the background, then swap to the
+      // cloud URL so it persists across devices and on other platforms.
+      if (user?.uid) {
+        if (field === 'logoUri') setUploadingLogo(true);
+        else setUploadingSignature(true);
+
+        try {
+          const uploadFn = field === 'logoUri'
+            ? uploadLogoToSupabase
+            : uploadSignatureToSupabase;
+          const cloudUrl = await uploadFn(localUri, user.uid, mimeType);
+          if (cloudUrl) {
+            setField(field, cloudUrl);
+          }
+        } catch (err) {
+          console.warn(`[Profile] Supabase upload failed for ${field} (non-fatal, keeping local URI):`, err);
+          // Local URI still shown — will display on this device.
+        } finally {
+          if (field === 'logoUri') setUploadingLogo(false);
+          else setUploadingSignature(false);
+        }
+      }
     }
   };
 
@@ -588,9 +621,12 @@ export default function ProfileScreen() {
               <View style={styles.logoRow}>
                 <Pressable
                   onPress={() => pickImage('logoUri')}
+                  disabled={uploadingLogo}
                   style={[styles.logoBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}
                 >
-                  {form.logoUri ? (
+                  {uploadingLogo ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : form.logoUri ? (
                     <Image source={{ uri: form.logoUri }} style={styles.logoImg} />
                   ) : (
                     <Feather name="image" size={28} color={colors.primary} />
@@ -598,9 +634,13 @@ export default function ProfileScreen() {
                 </Pressable>
                 <View style={styles.logoActions}>
                   <Text style={[styles.logoHint, { color: colors.mutedForeground }]}>
-                    {form.logoUri ? 'Tap to change logo' : 'Tap to add company logo'}
+                    {uploadingLogo
+                      ? 'Uploading to cloud…'
+                      : form.logoUri
+                        ? 'Tap to change logo'
+                        : 'Tap to add company logo'}
                   </Text>
-                  {form.logoUri && (
+                  {form.logoUri && !uploadingLogo && (
                     <Pressable onPress={() => setField('logoUri', '')} hitSlop={8}>
                       <Text style={[styles.removeText, { color: colors.destructive }]}>Remove</Text>
                     </Pressable>
@@ -640,9 +680,17 @@ export default function ProfileScreen() {
             <SectionBox title="Digital Signature">
               <Pressable
                 onPress={() => pickImage('signatureUri')}
+                disabled={uploadingSignature}
                 style={[styles.sigBox, { borderColor: colors.border, backgroundColor: colors.secondary }]}
               >
-                {form.signatureUri ? (
+                {uploadingSignature ? (
+                  <View style={styles.sigPlaceholder}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={[styles.sigHint, { color: colors.mutedForeground }]}>
+                      Uploading to cloud…
+                    </Text>
+                  </View>
+                ) : form.signatureUri ? (
                   <Image source={{ uri: form.signatureUri }} style={styles.sigImg} resizeMode="contain" />
                 ) : (
                   <View style={styles.sigPlaceholder}>
@@ -653,7 +701,7 @@ export default function ProfileScreen() {
                   </View>
                 )}
               </Pressable>
-              {form.signatureUri && (
+              {form.signatureUri && !uploadingSignature && (
                 <Pressable onPress={() => setField('signatureUri', '')} hitSlop={8}>
                   <Text style={[styles.removeText, { color: colors.destructive, marginTop: 6 }]}>Remove Signature</Text>
                 </Pressable>

@@ -20,13 +20,14 @@ import {
 } from '@/services/cloudUploadService';
 import type { Invoice } from '@/types';
 
-const FILTERS: { key: FilterStatus; label: string }[] = [
+const FILTERS: { key: FilterStatus; label: string; icon?: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'active', label: 'Active' },
   { key: 'paid', label: 'Paid' },
   { key: 'pending', label: 'Pending' },
   { key: 'favorites', label: 'Favorites' },
   { key: 'archived', label: 'Archived' },
+  { key: 'synced', label: 'Synced', icon: 'cloud' },
 ];
 
 export default function InvoicesScreen() {
@@ -110,6 +111,8 @@ export default function InvoicesScreen() {
       list = list.filter((i) => (i.status === 'pending' || i.status === 'draft') && !i.isArchived);
     else if (filter === 'favorites') list = list.filter((i) => i.isFavorite);
     else if (filter === 'archived') list = list.filter((i) => i.isArchived);
+    // pendingSync === false means Firestore confirmed sync; undefined/true means not yet synced.
+    else if (filter === 'synced') list = list.filter((i) => i.pendingSync === false);
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -152,6 +155,19 @@ export default function InvoicesScreen() {
             <Feather name="folder" size={16} color={colors.primary} />
           </Pressable>
           <Pressable
+            onPress={() => setFilter((f) => f === 'synced' ? 'all' : 'synced')}
+            style={[
+              styles.iconOnlyBtn,
+              {
+                borderColor: filter === 'synced' ? colors.primary : colors.border,
+                backgroundColor: filter === 'synced' ? colors.primary : colors.card,
+              },
+            ]}
+            hitSlop={8}
+          >
+            <Feather name="cloud" size={16} color={filter === 'synced' ? '#fff' : colors.primary} />
+          </Pressable>
+          <Pressable
             onPress={() => setSortVisible(true)}
             style={[styles.sortBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
             hitSlop={8}
@@ -184,6 +200,14 @@ export default function InvoicesScreen() {
                 },
               ]}
             >
+              {f.icon && (
+                <Feather
+                  name={f.icon as any}
+                  size={11}
+                  color={filter === f.key ? '#fff' : colors.mutedForeground}
+                  style={{ marginRight: 4 }}
+                />
+              )}
               <Text style={[styles.chipText, { color: filter === f.key ? '#fff' : colors.mutedForeground }]}>
                 {f.label}
               </Text>

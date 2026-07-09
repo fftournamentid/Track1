@@ -425,15 +425,27 @@ function InvoicesTab() {
                 <Feather name="file-text" size={16} color={col} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <Text style={styles.invNumber} numberOfLines={1}>{inv.invoiceNumber}</Text>
                   <View style={[styles.statusBadge, { backgroundColor: col + '18' }]}>
                     <Text style={[styles.statusText, { color: col }]}>{status.toUpperCase()}</Text>
                   </View>
+                  {/* pendingSync: false = confirmed synced; true/undefined = pending */}
+                  {inv.pendingSync === false ? (
+                    <View style={[styles.statusBadge, { backgroundColor: '#DCFCE7' }]}>
+                      <Text style={[styles.statusText, { color: '#16A34A' }]}>SYNCED</Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7' }]}>
+                      <Text style={[styles.statusText, { color: '#D97706' }]}>PENDING</Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={styles.invClient} numberOfLines={1}>{inv.clientName}</Text>
                 <Text style={styles.invMeta}>
                   {inv.currency} {Math.abs(inv.balance ?? 0).toLocaleString('en-IN')} · {inv.date}
+                  {/* Show a shortened version of local IDs so admins can identify offline-created invoices */}
+                  {inv.id?.startsWith('local-') ? '  ·  offline' : ''}
                 </Text>
               </View>
               <Pressable

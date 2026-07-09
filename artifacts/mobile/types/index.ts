@@ -1,7 +1,7 @@
 export type InvoiceStatus = 'draft' | 'pending' | 'paid' | 'archived';
 export type SortField = 'date' | 'amount' | 'customer';
 export type SortOrder = 'asc' | 'desc';
-export type FilterStatus = 'all' | 'active' | 'paid' | 'pending' | 'archived' | 'favorites';
+export type FilterStatus = 'all' | 'active' | 'paid' | 'pending' | 'archived' | 'favorites' | 'synced';
 
 export interface ExpenseItem {
   id: string;
