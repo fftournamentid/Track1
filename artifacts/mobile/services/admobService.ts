@@ -53,6 +53,12 @@ export const ADMOB_APP_ID = 'ca-app-pub-6673874934806841~7887105165';
 let _initialised = false;
 
 export async function initAdMob(): Promise<void> {
+  // ── TEMPORARY DIAGNOSTIC HARD BYPASS ──────────────────────────────────────
+  // AdMob initialization is 100% disabled while we track down the post-login
+  // freeze. Remove this early return once the freeze is confirmed fixed.
+  console.log('[AdMob] initAdMob() called — HARD BYPASS active, skipping all ad init');
+  return;
+
   if (_initialised) return;
 
   // In development, skip the real initialize() call entirely.
@@ -67,13 +73,14 @@ export async function initAdMob(): Promise<void> {
     return;
   }
 
-  if (!mobileAds) {
+  const mobileAdsFn = mobileAds;
+  if (!mobileAdsFn) {
     console.warn('[AdMob] SDK not available — skipping init');
     return;
   }
   try {
     await Promise.race([
-      mobileAds().initialize(),
+      mobileAdsFn!().initialize(),
       new Promise<void>((resolve) =>
         setTimeout(() => {
           console.warn('[AdMob] initialize() timed out after 8 s — ads disabled for this session');

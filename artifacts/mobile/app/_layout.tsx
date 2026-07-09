@@ -38,6 +38,10 @@ function RootLayoutNav() {
   const router = useRouter();
   const segments = useSegments();
 
+  console.log(
+    `[BOOT] RootLayoutNav render — isLoading=${isLoading} user=${!!user} userDoc=${!!userDoc} segments=${JSON.stringify(segments)}`
+  );
+
   const seg = segments as string[];
   const inAuthGroup = seg[0] === "(auth)";
   const inAdminGroup = seg[0] === "admin";
@@ -96,9 +100,13 @@ export default function RootLayout() {
 
   // ── SQLite: init local database as early as possible ─────────────────────
   useEffect(() => {
-    initDatabase().catch((err) =>
-      console.error("[SQLite] Failed to initialise database:", err)
-    );
+    console.log("[BOOT] SQLite initDatabase() starting…");
+    const t0 = Date.now();
+    initDatabase()
+      .then(() => console.log(`[BOOT] SQLite initDatabase() resolved in ${Date.now() - t0}ms`))
+      .catch((err) =>
+        console.error("[BOOT] SQLite initDatabase() FAILED:", err)
+      );
   }, []);
 
   // ── AdMob: initialise in a completely isolated try/catch ──────────────────
@@ -107,13 +115,18 @@ export default function RootLayout() {
   // native module, missing Play Services, newArch incompatibility) is caught
   // here and logged — it NEVER propagates to crash the app.
   useEffect(() => {
+    console.log("[BOOT] AdMob effect scheduled (1500ms delay)");
     const timer = setTimeout(() => {
       (async () => {
+        console.log("[BOOT] AdMob effect firing — importing admobService…");
+        const t0 = Date.now();
         try {
           const { initAdMob } = await import("@/services/admobService");
+          console.log(`[BOOT] admobService imported in ${Date.now() - t0}ms — calling initAdMob()`);
           await initAdMob();
+          console.log(`[BOOT] initAdMob() resolved in ${Date.now() - t0}ms total`);
         } catch (err) {
-          console.warn("[AdMob] initAdMob failed (non-fatal — ads disabled):", err);
+          console.warn("[BOOT] AdMob initAdMob FAILED (non-fatal — ads disabled):", err);
         }
       })();
     }, 1500); // small delay ensures the UI is mounted before ads init

@@ -26,11 +26,15 @@ export default function LoginScreen() {
     if (passErr) { setError(passErr); return; }
 
     setLoading(true);
+    console.log('[BOOT] Login: calling signIn()…');
+    const t0 = Date.now();
     try {
       await signIn(email.trim().toLowerCase(), password);
+      console.log(`[BOOT] Login: signIn() resolved in ${Date.now() - t0}ms — waiting for AuthContext/_layout to redirect`);
       // Let _layout.tsx handle routing based on role (admin vs normal user)
       // Do NOT redirect here; wait for userDoc to load so admin gets /admin
     } catch (err: unknown) {
+      console.warn(`[BOOT] Login: signIn() FAILED after ${Date.now() - t0}ms:`, err);
       const code = (err as { code?: string }).code ?? '';
       setError(getAuthErrorMessage(code));
       setLoading(false);
