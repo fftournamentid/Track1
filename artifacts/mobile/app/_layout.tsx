@@ -33,25 +33,36 @@ const LoadingScreen = () => (
   </View>
 );
 
+// Same UID as AuthContext — used as a belt-and-suspenders fallback so the
+// hardcoded admin is never blocked by stale SQLite cache or a Firestore race.
+const ADMIN_UID = 'kaqcXOcHHYU7VeSXdLMUR2E66vB3';
+
 function RootLayoutNav() {
-  const { user, userDoc, isLoading } = useAuth();
+  const { user, userDoc, isLoading, isRoleConfirmed } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
   console.log(
-    `[BOOT] RootLayoutNav render — isLoading=${isLoading} user=${!!user} userDoc=${!!userDoc} segments=${JSON.stringify(segments)}`
+    `[BOOT] RootLayoutNav render — isLoading=${isLoading} isRoleConfirmed=${isRoleConfirmed} user=${!!user} userDoc=${!!userDoc} segments=${JSON.stringify(segments)}`
   );
 
   const seg = segments as string[];
   const inAuthGroup = seg[0] === "(auth)";
   const inAdminGroup = seg[0] === "admin";
-  const isAdmin = userDoc?.role === "admin";
+
+  // isAdmin checks both the live Firestore role AND the hardcoded UID so that
+  // the admin is never blocked by a stale SQLite cache during initial load.
+  const isAdmin = userDoc?.role === "admin" || user?.uid === ADMIN_UID;
+
+  // Admin-related redirects require Firestore to confirm the role first.
+  // Acting on the SQLite cache alone risks bouncing freshly-promoted admins.
+  const roleReady = isRoleConfirmed || !user; // non-logged-in path needs no Firestore
 
   const needsRedirect =
     !isLoading &&
     ((!user && !inAuthGroup) ||
-      (!!user && inAuthGroup) ||
-      (!!user && !isAdmin && inAdminGroup));
+      (!!user && inAuthGroup && roleReady) ||
+      (!!user && !isAdmin && inAdminGroup && roleReady));
 
   useEffect(() => {
     if (isLoading) return;
@@ -61,16 +72,23 @@ function RootLayoutNav() {
       return;
     }
 
+    // Wait for Firestore to confirm role before the login redirect decision.
+    // Without this, a freshly-promoted admin whose SQLite cache predates the
+    // role write would be sent to /(tabs) instead of /admin.
     if (user && inAuthGroup) {
+      if (!isRoleConfirmed) return; // stay on the loading screen until role is known
       router.replace(isAdmin ? ("/admin" as never) : ("/(tabs)" as never));
       return;
     }
 
+    // Similarly, don't bounce from the admin panel until Firestore confirms
+    // the role — the cached doc may simply not have the role field yet.
     if (user && !isAdmin && inAdminGroup) {
+      if (!isRoleConfirmed) return;
       router.replace("/(tabs)" as never);
       return;
     }
-  }, [user, userDoc, isLoading, segments]);
+  }, [user, userDoc, isLoading, isRoleConfirmed, segments]);
 
   if (isLoading || needsRedirect) {
     return <LoadingScreen />;

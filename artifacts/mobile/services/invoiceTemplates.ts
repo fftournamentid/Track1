@@ -824,15 +824,124 @@ function renderA5Invoice(
 
 // ─── Dispatcher ────────────────────────────────────────────────────────────────
 
+// ─── Image resolver ───────────────────────────────────────────────────────────
+//
+// expo-print's WebView and html2canvas cannot load:
+//   • Local file:// URIs  — the print sandbox has no filesystem access
+//   • Remote https:// URLs — cross-origin restrictions block Supabase Storage
+//
+// The only reliable way to embed images in a generated PDF is to convert every
+// URI to an inline Base64 data URI before injecting it into the HTML template.
+
+type ImageResult = { base64: string; mimeType: string };
+
+/**
+ * Resolves any image URI to a Base64 string + MIME type.
+ *
+ * Handles:
+ *   - `file://` local URIs  → FileSystem.readAsStringAsync
+ *   - `https://` remote URLs (e.g. Supabase Storage) → download to cache, read
+ *   - `data:` URIs          → extract the embedded Base64
+ *   - Web (Expo web)        → fetch() + FileReader for any URI
+ *
+ * Returns null on failure (non-fatal — image is simply omitted from PDF).
+ */
+async function resolveImageToBase64(uri: string | undefined | null): Promise<ImageResult | null> {
+  if (!uri) return null;
+
+  try {
+    // Already a data URI — extract the Base64 payload and declared MIME type
+    if (uri.startsWith('data:')) {
+      const [meta, base64] = uri.split(',');
+      const mimeType = meta?.match(/data:([^;]+)/)?.[1] ?? 'image/jpeg';
+      return base64 ? { base64, mimeType } : null;
+    }
+
+    // Infer MIME type from the file extension (strip query-string first)
+    const cleanPath = uri.split('?')[0];
+    const ext = cleanPath.split('.').pop()?.toLowerCase() ?? '';
+    const mimeType =
+      ext === 'png'  ? 'image/png'  :
+      ext === 'webp' ? 'image/webp' :
+      ext === 'gif'  ? 'image/gif'  :
+      'image/jpeg';
+
+    // ── Web platform ─────────────────────────────────────────────────────────
+    if (Platform.OS === 'web') {
+      const response = await fetch(uri);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return new Promise<ImageResult | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const b64 = result.split(',')[1];
+          resolve(b64 ? { base64: b64, mimeType } : null);
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    // ── Native: remote URL (Supabase Storage, CDN, etc.) ─────────────────────
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      const tmpName = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const dest = `${FileSystem.cacheDirectory}${tmpName}`;
+      const dl = await FileSystem.downloadAsync(uri, dest);
+      if (dl.status !== 200) {
+        console.warn('[PDF][img] Remote download failed, status:', dl.status, 'uri:', uri);
+        return null;
+      }
+      const base64 = await FileSystem.readAsStringAsync(dest, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      // Clean up the temp file (non-blocking)
+      FileSystem.deleteAsync(dest, { idempotent: true }).catch(() => {});
+      return { base64, mimeType };
+    }
+
+    // ── Native: local file URI ────────────────────────────────────────────────
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return { base64, mimeType };
+
+  } catch (err) {
+    console.warn('[PDF][img] resolveImageToBase64 failed (non-fatal):', err);
+    return null;
+  }
+}
+
+/**
+ * Resolves the business snapshot's logo and signature URIs to Base64 in
+ * parallel. Used by generatePDFWithTemplate and buildInvoiceHTML so that
+ * both native (expo-print) and web (html2canvas) paths embed images correctly.
+ */
+async function resolveBusinessImages(invoice: Invoice): Promise<{
+  logoResult: ImageResult | null;
+  sigResult: ImageResult | null;
+}> {
+  const biz = invoice.businessSnapshot;
+  const [logoResult, sigResult] = await Promise.all([
+    resolveImageToBase64(biz?.logoUri),
+    resolveImageToBase64(biz?.signatureUri),
+  ]);
+  return { logoResult, sigResult };
+}
+
+// ─── Dispatcher ────────────────────────────────────────────────────────────────
+
 export async function generateInvoiceHTML(
   invoice: Invoice,
   templateId: string,
   logoBase64: string | null = null,
   signatureBase64: string | null = null,
+  logoMime = 'image/jpeg',
+  signatureMime = 'image/jpeg',
 ): Promise<string> {
   const t = INVOICE_TEMPLATES.find(t => t.id === templateId) ?? INVOICE_TEMPLATES[0];
-  const logo = logoBase64 ? `data:image/jpeg;base64,${logoBase64}` : null;
-  const sig  = signatureBase64 ? `data:image/jpeg;base64,${signatureBase64}` : null;
+  const logo = logoBase64 ? `data:${logoMime};base64,${logoBase64}` : null;
+  const sig  = signatureBase64 ? `data:${signatureMime};base64,${signatureBase64}` : null;
   // All templates now render the same A5 portrait layout (colors vary per template).
   return renderA5Invoice(invoice, t, logo, sig);
 }
@@ -848,14 +957,26 @@ export function getTemplateById(id: string): TemplateStyle {
 }
 
 /**
- * Build the invoice HTML string — convenience alias for generateInvoiceHTML.
+ * Build the invoice HTML string with embedded images.
  * Used by pdfService.downloadForWeb and web-platform PDF generation.
+ *
+ * Resolves logoUri/signatureUri from invoice.businessSnapshot to Base64
+ * data URIs before generating HTML so that web PDF renderers (html2canvas)
+ * can embed the images without hitting cross-origin restrictions.
  */
 export async function buildInvoiceHTML(
   invoice: Invoice,
   templateId: string,
 ): Promise<string> {
-  return generateInvoiceHTML(invoice, templateId);
+  const { logoResult, sigResult } = await resolveBusinessImages(invoice);
+  return generateInvoiceHTML(
+    invoice,
+    templateId,
+    logoResult?.base64 ?? null,
+    sigResult?.base64 ?? null,
+    logoResult?.mimeType,
+    sigResult?.mimeType,
+  );
 }
 
 /**
@@ -893,10 +1014,23 @@ export async function generatePDFWithTemplate(
   invoice: Invoice,
   templateId: string,
 ): Promise<{ uri: string }> {
+  // Resolve logo and signature to Base64 BEFORE generating HTML.
+  // Both expo-print (native WebView) and html2canvas (web) cannot load:
+  //   • Local file:// URIs — no filesystem access in the print sandbox
+  //   • Supabase Storage https:// URLs — blocked by cross-origin policy
+  // Embedding as inline data URIs is the only reliable approach.
+  const { logoResult, sigResult } = await resolveBusinessImages(invoice);
+
   // Web: expo-print has no web implementation. Render a REAL PDF binary
   // (not HTML) via html2canvas + jsPDF so web behaves like native.
   if (Platform.OS === 'web') {
-    const html = await generateInvoiceHTML(invoice, templateId);
+    const html = await generateInvoiceHTML(
+      invoice, templateId,
+      logoResult?.base64 ?? null,
+      sigResult?.base64 ?? null,
+      logoResult?.mimeType,
+      sigResult?.mimeType,
+    );
     const { renderHtmlToPdfBlob, blobHasValidPdfHeader } = await import('./webPdfGenerator');
     const blob = await renderHtmlToPdfBlob(html);
     const validHeader = await blobHasValidPdfHeader(blob);
@@ -906,7 +1040,13 @@ export async function generatePDFWithTemplate(
     return { uri: URL.createObjectURL(blob) };
   }
 
-  const html = await generateInvoiceHTML(invoice, templateId);
+  const html = await generateInvoiceHTML(
+    invoice, templateId,
+    logoResult?.base64 ?? null,
+    sigResult?.base64 ?? null,
+    logoResult?.mimeType,
+    sigResult?.mimeType,
+  );
 
   async function tryPrint(): Promise<{ uri: string }> {
     // Explicit width/height (A5, in points) — printToFileAsync ignores the

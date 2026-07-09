@@ -25,3 +25,5 @@
 - [CFT records cross-session isolation](cft-records-isolation.md) — setRecords([]) before loading from new cftStorageKey prevents prior-user data bleeding; anonymous fallback key used when not signed in.
 - [Web date picker — ref.click() pattern](web-date-picker-ref.md) — always-rendered hidden <input type="date"> + ref.current.click() from Pressable; autoFocus on hidden input does not reliably open native picker.
 - [Logo/signature upload — optimistic local then cloud swap](logo-sig-upload.md) — pickImage sets local URI immediately, uploads to Supabase in background, swaps to cloud URL on success; failure non-fatal.
+- [Admin role confirmation — isRoleConfirmed pattern](admin-role-confirmed.md) — isRoleConfirmed starts false, resets on every onAuthStateChanged, set true only after Firestore snapshot; _layout must not redirect from admin route until isRoleConfirmed=true.
+- [PDF images — Supabase URL to Base64](pdf-image-base64.md) — resolveImageToBase64 in invoiceTemplates.ts converts any URI (file://, https://, data:) to Base64 before HTML injection; generatePDFWithTemplate + buildInvoiceHTML both call resolveBusinessImages(invoice) first.

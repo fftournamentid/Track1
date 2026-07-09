@@ -66,6 +66,14 @@ interface AuthContextType {
   user: User | null;
   userDoc: UserDocument | null;
   isLoading: boolean;
+  /**
+   * True once Firestore has fired at least one snapshot for the current session.
+   * False while only the SQLite cache has been restored (which may be stale —
+   * e.g. a freshly-promoted admin whose cache pre-dates the role write).
+   * Route guards that depend on role (admin access) must not redirect until
+   * this is true, or they will make decisions based on stale cached data.
+   */
+  isRoleConfirmed: boolean;
   refreshUserDoc: () => void;
 }
 
@@ -75,6 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userDoc, setUserDoc] = useState<UserDocument | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Starts false; set to true only after Firestore fires its first live snapshot.
+  // Role-dependent route guards must not act until this is true.
+  const [isRoleConfirmed, setIsRoleConfirmed] = useState(false);
 
   /**
    * Monotonic counter — incremented on every `onAuthStateChanged` invocation.
@@ -106,6 +117,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // (never via a state setter — see StrictMode note above).
       docUnsubRef.current?.();
       docUnsubRef.current = null;
+
+      // Reset role confirmation on every auth event — sign-out, sign-in, token
+      // refresh. This ensures _layout's redirect gate never acts on role state
+      // from a previous user's session.  It is re-set to `true` below only when
+      // the Firestore snapshot for the CURRENT auth epoch fires successfully.
+      setIsRoleConfirmed(false);
 
       setUser(firebaseUser);
 
@@ -159,12 +176,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // Promote hardcoded admin if role is missing
-          if (doc && firebaseUser.uid === ADMIN_UID && doc.role !== 'admin') {
-            setUserRole(firebaseUser.uid, 'admin');
+          // Promote hardcoded admin if role is missing in Firestore.
+          // IMPORTANT: also patch the in-memory doc immediately so the layout
+          // does NOT see role=undefined on this first snapshot and redirect the
+          // user away from the admin panel before the Firestore write settles.
+          let processedDoc = doc;
+          if (processedDoc && firebaseUser.uid === ADMIN_UID && processedDoc.role !== 'admin') {
+            processedDoc = { ...processedDoc, role: 'admin' } as typeof processedDoc;
+            setUserRole(firebaseUser.uid, 'admin').catch((err) =>
+              console.warn('[AuthContext] Failed to persist admin role:', err),
+            );
           }
 
-          setUserDoc(doc);
+          setUserDoc(processedDoc);
+          // Signal that a live Firestore snapshot has confirmed the role.
+          // Route guards that depend on role (admin access) must wait for this
+          // before making redirect decisions — the SQLite cache may be stale.
+          setIsRoleConfirmed(true);
           setIsLoading(false); // ensures loading clears even if SQLite cache was empty
 
           if (doc) {
@@ -196,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         // ── SIGN-OUT / TOKEN EXPIRY ──────────────────────────────────────────
         setUserDoc(null);
+        setIsRoleConfirmed(false); // explicit reset; the top-of-callback reset covers this too
         setIsLoading(false);
 
         removeSessionValue(SESSION_USER_DOC).catch((err) =>
@@ -215,7 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, userDoc, isLoading, refreshUserDoc }}>
+    <AuthContext.Provider value={{ user, userDoc, isLoading, isRoleConfirmed, refreshUserDoc }}>
       {children}
     </AuthContext.Provider>
   );
