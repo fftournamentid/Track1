@@ -34,3 +34,8 @@ Firebase credentials are pre-configured as `EXPO_PUBLIC_FIREBASE_*` env vars. Su
 ## User preferences
 
 _(none yet)_
+
+## Setup notes
+
+- After importing, run `pnpm install` at the workspace root to install all dependencies for both artifacts.
+- `babel-preset-expo` is pinned as a direct devDependency of `artifacts/mobile` (not just a transitive dep of `expo`) — pnpm otherwise hoists it to the workspace root where it can't `require.resolve('expo-router')`, silently disabling the Expo Router babel plugin and breaking web bundling with an `EXPO_ROUTER_APP_ROOT` / `require.context` error.
