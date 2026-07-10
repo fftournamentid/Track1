@@ -53,6 +53,7 @@ import {
   removeSessionValue,
 } from '@/services/sqliteService';
 import { cachePremiumStatus, initUserCredits } from '@/services/syncCreditsService';
+import { setDraftUid } from '@/services/draftService';
 
 const ADMIN_UID = 'kaqcXOcHHYU7VeSXdLMUR2E66vB3';
 
@@ -127,6 +128,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser);
 
       if (firebaseUser) {
+        // Scope draft storage to this user immediately — before any async work
+        // so auto-saves that occur during sign-in load go to the right key.
+        setDraftUid(firebaseUser.uid);
         // ── Safety timeout (last-resort, 10 s) ────────────────────────────
         // Forces BOTH isLoading and isRoleConfirmed to resolve if Firestore
         // never responds at all (permission error, network failure, cold-start
@@ -266,6 +270,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       } else {
         // ── SIGN-OUT / TOKEN EXPIRY ──────────────────────────────────────────
+        // Reset draft scope immediately so any draft written before sign-out
+        // is no longer associated with the signed-out user's uid.
+        setDraftUid(undefined);
         setUserDoc(null);
         setIsRoleConfirmed(false); // explicit reset; the top-of-callback reset covers this too
         setIsLoading(false);

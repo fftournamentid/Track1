@@ -18,6 +18,7 @@ import type { Invoice, ExpenseItem, SettlementStatus } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
 import { INVOICE_TEMPLATES } from '@/services/invoiceTemplates';
 import { saveDraft, loadDraft, clearDraft, savePreviewData } from '@/services/draftService';
+import Toast from '@/components/Toast';
 
 function computeSettlementStatus(balance: number): SettlementStatus {
   if (balance < 0) return 'receive';
@@ -290,9 +291,26 @@ export default function CreateInvoiceScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initializedRef = useRef(false);
+  /** Safety timer: forces the spinner off within 1 second no matter what. */
+  const spinnerSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Navigation/toast timer: the 700 ms delay between local save and router.replace. */
+  const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Cleanup all pending timers on unmount ─────────────────────────────────
+  // Prevents post-unmount setState calls from the spinner safety timer and the
+  // navigation delay timer if the component is unmounted mid-save.
+  useEffect(() => {
+    return () => {
+      if (spinnerSafetyRef.current) clearTimeout(spinnerSafetyRef.current);
+      if (navTimerRef.current) clearTimeout(navTimerRef.current);
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, []);
 
   const totalExpenses = useMemo(() => expenses.reduce((s, i) => s + i.amount, 0), [expenses]);
   const advanceNum = useMemo(() => Number(advanceAmount) || 0, [advanceAmount]);
@@ -503,6 +521,18 @@ export default function CreateInvoiceScreen() {
   };
 
   // ─── Save ─────────────────────────────────────────────────────────────────
+  //
+  // Architecture: PURELY LOCAL-FIRST.
+  //   1. Validate form fields (synchronous, instant).
+  //   2. Write to SQLite via createInvoice / updateInvoice — both are
+  //      local-first: they await only the SQLite write, then fire Firestore
+  //      as a background task that never blocks this function.
+  //   3. Spinner is cleared within a hard 1-second deadline via a safety timer
+  //      — the UI NEVER hangs waiting for a network round-trip.
+  //   4. Draft is wiped in background (non-blocking).
+  //   5. Toast confirms "Saved Locally" and the user is navigated away.
+  //   6. PDF generation + Supabase upload happen entirely in the background.
+
   const handleSave = async () => {
     console.log('[Save] Save button pressed');
 
@@ -513,8 +543,26 @@ export default function CreateInvoiceScreen() {
     if (expenses.some((i) => !i.name.trim())) { Alert.alert('Required', 'Fill all expense names'); return; }
     if (expenses.some((i) => i.amount <= 0)) { Alert.alert('Required', 'All expense amounts must be greater than zero'); return; }
 
-    console.log('[Save] Validation passed');
+    console.log('[Save] Validation passed — writing to local SQLite');
     setIsSaving(true);
+
+    // ── Hard spinner deadline (1 s) ───────────────────────────────────────
+    // No matter what happens below, the spinner clears within 1 second.
+    // This is the last-resort guard; under normal conditions we clear it
+    // manually the moment the SQLite write succeeds.
+    if (spinnerSafetyRef.current) clearTimeout(spinnerSafetyRef.current);
+    spinnerSafetyRef.current = setTimeout(() => {
+      console.warn('[Save] Spinner safety timer fired — forcing isSaving=false');
+      setIsSaving(false);
+    }, 1000);
+
+    const clearSpinner = () => {
+      if (spinnerSafetyRef.current) {
+        clearTimeout(spinnerSafetyRef.current);
+        spinnerSafetyRef.current = null;
+      }
+      setIsSaving(false);
+    };
 
     try {
       const data = {
@@ -545,86 +593,66 @@ export default function CreateInvoiceScreen() {
         showQrCode,
       };
 
-      // Haptics are non-fatal — swallow any error so a missing native module
-    // or web-platform absence never aborts the save.
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      // Haptics are non-fatal — swallow so a missing native module never blocks.
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+
+      let savedId: string;
 
       if (isEditing && editId) {
-        // ── Update existing invoice ────────────────────────────────────────
-        console.log('[Save] Firestore save started (update)', editId);
-        try {
-          await updateInvoice(editId, data);
-          console.log('[Save] Firestore save success');
-        } catch (fsErr) {
-          console.error('[Save] Firestore save failed:', fsErr);
-          throw fsErr;
-        }
-        // clearDraft is best-effort — don't let it mask a successful save.
-        await clearDraft().catch((e) => console.warn('[Save] clearDraft failed (non-fatal):', e));
-
-        // Generate PDF + upload to Supabase in background (non-blocking)
-        if (Platform.OS !== 'web' && user?.uid) {
-          const existingInv = getInvoiceById(editId);
-          if (existingInv) {
-            const invoiceForPdf = { ...existingInv, ...data, id: editId };
-            console.log('[Save] Supabase upload started');
-            generateAndSaveInvoicePDF(invoiceForPdf, selectedTemplateId, true, user.uid)
-              .then((pdf) => {
-                if (pdf.publicUrl) {
-                  console.log('[Save] Supabase upload success:', pdf.publicUrl);
-                  updateInvoice(editId, { pdfUrl: pdf.publicUrl }).catch(() => {});
-                } else {
-                  console.log('[Save] Supabase upload — no public URL (env vars may not be set)');
-                }
-              })
-              .catch((pdfErr) => console.warn('[Save] Supabase upload failed (non-fatal):', pdfErr));
-          }
-        }
-
-        Alert.alert('Invoice saved successfully', undefined, [
-          { text: 'Go to History', onPress: () => router.replace('/(tabs)/invoices' as never) },
-          { text: 'View Invoice', onPress: () => router.replace({ pathname: '/invoice/[id]', params: { id: editId } }) },
-        ]);
+        // ── Update existing invoice (SQLite-first, Firestore in background) ─
+        await updateInvoice(editId, data);
+        savedId = editId;
+        console.log('[Save] SQLite update complete — id:', savedId);
       } else {
-        // ── Create new invoice ─────────────────────────────────────────────
-        console.log('[Save] Firestore save started');
-        let inv: import('@/types').Invoice;
-        try {
-          inv = await createInvoice(data);
-          console.log('[Save] Firestore save success. id:', inv.id);
-        } catch (fsErr) {
-          console.error('[Save] Firestore save failed:', fsErr);
-          throw fsErr;
-        }
-        // clearDraft is best-effort — don't let it mask a successful save.
-        await clearDraft().catch((e) => console.warn('[Save] clearDraft failed (non-fatal):', e));
+        // ── Create new invoice (SQLite-first, Firestore in background) ──────
+        const inv = await createInvoice(data);
+        savedId = inv.id;
+        console.log('[Save] SQLite create complete — id:', savedId);
+      }
 
-        // Generate PDF + upload to Supabase in background (non-blocking)
-        // This runs after navigation so it doesn't delay the UX
-        if (Platform.OS !== 'web' && user?.uid) {
-          const savedInv = inv;
-          const savedUid = user.uid;
-          console.log('[Save] Supabase upload started');
-          generateAndSaveInvoicePDF(savedInv, selectedTemplateId, true, savedUid)
+      // ── Local save confirmed: clear spinner immediately ───────────────────
+      clearSpinner();
+
+      // ── Wipe draft in the background (never blocks navigation) ───────────
+      clearDraft().catch((e) => console.warn('[Save] clearDraft (non-fatal):', e));
+
+      // ── Show "Saved Locally" toast ────────────────────────────────────────
+      setToastMessage('Invoice saved locally ✓');
+      setToastVisible(true);
+
+      // ── Navigate after brief toast window (700 ms) ────────────────────────
+      // Stored in navTimerRef so the unmount cleanup can cancel it if the user
+      // navigates away manually before the 700 ms elapses.
+      if (navTimerRef.current) clearTimeout(navTimerRef.current);
+      navTimerRef.current = setTimeout(() => {
+        navTimerRef.current = null;
+        setToastVisible(false);
+        router.replace({ pathname: '/invoice/[id]', params: { id: savedId } });
+      }, 700);
+
+      // ── Background: PDF generation + Supabase upload ──────────────────────
+      // Runs entirely after navigation — never delays the user.
+      if (Platform.OS !== 'web' && user?.uid) {
+        const uid = user.uid;
+        const existingInv = getInvoiceById(savedId);
+        if (existingInv) {
+          const invoiceForPdf = { ...existingInv, ...data, id: savedId };
+          console.log('[Save] PDF + Supabase upload started (background)');
+          generateAndSaveInvoicePDF(invoiceForPdf, selectedTemplateId, true, uid)
             .then((pdf) => {
               if (pdf.publicUrl) {
                 console.log('[Save] Supabase upload success:', pdf.publicUrl);
-                updateInvoice(savedInv.id, { pdfUrl: pdf.publicUrl }).catch(() => {});
-              } else {
-                console.log('[Save] Supabase upload — no public URL (env vars may not be set)');
+                updateInvoice(savedId, { pdfUrl: pdf.publicUrl }).catch(() => {});
               }
             })
-            .catch((pdfErr) => console.warn('[Save] Supabase upload failed (non-fatal):', pdfErr));
+            .catch((pdfErr) => console.warn('[Save] Supabase upload (non-fatal):', pdfErr));
         }
-
-        router.replace({ pathname: '/invoice/[id]', params: { id: inv.id } });
       }
     } catch (err) {
-      // Saves are local-first — the only errors here are from SQLite failures
-      // or missing authentication, not from network issues.
+      // Only SQLite errors reach here — network issues are fully background.
+      clearSpinner();
+      console.error('[Save] Local save failed:', err);
       Alert.alert('Unable to save invoice', String(err));
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -633,6 +661,9 @@ export default function CreateInvoiceScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Local-save success toast — shown briefly after Save, before navigation */}
+      <Toast visible={toastVisible} message={toastMessage} type="success" />
+
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backBtn}>

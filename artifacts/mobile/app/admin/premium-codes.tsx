@@ -82,20 +82,33 @@ export default function PremiumCodesScreen() {
   }, []);
 
   const handleCreate = useCallback(async () => {
-    if (!newCode.trim()) { Alert.alert('Error', 'Code cannot be empty.'); return; }
+    const trimmedCode = newCode.trim();
+    if (!trimmedCode) { Alert.alert('Error', 'Code cannot be empty.'); return; }
     setCreating(true);
     try {
       await createAccessCode({
-        code: newCode.trim(),
+        code: trimmedCode,
         maxUses: parseInt(maxUses) || 0,
         expiryDate: expiryDate || null,
         note: note.trim(),
       });
       setShowCreate(false);
       setNewCode(''); setMaxUses('0'); setExpiryDate(''); setNote('');
-      Alert.alert('✓ Created', `Code "${newCode.trim().toUpperCase()}" is now active.`);
-    } catch {
-      Alert.alert('Error', 'Failed to create code. Please try again.');
+      Alert.alert('✓ Created', `Code "${trimmedCode.toUpperCase()}" is now active.`);
+    } catch (err: unknown) {
+      // Surface the real Firestore error so admins can diagnose rule failures.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[PremiumCodes] createAccessCode failed:', msg, err);
+      const isPermission =
+        msg.toLowerCase().includes('permission') ||
+        msg.toLowerCase().includes('permission_denied') ||
+        msg.toLowerCase().includes('missing or insufficient');
+      Alert.alert(
+        'Failed to Create Code',
+        isPermission
+          ? `Firestore permission denied.\n\nEnsure:\n• Firestore rules are deployed (firebase deploy --only firestore:rules)\n• You are signed in as the bootstrap admin\n\nError: ${msg}`
+          : `Unexpected error — ${msg}`,
+      );
     } finally {
       setCreating(false);
     }

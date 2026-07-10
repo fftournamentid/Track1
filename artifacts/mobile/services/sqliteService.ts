@@ -119,6 +119,17 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    -- ── drafts ────────────────────────────────────────────────────────────────
+    -- Stores the in-progress invoice form so partial entries survive app kills.
+    -- One row per user (draft_key = 'invoice_form_draft:<uid|anonymous>').
+    -- Uses CREATE TABLE IF NOT EXISTS so existing DBs gain the table on upgrade.
+    CREATE TABLE IF NOT EXISTS drafts (
+      draft_key TEXT PRIMARY KEY NOT NULL,
+      user_uid  TEXT NOT NULL DEFAULT '',
+      data      TEXT NOT NULL,
+      saved_at  TEXT NOT NULL
+    );
   `);
 }
 
@@ -516,6 +527,61 @@ export async function runInTransaction<T>(
  */
 export async function initDatabase(): Promise<void> {
   await getDb();
+}
+
+// ─── DRAFTS ──────────────────────────────────────────────────────────────────
+//
+// One row per logical draft key.  The default key is
+// 'invoice_form_draft:<uid>' so drafts are user-scoped automatically.
+// Anonymous (pre-auth) drafts use 'invoice_form_draft:anonymous'.
+
+const DRAFT_KEY_PREFIX = 'invoice_form_draft';
+
+function draftKey(userUid?: string): string {
+  return `${DRAFT_KEY_PREFIX}:${userUid || 'anonymous'}`;
+}
+
+/**
+ * Persist the current form draft to SQLite.
+ * Overwrites any previous draft for this user.
+ */
+export async function saveDraftToSQLite(data: unknown, userUid?: string): Promise<void> {
+  const db = await getDb();
+  const key = draftKey(userUid);
+  await db.runAsync(
+    `INSERT INTO drafts (draft_key, user_uid, data, saved_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(draft_key) DO UPDATE SET
+       data     = excluded.data,
+       user_uid = excluded.user_uid,
+       saved_at = excluded.saved_at`,
+    [key, userUid ?? '', JSON.stringify(data), now()],
+  );
+}
+
+/**
+ * Load the draft for this user.  Returns null if none exists.
+ */
+export async function loadDraftFromSQLite<T = unknown>(userUid?: string): Promise<T | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ data: string }>(
+    'SELECT data FROM drafts WHERE draft_key = ?',
+    [draftKey(userUid)],
+  );
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete the stored draft for this user.
+ */
+export async function clearDraftFromSQLite(userUid?: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM drafts WHERE draft_key = ?', [draftKey(userUid)]);
 }
 
 /** Close the database. Only needed for testing — the app never calls this. */
