@@ -127,22 +127,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(firebaseUser);
 
       if (firebaseUser) {
-        // ── Safety timeout ─────────────────────────────────────────────────
-        // If Firestore never responds (network hiccup, cold start, permission
-        // error) this timer ensures the orange splash screen doesn't hang
-        // forever. It is cancelled as soon as Firestore fires its first event.
+        // ── Safety timeout (last-resort, 10 s) ────────────────────────────
+        // Forces BOTH isLoading and isRoleConfirmed to resolve if Firestore
+        // never responds at all (permission error, network failure, cold-start
+        // beyond the shorter fallback window). Cancelled as soon as Firestore
+        // fires its first snapshot.
         const safetyTimer = setTimeout(() => {
           if (epoch !== authEpochRef.current) return;
           console.warn(
             `[AuthContext] ⚠ Firestore did not respond within ${FIRESTORE_TIMEOUT_MS / 1000}s` +
-            ' — forcing isLoading=false so the app stays usable.',
+            ' — forcing isLoading=false and isRoleConfirmed=true (fallback to cached data).',
           );
           setIsLoading(false);
+          setIsRoleConfirmed(true); // unblock admin-bounce guard after timeout
         }, FIRESTORE_TIMEOUT_MS);
 
         // ── FAST PATH: restore userDoc from SQLite cache ───────────────────
-        // Clears isLoading before the Firestore round-trip, so the app is
-        // immediately interactive on every subsequent launch.
+        // Always clears isLoading once the SQLite attempt completes — whether
+        // a cache was found or not. This guarantees the app is interactive
+        // immediately (including on first-ever login where no cache exists).
         try {
           const cached = await getSessionJSON<UserDocument | null>(SESSION_USER_DOC, null);
 
@@ -153,8 +156,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           if (cached) {
-            setUserDoc(cached);
-            setIsLoading(false);
+            // For ADMIN_UID: patch role in the in-memory doc immediately so the
+            // layout's isAdmin check is correct before Firestore responds.
+            let processedCache = cached;
+            if (firebaseUser.uid === ADMIN_UID && processedCache.role !== 'admin') {
+              processedCache = { ...processedCache, role: 'admin' } as typeof processedCache;
+            }
+            setUserDoc(processedCache);
+            // ADMIN_UID role is hardcoded — no need to wait for Firestore.
+            if (firebaseUser.uid === ADMIN_UID) {
+              setIsRoleConfirmed(true);
+            }
             console.log('[AuthContext] ✓ Session restored from SQLite cache');
           }
         } catch (cacheErr) {
@@ -165,10 +177,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.warn('[AuthContext] SQLite cache read failed (non-fatal):', cacheErr);
         }
 
+        // ALWAYS clear isLoading after the SQLite attempt — found or not.
+        // The layout must become interactive immediately. Firestore will update
+        // userDoc in the background; isRoleConfirmed gates the admin-bounce guard.
+        setIsLoading(false);
+
+        // ── Role-confirmation fallback (shorter window, 4.5 s) ─────────────
+        // Fires before the 10 s safety timer to unblock the admin-bounce guard
+        // specifically. If Firestore hasn't confirmed the role within this
+        // window, fall back to whatever cached data we have rather than blocking
+        // the user indefinitely on a spinner.
+        let roleConfirmTimerId: ReturnType<typeof setTimeout> | null = null;
+        // Tracks whether Firestore fired BEFORE the fallback timer; used to
+        // prevent a spurious warning + redundant setState when onSnapshot fires
+        // synchronously (e.g. in tests or with hot local emulator).
+        let firestoreResponded = false;
+
         // ── LIVE PATH: Firestore subscription in the background ────────────
         const unsubDoc = subscribeToUserDocument(firebaseUser.uid, async (doc) => {
-          // Firestore responded — cancel the safety timer
+          // Firestore responded — cancel ALL pending timers
+          firestoreResponded = true;
           clearTimeout(safetyTimer);
+          if (roleConfirmTimerId !== null) clearTimeout(roleConfirmTimerId);
 
           // Drop this callback if a newer auth event has already superseded it
           if (epoch !== authEpochRef.current) {
@@ -177,9 +207,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           // Promote hardcoded admin if role is missing in Firestore.
-          // IMPORTANT: also patch the in-memory doc immediately so the layout
-          // does NOT see role=undefined on this first snapshot and redirect the
-          // user away from the admin panel before the Firestore write settles.
+          // Patch in memory immediately so the layout never sees role=undefined
+          // on this first snapshot and bounces the admin back to /(tabs).
           let processedDoc = doc;
           if (processedDoc && firebaseUser.uid === ADMIN_UID && processedDoc.role !== 'admin') {
             processedDoc = { ...processedDoc, role: 'admin' } as typeof processedDoc;
@@ -189,11 +218,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           setUserDoc(processedDoc);
-          // Signal that a live Firestore snapshot has confirmed the role.
-          // Route guards that depend on role (admin access) must wait for this
-          // before making redirect decisions — the SQLite cache may be stale.
           setIsRoleConfirmed(true);
-          setIsLoading(false); // ensures loading clears even if SQLite cache was empty
+          // isLoading was already cleared by the SQLite fast path above;
+          // this call is a safety net for the edge case where SQLite is
+          // unavailable and the app was still showing a spinner.
+          setIsLoading(false);
 
           if (doc) {
             // Persist fresh userDoc to SQLite (forever login state)
@@ -209,10 +238,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         });
 
+        // Role-confirmation fallback timer — started AFTER subscription so that
+        // if Firestore fires synchronously (mock/test), roleConfirmTimerId is
+        // already cancelled before this line even sets it.
+        roleConfirmTimerId = setTimeout(() => {
+          if (epoch !== authEpochRef.current) return;
+          if (firestoreResponded) return; // already handled — no spurious warning
+          console.warn(
+            '[AuthContext] ⚠ Firestore role not confirmed within 4.5 s' +
+            ' — unblocking admin-bounce guard with cached data.',
+          );
+          setIsRoleConfirmed(true);
+        }, 4_500);
+
         // If a newer auth event arrived between starting the subscription and
         // receiving its handle back, cancel it immediately.
         if (epoch !== authEpochRef.current) {
           clearTimeout(safetyTimer);
+          if (roleConfirmTimerId !== null) clearTimeout(roleConfirmTimerId);
           unsubDoc();
           return;
         }

@@ -545,7 +545,9 @@ export default function CreateInvoiceScreen() {
         showQrCode,
       };
 
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Haptics are non-fatal — swallow any error so a missing native module
+    // or web-platform absence never aborts the save.
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
       if (isEditing && editId) {
         // ── Update existing invoice ────────────────────────────────────────
@@ -557,7 +559,8 @@ export default function CreateInvoiceScreen() {
           console.error('[Save] Firestore save failed:', fsErr);
           throw fsErr;
         }
-        await clearDraft();
+        // clearDraft is best-effort — don't let it mask a successful save.
+        await clearDraft().catch((e) => console.warn('[Save] clearDraft failed (non-fatal):', e));
 
         // Generate PDF + upload to Supabase in background (non-blocking)
         if (Platform.OS !== 'web' && user?.uid) {
@@ -593,7 +596,8 @@ export default function CreateInvoiceScreen() {
           console.error('[Save] Firestore save failed:', fsErr);
           throw fsErr;
         }
-        await clearDraft();
+        // clearDraft is best-effort — don't let it mask a successful save.
+        await clearDraft().catch((e) => console.warn('[Save] clearDraft failed (non-fatal):', e));
 
         // Generate PDF + upload to Supabase in background (non-blocking)
         // This runs after navigation so it doesn't delay the UX
