@@ -427,6 +427,21 @@ export default function InvoicePreviewScreen() {
     setSaving(true);
     console.log('[Save] handleSave — invoice:', invoice.invoiceNumber, '| editId:', editId ?? '(new)');
 
+    // ── Hard spinner deadline (3 s) ───────────────────────────────────────────
+    // Mirrors the safety pattern in create.tsx. If the SQLite await hangs for
+    // any reason, this timer forces the spinner off so the UI is never locked.
+    // Navigation still fires once the await resolves (or the error is caught).
+    let safetyTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      safetyTimer = null;
+      console.warn('[Preview][Save] Safety timer fired — forcing setSaving(false)');
+      setSaving(false);
+    }, 3000);
+
+    const clearSafety = () => {
+      if (safetyTimer) { clearTimeout(safetyTimer); safetyTimer = null; }
+      setSaving(false);
+    };
+
     try {
       // Strip generated-only fields — the context methods re-apply them
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -446,6 +461,8 @@ export default function InvoicePreviewScreen() {
         console.log('[Save] ✓ SQLite create confirmed — id:', savedId);
       }
 
+      clearSafety();
+
       // Clear draft + preview cache — fire-and-forget, never block navigation
       clearDraft().catch(() => {});
       clearPreviewData().catch(() => {});
@@ -455,15 +472,15 @@ export default function InvoicePreviewScreen() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
 
+      console.log('[Save] Navigating to invoices list — savedId:', savedId);
       // Replace with Invoices list — Back cannot return to the preview form
       router.replace('/(tabs)/invoices');
     } catch (err) {
+      clearSafety();
       console.error('[Preview] Save error:', err);
       const msg = err instanceof Error ? err.message : String(err);
       showToast(`Save failed: ${msg}`, 'error');
       Alert.alert('Save Failed', msg);
-    } finally {
-      setSaving(false);
     }
   }, [invoice, editId, createInvoice, updateInvoice, refreshInvoices, router]);
 
