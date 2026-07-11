@@ -123,6 +123,13 @@ export default function PremiumCodesScreen() {
   }, []);
 
   const handleDelete = useCallback((code: PremiumCode) => {
+    // Alert.alert button callbacks are unreliable on web — use window.confirm instead.
+    if (Platform.OS === 'web') {
+      // eslint-disable-next-line no-alert
+      if (!window.confirm(`Delete "${code.code}"? This cannot be undone.`)) return;
+      deleteAccessCode(code.id).catch(() => Alert.alert('Error', 'Failed to delete code.'));
+      return;
+    }
     Alert.alert('Delete Code', `Delete "${code.code}"? This cannot be undone.`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -138,7 +145,11 @@ export default function PremiumCodesScreen() {
     ]);
   }, []);
 
-  const loading = loadingCodes || loadingUsers;
+  // Note: loadingCodes and loadingUsers are kept separate so the tab that IS
+  // ready renders immediately — the codes tab doesn't block on users loading
+  // and vice-versa.  The combined flag is only used for the initial "first
+  // render" guard before either collection has responded at all.
+  const initialLoading = loadingCodes && loadingUsers;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#EDF0F7' }}>
@@ -175,7 +186,7 @@ export default function PremiumCodesScreen() {
         ))}
       </View>
 
-      {loading ? (
+      {initialLoading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <ActivityIndicator color="#2563EB" size="large" />
           <Text style={{ color: '#6B7280', fontSize: 13 }}>Connecting realtime…</Text>

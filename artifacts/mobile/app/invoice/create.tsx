@@ -264,7 +264,7 @@ export default function CreateInvoiceScreen() {
   const { id: editId, templateId: tplParam, fresh } = useLocalSearchParams<{ id?: string; templateId?: string; fresh?: string }>();
   const isEditing = !!editId;
 
-  const { createInvoice, updateInvoice, getInvoiceById } = useInvoices();
+  const { createInvoice, updateInvoice, getInvoiceById, refreshInvoices } = useInvoices();
   const { profile } = useProfile();
   const { settings, generateNextInvoiceNumber } = useSettings();
   const { user } = useAuth();
@@ -612,8 +612,16 @@ export default function CreateInvoiceScreen() {
 
       // ── Local save confirmed: clear spinner immediately ───────────────────
       clearSpinner();
+      console.log('[Save] ✓ SQLite write confirmed [PIPELINE: FormInput→SQLite→ContextUpdate]');
 
-      // ── Wipe draft in the background (never blocks navigation) ───────────
+      // ── Force-sync context state from SQLite (safety net alongside the
+      //    optimistic update already applied by createInvoice/updateInvoice).
+      //    This ensures Recent Invoices and the Invoices tab reflect the new
+      //    record the instant the user navigates back, with zero network wait.
+      refreshInvoices().catch((e) => console.warn('[Save] refreshInvoices (non-fatal):', e));
+
+      // ── Wipe draft in the background — only for new invoices; edit drafts
+      //    are keyed to the invoice being edited, so they also clear here.
       clearDraft().catch((e) => console.warn('[Save] clearDraft (non-fatal):', e));
 
       // ── Show "Saved Locally" toast ────────────────────────────────────────

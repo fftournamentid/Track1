@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
@@ -103,8 +103,17 @@ export default function DashboardScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { invoices } = useInvoices();
+  const { invoices, refreshInvoices } = useInvoices();
   const { profile } = useProfile();
+
+  // Refresh from SQLite every time this tab comes into focus so a newly-saved
+  // invoice shows up instantly in Recent Invoices without needing a hard reload.
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[Home] tab focused → refreshInvoices() [PIPELINE: Focus→SQLite→State→UI]');
+      refreshInvoices().catch(() => {});
+    }, [refreshInvoices]),
+  );
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());

@@ -124,13 +124,16 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
     getLocalInvoices(uid)
       .then((local) => {
         if (cancelled) return;
-        if (local.length > 0) {
-          setInvoices(local);
-          setIsLoading(false);
-          console.log('[InvoiceContext] ✓ Loaded', local.length, 'invoices from local SQLite');
-        }
+        // Always unblock loading — even zero invoices means "loaded, nothing here yet".
+        // Previously this only called setIsLoading(false) when local.length > 0, which
+        // left first-time / offline users stuck on the loading skeleton forever.
+        setIsLoading(false);
+        setInvoices(local);
+        console.log('[InvoiceContext] ✓ Loaded', local.length, 'invoice(s) from SQLite [PIPELINE: SQLite→State]');
       })
       .catch((err) => {
+        // Even on error, unblock the UI — show empty list rather than infinite spinner.
+        if (!cancelled) setIsLoading(false);
         console.warn('[InvoiceContext] SQLite read failed (non-fatal):', err);
       });
 
@@ -213,7 +216,11 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       }
 
       // 2. Optimistic state update — instant UI feedback, no network wait.
+      //    Also clear isLoading in case this is the very first invoice (the
+      //    SQLite fast-path never set it false for an empty list on first run).
       setInvoices((prev) => [result, ...prev]);
+      setIsLoading(false);
+      console.log('[InvoiceContext] ✓ Optimistic state update applied [PIPELINE: State→UI]');
 
       // 3. Background cloud sync — only attempted when there is a live
       //    authenticated session. Any failure (offline, permission-denied,
@@ -449,9 +456,11 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   const refreshInvoices = useCallback(async (): Promise<void> => {
     if (!user) return;
     try {
+      console.log('[InvoiceContext] refreshInvoices() called [PIPELINE: SQLite→State→UI]');
       const local = await getLocalInvoices(user.uid);
       setInvoices(local);
-      console.log('[InvoiceContext] ✓ Refreshed from SQLite —', local.length, 'invoices');
+      setIsLoading(false);
+      console.log('[InvoiceContext] ✓ Refreshed from SQLite —', local.length, 'invoice(s) now in state');
     } catch (err) {
       console.warn('[InvoiceContext] refreshInvoices failed:', err);
     }

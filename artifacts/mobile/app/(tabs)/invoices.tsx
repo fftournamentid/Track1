@@ -3,7 +3,7 @@ import {
   View, Text, FlatList, StyleSheet, Pressable,
   ScrollView, Modal, Alert, Platform, ActivityIndicator,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
@@ -36,6 +36,15 @@ export default function InvoicesScreen() {
   const insets = useSafeAreaInsets();
   const { invoices, isOffline, refreshInvoices } = useInvoices();
   const { user } = useAuth();
+
+  // Refresh from SQLite every time this tab comes into focus so a newly-saved
+  // invoice appears immediately without a hard app reload.
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[Invoices] tab focused → refreshInvoices() [PIPELINE: Focus→SQLite→State→UI]');
+      refreshInvoices().catch(() => {});
+    }, [refreshInvoices]),
+  );
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
