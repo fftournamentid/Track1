@@ -14,7 +14,7 @@ import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
 import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
-import { generateAndSaveInvoicePDF, openPDF, sharePDF } from '@/services/pdfService';
+import { generateAndSaveInvoicePDF, openPDF, sharePDF, shareToWhatsApp } from '@/services/pdfService';
 import { useAuth } from '@/contexts/AuthContext';
 import { uploadInvoiceToCloud } from '@/services/cloudUploadService';
 import type { Invoice, InvoiceStatus } from '@/types';
@@ -213,17 +213,26 @@ export default function InvoiceDetailScreen() {
     if (!invoice) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await toggleFavorite(invoice.id);
+    const nowFavorite = !invoice.isFavorite;
+    showToast(nowFavorite ? '⭐ Added to Favourites' : 'Removed from Favourites');
   };
 
   const handleStatusChange = () => {
     if (!invoice) return;
     const nextStatus: InvoiceStatus = invoice.status === 'paid' ? 'pending' : 'paid';
+    const label = nextStatus === 'paid' ? 'Mark as Paid' : 'Mark as Pending';
     Alert.alert('Change Status', `Mark invoice as ${nextStatus}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Confirm',
+        text: label,
         onPress: async () => {
-          await updateInvoice(invoice.id, { status: nextStatus });
+          try {
+            await updateInvoice(invoice.id, { status: nextStatus });
+            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            showToast(nextStatus === 'paid' ? '✅ Marked as Paid' : 'Marked as Pending');
+          } catch {
+            showToast('Failed to update status. Try again.', 'error');
+          }
         },
       },
     ]);
@@ -300,9 +309,14 @@ export default function InvoiceDetailScreen() {
         {
           text: invoice.isArchived ? 'Restore' : 'Archive',
           onPress: async () => {
-            if (invoice.isArchived) await restoreInvoice(invoice.id);
-            else await archiveInvoice(invoice.id);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            try {
+              if (invoice.isArchived) await restoreInvoice(invoice.id);
+              else await archiveInvoice(invoice.id);
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              showToast(invoice.isArchived ? 'Invoice restored' : 'Invoice archived');
+            } catch {
+              showToast('Action failed. Please try again.', 'error');
+            }
           },
         },
       ]
@@ -320,8 +334,12 @@ export default function InvoiceDetailScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deleteInvoice(invoice.id);
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            try {
+              await deleteInvoice(invoice.id);
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            } catch {
+              // deletion is optimistic — navigate back regardless
+            }
             router.back();
           },
         },
@@ -466,19 +484,17 @@ export default function InvoiceDetailScreen() {
             <View style={[styles.actionsRow, { marginTop: 10 }]}>
               <ActionBtn
                 icon="share-2"
-                label={sharingPDF ? 'Preparing PDF…' : 'Share PDF'}
+                label={sharingPDF ? 'Sharing…' : 'Share PDF'}
                 loading={sharingPDF}
                 onPress={async () => {
                   if (sharingPDF || sharingWhatsApp) return;
                   setSharingPDF(true);
                   try {
-                    console.log('[PDF][Share] Generating PDF for share...');
+                    // Use cached local file — no regeneration, no credit consumption
                     const { uri } = await generateAndSaveInvoicePDF(
-                      invoice, invoice.templateId ?? 'classic', false, user?.uid
+                      invoice, invoice.templateId ?? 'classic', false, undefined
                     );
-                    console.log('[PDF] PDF generated, uri:', uri);
                     await sharePDF(uri, `Invoice — ${invoice.invoiceNumber}`);
-                    console.log('[PDF] PDF shared');
                   } catch (err) {
                     console.error('[PDF] Share failed:', err);
                     showToast('Unable to share PDF. Please try again.', 'error');
@@ -490,21 +506,19 @@ export default function InvoiceDetailScreen() {
               />
               <ActionBtn
                 icon="message-circle"
-                label={sharingWhatsApp ? 'Preparing PDF…' : 'WhatsApp'}
+                label={sharingWhatsApp ? 'Opening…' : 'WhatsApp'}
                 loading={sharingWhatsApp}
                 onPress={async () => {
                   if (sharingPDF || sharingWhatsApp) return;
                   setSharingWhatsApp(true);
                   try {
-                    console.log('[PDF][Share] Generating PDF for WhatsApp...');
+                    // Use cached local file — no regeneration, no credit consumption
                     const { uri } = await generateAndSaveInvoicePDF(
-                      invoice, invoice.templateId ?? 'classic', false, user?.uid
+                      invoice, invoice.templateId ?? 'classic', false, undefined
                     );
-                    console.log('[PDF] PDF generated, uri:', uri);
-                    await sharePDF(uri, 'Send Invoice via WhatsApp');
-                    console.log('[PDF] PDF shared');
+                    await shareToWhatsApp(uri);
                   } catch (err) {
-                    console.error('[PDF] Share failed:', err);
+                    console.error('[PDF] WhatsApp share failed:', err);
                     showToast('Unable to share PDF. Please try again.', 'error');
                   } finally {
                     setSharingWhatsApp(false);

@@ -378,6 +378,82 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   });
 }
 
+/**
+ * Share PDF directly to WhatsApp (Android: direct intent; iOS / fallback: generic share sheet).
+ * If WhatsApp is not installed, falls back to the native share sheet via sharePDF.
+ */
+export async function shareToWhatsApp(uri: string): Promise<void> {
+  console.log('[PDF][whatsapp] shareToWhatsApp — uri:', uri, '| platform:', Platform.OS);
+
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') window.open(uri, '_blank');
+    return;
+  }
+
+  let localUri = uri;
+
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    const filename = decodeURIComponent(
+      uri.split('/').pop() ?? 'invoice.pdf',
+    ).split('?')[0];
+    const dest = `${FileSystem.documentDirectory}${filename}`;
+    const exists = await fileExistsAndValid(dest);
+    if (!exists) {
+      const dl = await FileSystem.downloadAsync(uri, dest);
+      localUri = dl.uri;
+    } else {
+      localUri = dest;
+    }
+  }
+
+  const info = await FileSystem.getInfoAsync(localUri);
+  if (!info.exists) throw new Error('Unable to share PDF. Please try again.');
+
+  if (Platform.OS === 'android') {
+    try {
+      const contentUri = await FileSystem.getContentUriAsync(localUri);
+      const IntentLauncher = await import('expo-intent-launcher');
+      await (IntentLauncher as any).startActivityAsync('android.intent.action.SEND', {
+        type: 'application/pdf',
+        extra: {
+          'android.intent.extra.STREAM': contentUri,
+          'android.intent.extra.SUBJECT': 'Invoice PDF',
+        },
+        flags: 1,
+        packageName: 'com.whatsapp',
+      });
+      return;
+    } catch (whatsappErr) {
+      console.warn('[PDF][whatsapp] WhatsApp direct intent failed — falling back to share sheet:', whatsappErr);
+      // Fall through to generic share below
+    }
+
+    // Generic Android share sheet fallback
+    try {
+      const contentUri = await FileSystem.getContentUriAsync(localUri);
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) throw new Error('Sharing is not available on this device.');
+      await Sharing.shareAsync(contentUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Share Invoice via WhatsApp',
+        UTI: 'com.adobe.pdf',
+      });
+    } catch (fallbackErr) {
+      throw new Error('Unable to share PDF. Please try again.');
+    }
+    return;
+  }
+
+  // iOS / other
+  const canShare = await Sharing.isAvailableAsync();
+  if (!canShare) throw new Error('Sharing is not available on this device.');
+  await Sharing.shareAsync(localUri, {
+    mimeType: 'application/pdf',
+    dialogTitle: 'Share Invoice via WhatsApp',
+    UTI: 'com.adobe.pdf',
+  });
+}
+
 export async function savePDFToDownloads(uri: string, filename: string): Promise<void> {
   if (Platform.OS === 'web') {
     if (typeof document !== 'undefined') {

@@ -23,68 +23,89 @@ function TemplateCard({
 
   return (
     <TouchableOpacity
-      style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.card,
+          borderColor: isPremiumLocked ? '#F59E0B40' : colors.border,
+          shadowColor: c0,
+        },
+      ]}
       onPress={onPress}
-      activeOpacity={0.82}
+      activeOpacity={0.80}
     >
       {/* Mini invoice preview */}
       <View style={[styles.preview, { backgroundColor: c0 }]}>
-        {/* Header bar */}
+        {/* Header section */}
         <View style={styles.pvHeader}>
           <View style={{ flex: 1 }}>
-            <View style={[styles.pvLine, { backgroundColor: c1, width: '65%' }]} />
-            <View style={[styles.pvLine, { backgroundColor: c1, width: '42%', opacity: 0.65, marginTop: 3 }]} />
+            <View style={[styles.pvLine, { backgroundColor: c1, width: '70%', height: 6, borderRadius: 3 }]} />
+            <View style={[styles.pvLine, { backgroundColor: c1, width: '45%', opacity: 0.6, marginTop: 4, height: 4, borderRadius: 2 }]} />
           </View>
-          <View style={[styles.pvBadge, { backgroundColor: c2 }]} />
+          <View style={[styles.pvBadge, { backgroundColor: c2 }]}>
+            <View style={[styles.pvLine, { backgroundColor: c0, width: '60%', opacity: 0.8, height: 3, borderRadius: 2 }]} />
+          </View>
         </View>
         {/* Divider */}
         <View style={[styles.pvDivider, { backgroundColor: c2 }]} />
         {/* Body rows */}
-        {[0.9, 0.7, 0.5].map((op, i) => (
+        {[1, 0.75, 0.5].map((op, i) => (
           <View key={i} style={styles.pvRow}>
-            <View style={[styles.pvLine, { backgroundColor: c1, width: '55%', opacity: op }]} />
-            <View style={[styles.pvLine, { backgroundColor: c2, width: '20%', opacity: op }]} />
+            <View style={[styles.pvLine, { backgroundColor: c1, width: i === 0 ? '58%' : i === 1 ? '48%' : '38%', opacity: op }]} />
+            <View style={[styles.pvLine, { backgroundColor: c2, width: '22%', opacity: op }]} />
           </View>
         ))}
         {/* Grand total bar */}
         <View style={[styles.pvTotal, { backgroundColor: c2 }]}>
-          <View style={[styles.pvLine, { backgroundColor: c0, width: '35%', opacity: 0.9 }]} />
-          <View style={[styles.pvLine, { backgroundColor: c0, width: '25%', opacity: 0.9 }]} />
+          <View style={[styles.pvLine, { backgroundColor: c0, width: '38%', opacity: 0.9 }]} />
+          <View style={[styles.pvLine, { backgroundColor: c0, width: '28%', opacity: 0.95 }]} />
         </View>
 
+        {/* Premium overlay */}
         {isPremiumLocked && (
           <View style={styles.overlay}>
-            <Feather name="lock" size={22} color="#fff" />
-            <Text style={styles.overlayTxt}>Premium</Text>
+            <View style={styles.overlayIconWrap}>
+              <Feather name="star" size={18} color="#F59E0B" />
+            </View>
+            <Text style={styles.overlayTxt}>PREMIUM</Text>
+          </View>
+        )}
+
+        {/* FREE badge on preview for unlocked templates */}
+        {!isPremiumLocked && (
+          <View style={styles.previewFreeBadge}>
+            <Text style={styles.previewFreeBadgeTxt}>FREE</Text>
           </View>
         )}
       </View>
 
-      {/* Info row */}
+      {/* Info section */}
       <View style={styles.infoRow}>
-        <View style={[styles.dot, { backgroundColor: c0 }]} />
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.cardName, { color: colors.foreground }]}>{template.name}</Text>
-          <Text style={[styles.cardDesc, { color: colors.mutedForeground }]}>{template.description}</Text>
+        <View style={[styles.colorDot, { backgroundColor: c0 }]} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.cardName, { color: colors.foreground }]} numberOfLines={1}>{template.name}</Text>
+          <Text style={[styles.cardDesc, { color: colors.mutedForeground }]} numberOfLines={1}>{template.description}</Text>
         </View>
-        {!isPremiumLocked && (
-          <View style={[styles.freePill, { backgroundColor: '#EEF3FF' }]}>
-            <Text style={[styles.freePillTxt, { color: '#FF6B00' }]}>Free</Text>
-          </View>
-        )}
       </View>
 
       <TouchableOpacity
         style={[
           styles.useBtn,
-          { backgroundColor: isPremiumLocked ? '#F59E0B' : c0 },
+          {
+            backgroundColor: isPremiumLocked ? '#F59E0B' : c0,
+            shadowColor: isPremiumLocked ? '#F59E0B' : c0,
+          },
         ]}
         onPress={onPress}
         activeOpacity={0.85}
       >
-        {isPremiumLocked && <Feather name="star" size={13} color="#fff" />}
+        {isPremiumLocked ? (
+          <Feather name="star" size={13} color="#fff" />
+        ) : (
+          <Feather name="check" size={13} color="#fff" />
+        )}
         <Text style={styles.useBtnTxt}>
-          {isPremiumLocked ? 'Upgrade to Unlock' : 'Use This Template'}
+          {isPremiumLocked ? 'Upgrade to Use' : 'Select Template'}
         </Text>
       </TouchableOpacity>
     </TouchableOpacity>
@@ -186,16 +207,16 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { fontSize: 17, fontWeight: '800' },
   headerSub: { fontSize: 12, marginTop: 2 },
-  body: { padding: 16 },
+  body: { padding: 14, paddingTop: 18 },
   sectionLabel: {
-    fontSize: 11.5,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 14,
+    letterSpacing: 1,
+    marginBottom: 12,
   },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  premiumHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, marginBottom: 14 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
+  premiumHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24, marginBottom: 12 },
   unlockedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
@@ -203,61 +224,83 @@ const styles = StyleSheet.create({
   unlockedText: { fontSize: 11, fontWeight: '700', color: '#16A34A' },
   card: {
     width: '47.5%',
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 18,
+    borderWidth: 1.5,
     overflow: 'hidden',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 5,
   },
   preview: {
     width: '100%',
-    aspectRatio: 0.72,
-    padding: 10,
+    aspectRatio: 0.68,
+    padding: 12,
     justifyContent: 'space-between',
     position: 'relative',
   },
   pvHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  pvBadge: { width: 22, height: 22, borderRadius: 4, opacity: 0.85 },
-  pvDivider: { height: 2.5, borderRadius: 2, width: '100%', opacity: 0.7, marginVertical: 6 },
+  pvBadge: {
+    width: 28, height: 28, borderRadius: 6, opacity: 0.9,
+    alignItems: 'center', justifyContent: 'center', padding: 4,
+  },
+  pvDivider: { height: 2, borderRadius: 2, width: '100%', opacity: 0.6, marginVertical: 7 },
   pvRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   pvLine: { height: 5, borderRadius: 3 },
   pvTotal: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderRadius: 6,
-    paddingHorizontal: 7,
-    paddingVertical: 6,
+    borderRadius: 7,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
     marginTop: 4,
-    opacity: 0.9,
   },
   overlay: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.52)',
+    backgroundColor: 'rgba(0,0,0,0.60)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5,
+    gap: 6,
   },
-  overlayTxt: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
-  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, paddingBottom: 4 },
-  dot: { width: 10, height: 10, borderRadius: 5 },
-  cardName: { fontSize: 13, fontWeight: '800' },
-  cardDesc: { fontSize: 11, marginTop: 1 },
-  freePill: { paddingVertical: 3, paddingHorizontal: 7, borderRadius: 6 },
-  freePillTxt: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  overlayIconWrap: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(245,158,11,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  overlayTxt: { color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 1.5 },
+  previewFreeBadge: {
+    position: 'absolute',
+    top: 8, right: 8,
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 5,
+  },
+  previewFreeBadgeTxt: { color: '#fff', fontSize: 8.5, fontWeight: '900', letterSpacing: 0.8 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, paddingBottom: 4 },
+  colorDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
+  cardName: { fontSize: 13, fontWeight: '800', letterSpacing: -0.2 },
+  cardDesc: { fontSize: 11, marginTop: 1.5, letterSpacing: 0 },
   useBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    marginHorizontal: 10,
-    marginBottom: 10,
-    borderRadius: 9,
-    paddingVertical: 10,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    marginTop: 2,
+    borderRadius: 10,
+    paddingVertical: 11,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  useBtnTxt: { color: '#fff', fontSize: 12.5, fontWeight: '700' },
+  useBtnTxt: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.2 },
 });

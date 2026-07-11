@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { openPDF, sharePDF, savePDFToDownloads } from '@/services/pdfService';
+import { openPDF, sharePDF, shareToWhatsApp, savePDFToDownloads } from '@/services/pdfService';
 
 interface Action {
   icon: keyof typeof Feather.glyphMap;
@@ -66,11 +66,11 @@ export default function PDFActionModal({ visible, uri, filename, onClose, onErro
       key: 'whatsapp',
       icon: 'message-circle',
       label: 'Share via WhatsApp',
-      sublabel: 'Open WhatsApp share sheet',
+      sublabel: Platform.OS === 'android' ? 'Opens WhatsApp directly' : 'Open WhatsApp share sheet',
       color: '#166534',
       bg: '#F0FDF4',
       onPress: async () => {
-        await sharePDF(uri, 'Send Invoice via WhatsApp');
+        await shareToWhatsApp(uri);
       },
     },
     {
