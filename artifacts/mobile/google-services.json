@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "730839496282",
+    "project_id": "track-invoice",
+    "storage_bucket": "track-invoice.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:730839496282:android:ccb52b79a35ff564824a63",
+        "android_client_info": {
+          "package_name": "com.munabaralam.trackinvoice"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBS2Lgex_9QO8NYFXmbZyRMNLhWocNezeE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
