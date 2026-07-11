@@ -14,7 +14,7 @@ import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
 import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
-import { generateAndSaveInvoicePDF, openPDF, sharePDF, shareToWhatsApp } from '@/services/pdfService';
+import { generateAndSaveInvoicePDF, openPDF, sharePDF, shareToWhatsApp, getCachedLocalPDFUri } from '@/services/pdfService';
 import { useAuth } from '@/contexts/AuthContext';
 import { uploadInvoiceToCloud } from '@/services/cloudUploadService';
 import type { Invoice, InvoiceStatus } from '@/types';
@@ -145,6 +145,25 @@ export default function InvoiceDetailScreen() {
     toastTimer.current = setTimeout(() => setToastVisible(false), 3000);
   }
 
+  /**
+   * Web-safe confirmation dialog.
+   * On web, Alert.alert button callbacks are ignored (window.confirm is synchronous).
+   * On native, wraps Alert.alert in a Promise so callers can await the result.
+   */
+  function showConfirm(title: string, message: string, confirmLabel = 'Confirm', destructive = false): Promise<boolean> {
+    if (Platform.OS === 'web') {
+      return Promise.resolve(
+        typeof window !== 'undefined' ? window.confirm(`${title}\n\n${message}`) : false,
+      );
+    }
+    return new Promise((resolve) => {
+      Alert.alert(title, message, [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: confirmLabel, style: destructive ? 'destructive' : 'default', onPress: () => resolve(true) },
+      ]);
+    });
+  }
+
   // Rename state
   const [renameVisible, setRenameVisible] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -186,56 +205,70 @@ export default function InvoiceDetailScreen() {
 
   /**
    * Open existing PDF or trigger generation.
-   * If a cached pdfUrl exists on the invoice, open it directly.
+   * Priority: local cached file → cloud pdfUrl → ask user to generate.
+   * Never regenerates when a valid file already exists.
    */
   const handleOpenOrGeneratePDF = useCallback(async () => {
     if (!invoice) return;
 
-    // If we already have a cached PDF, open it directly
-    if (invoice.pdfUrl) {
-      setGenerating(true);
-      try {
-        await openPDF(invoice.pdfUrl);
-      } catch {
-        // File might have been deleted — regenerate
-        setTemplatePickerVisible(true);
-      } finally {
-        setGenerating(false);
+    setGenerating(true);
+    try {
+      // 1. Try local documentDirectory file first (instant, no network)
+      const localUri = await getCachedLocalPDFUri(
+        invoice.invoiceNumber,
+        invoice.templateId ?? 'classic',
+      );
+      if (localUri) {
+        await openPDF(localUri);
+        showToast('PDF opened.');
+        return;
       }
-      return;
+
+      // 2. Try the stored pdfUrl (may be a Supabase cloud URL)
+      if (invoice.pdfUrl) {
+        await openPDF(invoice.pdfUrl);
+        showToast('PDF opened.');
+        return;
+      }
+    } catch {
+      // File gone or intent failed — fall through to regenerate
+    } finally {
+      setGenerating(false);
     }
 
-    // No cached PDF — show template picker to generate
+    // 3. No valid PDF found — show template picker to generate fresh
     setTemplatePickerVisible(true);
   }, [invoice]);
 
   const handleToggleFavorite = async () => {
     if (!invoice) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await toggleFavorite(invoice.id);
     const nowFavorite = !invoice.isFavorite;
-    showToast(nowFavorite ? '⭐ Added to Favourites' : 'Removed from Favourites');
+    try {
+      await toggleFavorite(invoice.id);
+      showToast(nowFavorite ? 'Added to Favourites.' : 'Removed from Favourites.');
+    } catch {
+      showToast('Could not update favourite. Try again.', 'error');
+    }
   };
 
-  const handleStatusChange = () => {
+  const handleStatusChange = async () => {
     if (!invoice) return;
     const nextStatus: InvoiceStatus = invoice.status === 'paid' ? 'pending' : 'paid';
-    const label = nextStatus === 'paid' ? 'Mark as Paid' : 'Mark as Pending';
-    Alert.alert('Change Status', `Mark invoice as ${nextStatus}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: label,
-        onPress: async () => {
-          try {
-            await updateInvoice(invoice.id, { status: nextStatus });
-            await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            showToast(nextStatus === 'paid' ? '✅ Marked as Paid' : 'Marked as Pending');
-          } catch {
-            showToast('Failed to update status. Try again.', 'error');
-          }
-        },
-      },
-    ]);
+    const title = nextStatus === 'paid' ? 'Mark as Paid' : 'Mark as Pending';
+    const confirmed = await showConfirm(
+      title,
+      `Mark invoice ${invoice.invoiceNumber} as ${nextStatus}?`,
+      title,
+    );
+    if (!confirmed) return;
+    try {
+      await updateInvoice(invoice.id, { status: nextStatus });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(nextStatus === 'paid' ? 'Invoice marked as Paid.' : 'Invoice marked as Pending.');
+    } catch {
+      showToast('Failed to update status. Please try again.', 'error');
+    }
   };
 
   const [cloudUploading, setCloudUploading] = useState(false);
@@ -299,52 +332,42 @@ export default function InvoiceDetailScreen() {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  const handleArchiveToggle = () => {
+  const handleArchiveToggle = async () => {
     if (!invoice) return;
-    Alert.alert(
-      invoice.isArchived ? 'Restore Invoice' : 'Archive Invoice',
-      invoice.isArchived ? 'Restore this invoice to active?' : 'Move this invoice to archive?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: invoice.isArchived ? 'Restore' : 'Archive',
-          onPress: async () => {
-            try {
-              if (invoice.isArchived) await restoreInvoice(invoice.id);
-              else await archiveInvoice(invoice.id);
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              showToast(invoice.isArchived ? 'Invoice restored' : 'Invoice archived');
-            } catch {
-              showToast('Action failed. Please try again.', 'error');
-            }
-          },
-        },
-      ]
+    const isArchiving = !invoice.isArchived;
+    const confirmed = await showConfirm(
+      isArchiving ? 'Archive Invoice' : 'Restore Invoice',
+      isArchiving ? 'Move this invoice to archive?' : 'Restore this invoice to active?',
+      isArchiving ? 'Archive' : 'Restore',
     );
+    if (!confirmed) return;
+    try {
+      if (invoice.isArchived) await restoreInvoice(invoice.id);
+      else await archiveInvoice(invoice.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      showToast(isArchiving ? 'Archived successfully.' : 'Invoice restored.');
+    } catch {
+      showToast('Action failed. Please try again.', 'error');
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!invoice) return;
-    Alert.alert(
+    const confirmed = await showConfirm(
       'Delete Invoice',
       'This will permanently delete the invoice. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteInvoice(invoice.id);
-              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            } catch {
-              // deletion is optimistic — navigate back regardless
-            }
-            router.back();
-          },
-        },
-      ]
+      'Delete',
+      true,
     );
+    if (!confirmed) return;
+    try {
+      await deleteInvoice(invoice.id);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } catch {
+      // deleteInvoice is optimistic — proceed with navigation regardless
+    }
+    showToast('Invoice deleted successfully.');
+    router.back();
   };
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -490,11 +513,17 @@ export default function InvoiceDetailScreen() {
                   if (sharingPDF || sharingWhatsApp) return;
                   setSharingPDF(true);
                   try {
-                    // Use cached local file — no regeneration, no credit consumption
-                    const { uri } = await generateAndSaveInvoicePDF(
-                      invoice, invoice.templateId ?? 'classic', false, undefined
+                    // Use the saved local file — never regenerate
+                    const localUri = await getCachedLocalPDFUri(
+                      invoice.invoiceNumber, invoice.templateId ?? 'classic',
                     );
-                    await sharePDF(uri, `Invoice — ${invoice.invoiceNumber}`);
+                    const uriToShare = localUri ?? invoice.pdfUrl;
+                    if (!uriToShare) {
+                      showToast('PDF not found. Please generate it first.', 'error');
+                      return;
+                    }
+                    await sharePDF(uriToShare, `Invoice — ${invoice.invoiceNumber}`);
+                    showToast('PDF shared.');
                   } catch (err) {
                     console.error('[PDF] Share failed:', err);
                     showToast('Unable to share PDF. Please try again.', 'error');
@@ -512,11 +541,17 @@ export default function InvoiceDetailScreen() {
                   if (sharingPDF || sharingWhatsApp) return;
                   setSharingWhatsApp(true);
                   try {
-                    // Use cached local file — no regeneration, no credit consumption
-                    const { uri } = await generateAndSaveInvoicePDF(
-                      invoice, invoice.templateId ?? 'classic', false, undefined
+                    // Use the saved local file — never regenerate
+                    const localUri = await getCachedLocalPDFUri(
+                      invoice.invoiceNumber, invoice.templateId ?? 'classic',
                     );
-                    await shareToWhatsApp(uri);
+                    const uriToShare = localUri ?? invoice.pdfUrl;
+                    if (!uriToShare) {
+                      showToast('PDF not found. Please generate it first.', 'error');
+                      return;
+                    }
+                    await shareToWhatsApp(uriToShare);
+                    showToast('WhatsApp opened.');
                   } catch (err) {
                     console.error('[PDF] WhatsApp share failed:', err);
                     showToast('Unable to share PDF. Please try again.', 'error');

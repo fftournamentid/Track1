@@ -267,6 +267,23 @@ export async function generateAndSaveInvoicePDF(
   return { uri: dest, filename, publicUrl, cloudUploadBlocked: blocked };
 }
 
+/**
+ * Returns the local documentDirectory URI for a previously-generated PDF if
+ * the file exists and is valid, otherwise null.
+ * Use this to open / share the already-saved file without touching the full
+ * generation pipeline.
+ */
+export async function getCachedLocalPDFUri(
+  invoiceNumber: string,
+  templateId = 'classic',
+): Promise<string | null> {
+  if (Platform.OS === 'web') return null;
+  const filename = `Invoice_${safeName(invoiceNumber)}_${safeName(templateId)}.pdf`;
+  const dest = `${FileSystem.documentDirectory}${filename}`;
+  const valid = await fileExistsAndValid(dest);
+  return valid ? dest : null;
+}
+
 /** Legacy compat — returns a raw PDFResult (uri only). */
 export async function generatePDF(
   invoice: Invoice,
