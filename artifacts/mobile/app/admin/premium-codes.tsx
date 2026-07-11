@@ -116,7 +116,7 @@ export default function PremiumCodesScreen() {
 
   const handleToggle = useCallback(async (code: PremiumCode) => {
     try {
-      await toggleCodeStatus(code.id, !code.isActive);
+      await toggleCodeStatus(code.id, !code.active);
     } catch {
       Alert.alert('Error', 'Failed to update code status.');
     }
@@ -207,17 +207,17 @@ export default function PremiumCodesScreen() {
           }
           renderItem={({ item: c }) => (
             <View style={s.codeCard}>
-              <View style={[s.codeStripe, { backgroundColor: c.isActive ? '#16A34A' : '#94A3B8' }]} />
+              <View style={[s.codeStripe, { backgroundColor: c.active ? '#16A34A' : '#94A3B8' }]} />
               <View style={{ flex: 1 }}>
                 <View style={s.codeRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.codeText}>{c.code}</Text>
                     {c.note ? <Text style={s.codeNote}>{c.note}</Text> : null}
                   </View>
-                  <View style={[s.statusBadge, { backgroundColor: c.isActive ? '#DCFCE7' : '#F1F5F9' }]}>
-                    <View style={[s.statusDot, { backgroundColor: c.isActive ? '#16A34A' : '#94A3B8' }]} />
-                    <Text style={[s.statusTxt, { color: c.isActive ? '#15803D' : '#64748B' }]}>
-                      {c.isActive ? 'Active' : 'Disabled'}
+                  <View style={[s.statusBadge, { backgroundColor: c.active ? '#DCFCE7' : '#F1F5F9' }]}>
+                    <View style={[s.statusDot, { backgroundColor: c.active ? '#16A34A' : '#94A3B8' }]} />
+                    <Text style={[s.statusTxt, { color: c.active ? '#15803D' : '#64748B' }]}>
+                      {c.active ? 'Active' : 'Disabled'}
                     </Text>
                   </View>
                 </View>
@@ -235,12 +235,12 @@ export default function PremiumCodesScreen() {
                 </View>
                 <View style={s.codeActions}>
                   <TouchableOpacity
-                    style={[s.actionBtn, { backgroundColor: c.isActive ? '#FEF3C7' : '#DCFCE7' }]}
+                    style={[s.actionBtn, { backgroundColor: c.active ? '#FEF3C7' : '#DCFCE7' }]}
                     onPress={() => handleToggle(c)}
                   >
-                    <Feather name={c.isActive ? 'pause' : 'play'} size={13} color={c.isActive ? '#92400E' : '#16A34A'} />
-                    <Text style={[s.actionBtnTxt, { color: c.isActive ? '#92400E' : '#16A34A' }]}>
-                      {c.isActive ? 'Disable' : 'Enable'}
+                    <Feather name={c.active ? 'pause' : 'play'} size={13} color={c.active ? '#92400E' : '#16A34A'} />
+                    <Text style={[s.actionBtnTxt, { color: c.active ? '#92400E' : '#16A34A' }]}>
+                      {c.active ? 'Disable' : 'Enable'}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity

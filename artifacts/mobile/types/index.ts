@@ -72,6 +72,17 @@ export interface Invoice {
   pdfCreatedAt?: string;
   /** True when this invoice was saved locally and is waiting to be uploaded to Firestore. */
   pendingSync?: boolean;
+  // ── Production Firestore schema fields ──────────────────────────────────
+  /** UID of the user who created the invoice, or "admin" for admin-created docs. */
+  createdBy?: string;
+  /** Soft-delete flag — defaults to false. Set true instead of deleting the doc. */
+  deleted?: boolean;
+  /** Invoice category (e.g. "freight", "delivery", "hire"). Default: "freight". */
+  invoiceType?: string;
+  /** Payment method (e.g. "cash", "bank_transfer", "upi"). */
+  paymentMethod?: string;
+  /** Payment status string synced with Firestore (mirrors `status` on creation). */
+  paymentStatus?: string;
   /**
    * Cloud Backup (manual, user-initiated — separate from the automatic
    * Firestore `pendingSync` mechanism). Set once the user taps "Upload to

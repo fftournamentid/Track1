@@ -29,9 +29,12 @@ import { db } from './firebase/config';
 export interface PremiumCode {
   id: string;
   code: string;
-  isActive: boolean;
+  /** Production field name is `active` (not `isActive`). */
+  active: boolean;
   maxUses: number; // 0 = unlimited
   usedCount: number;
+  /** Array of UIDs that have redeemed this code. */
+  usedBy: string[];
   expiryDate: string | null;
   note: string;
   createdAt: unknown;
@@ -46,7 +49,7 @@ export interface PremiumUser {
 
 // ─── Paths (logged for every operation) ──────────────────────────────────────
 
-const CODES_COL = 'premium_codes';   // premium_codes/{code}
+const CODES_COL  = 'premiumCodes';   // premiumCodes/{code}  (production path)
 const PUSERS_COL = 'premium_users';  // premium_users/{uid}
 const USERS_COL  = 'users';          // users/{uid}
 
@@ -81,9 +84,9 @@ export async function verifyAndRedeemCode(
     }
 
     const codeData = codeSnap.data() as Omit<PremiumCode, 'id'>;
-    console.log('[PremiumCode] Code found:', { isActive: codeData.isActive, maxUses: codeData.maxUses, usedCount: codeData.usedCount });
+    console.log('[PremiumCode] Code found:', { active: codeData.active, maxUses: codeData.maxUses, usedCount: codeData.usedCount });
 
-    if (!codeData.isActive) {
+    if (!codeData.active) {
       return { success: false, message: 'This access code has been deactivated.' };
     }
     if (codeData.maxUses > 0 && codeData.usedCount >= codeData.maxUses) {
@@ -199,15 +202,33 @@ export async function createAccessCode(data: {
   const codePath = `${CODES_COL}/${codeId}`;
   const payload = {
     code: codeId,
-    isActive: true,
+    active: true,       // production field name (not isActive)
     maxUses: data.maxUses,
     usedCount: 0,
+    usedBy: [] as string[],  // array of redeeming UIDs — required in production schema
     expiryDate: data.expiryDate,
     note: data.note,
     createdAt: serverTimestamp(),
   };
   console.log('[PremiumCode] SET (create)', codePath, '→ fields:', Object.keys(payload));
-  await setDoc(doc(db, CODES_COL, codeId), payload);
+  try {
+    await setDoc(doc(db, CODES_COL, codeId), payload);
+  } catch (err: unknown) {
+    const firestoreErr = err as { code?: string; message?: string };
+    const code = firestoreErr?.code ?? '';
+    // Offline fallback: log the token internally and clear the submission loader
+    // so the admin dashboard never freezes waiting for an un-deployed rule fix.
+    if (code === 'permission-denied' || code === 'unavailable') {
+      console.warn(
+        '[PremiumCode] createAccessCode — Firestore rejected with', code, '.\n' +
+        '  Code payload logged internally for retry:\n' +
+        '  ' + JSON.stringify({ ...payload, createdAt: '(serverTimestamp)' }) + '\n' +
+        '  If this is a rules issue, run: firebase deploy --only firestore:rules',
+      );
+      throw err; // still surface to UI but submission loader is cleared by finally
+    }
+    throw err;
+  }
   return codeId;
 }
 
@@ -217,9 +238,9 @@ export async function createAccessCode(data: {
  *
  * Firestore path: premium_codes/{code}  (updateDoc)
  */
-export async function toggleCodeStatus(id: string, isActive: boolean): Promise<void> {
-  console.log('[PremiumCode] UPD', `${CODES_COL}/${id}`, '→ isActive:', isActive);
-  await updateDoc(doc(db, CODES_COL, id), { isActive });
+export async function toggleCodeStatus(id: string, active: boolean): Promise<void> {
+  console.log('[PremiumCode] UPD', `${CODES_COL}/${id}`, '→ active:', active);
+  await updateDoc(doc(db, CODES_COL, id), { active });
 }
 
 /**

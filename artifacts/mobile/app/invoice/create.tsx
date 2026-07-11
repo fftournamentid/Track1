@@ -3,7 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, Pressable, TextInput,
   Alert, ActivityIndicator, Platform, Modal,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -294,12 +294,57 @@ export default function CreateInvoiceScreen() {
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
+  const navigation = useNavigation();
+
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initializedRef = useRef(false);
-  /** Safety timer: forces the spinner off within 1 second no matter what. */
+  /** Safety timer: forces the spinner off within 800 ms no matter what. */
   const spinnerSafetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Navigation/toast timer: the 700 ms delay between local save and router.replace. */
   const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Live form-state ref for the beforeRemove draft save ──────────────────
+  // Avoids a large dependency array on the navigation listener.
+  const formStateRef = useRef({
+    invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
+    clientGST, fromLocation, toLocation, truckNumber, driverName,
+    advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
+  });
+
+  // ── Keep formStateRef in sync with latest field values ───────────────────
+  useEffect(() => {
+    formStateRef.current = {
+      invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
+      clientGST, fromLocation, toLocation, truckNumber, driverName,
+      advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
+    };
+  }, [
+    invoiceNumber, date, dueDate, clientName, clientPhone, clientAddress,
+    clientGST, fromLocation, toLocation, truckNumber, driverName,
+    advanceAmount, expenses, paymentTerms, notes, selectedTemplateId,
+  ]);
+
+  // ── Auto-save draft on navigation away (beforeRemove) ─────────────────────
+  // Fires when the user taps Back or a tab switch triggers a pop. Uses the
+  // formStateRef snapshot so the listener itself never needs to be re-registered.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', () => {
+      if (!initializedRef.current || isEditing) return;
+      const f = formStateRef.current;
+      saveDraft({
+        invoiceNumber: f.invoiceNumber, date: f.date, dueDate: f.dueDate,
+        clientName: f.clientName, clientPhone: f.clientPhone,
+        clientAddress: f.clientAddress, clientGST: f.clientGST,
+        fromLocation: f.fromLocation, toLocation: f.toLocation,
+        truckNumber: f.truckNumber, driverName: f.driverName,
+        advanceAmount: f.advanceAmount, expenses: f.expenses,
+        paymentTerms: f.paymentTerms, notes: f.notes,
+        selectedTemplateId: f.selectedTemplateId,
+      }).catch(() => {});
+      console.log('[Draft] beforeRemove → saveDraft fired (navigation away mid-creation)');
+    });
+    return unsubscribe;
+  }, [navigation, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cleanup all pending timers on unmount ─────────────────────────────────
   // Prevents post-unmount setState calls from the spinner safety timer and the
@@ -546,15 +591,16 @@ export default function CreateInvoiceScreen() {
     console.log('[Save] Validation passed — writing to local SQLite');
     setIsSaving(true);
 
-    // ── Hard spinner deadline (1 s) ───────────────────────────────────────
-    // No matter what happens below, the spinner clears within 1 second.
-    // This is the last-resort guard; under normal conditions we clear it
-    // manually the moment the SQLite write succeeds.
+    // ── Hard spinner deadline (800 ms) ───────────────────────────────────
+    // No matter what happens below — including SQLite contention or any
+    // unhandled rejection — the spinner clears within 800 ms. The SQLite
+    // write path is completely isolated from any network call, so the UI
+    // never freezes because Firestore rules return permission-denied.
     if (spinnerSafetyRef.current) clearTimeout(spinnerSafetyRef.current);
     spinnerSafetyRef.current = setTimeout(() => {
-      console.warn('[Save] Spinner safety timer fired — forcing isSaving=false');
+      console.warn('[Save] Spinner safety timer fired (800 ms) — forcing isSaving=false');
       setIsSaving(false);
-    }, 1000);
+    }, 800);
 
     const clearSpinner = () => {
       if (spinnerSafetyRef.current) {
@@ -591,6 +637,15 @@ export default function CreateInvoiceScreen() {
         notes: notes.trim() || undefined,
         templateId: selectedTemplateId,
         showQrCode,
+        // ── Production Firestore schema fields ──────────────────────────────
+        // These are written through to the cloud document via the repository's
+        // field-name mapping layer (invoiceNumber → invoiceNo, etc.).  Local
+        // SQLite stores them under the same names for consistency.
+        createdBy: user?.uid ?? 'anonymous',
+        deleted: false,
+        invoiceType: 'freight',       // default category for this app
+        paymentMethod: '',            // not collected in the form yet
+        paymentStatus: 'pending',     // mirrors `status` at creation time
       };
 
       // Haptics are non-fatal — swallow so a missing native module never blocks.

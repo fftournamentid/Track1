@@ -19,12 +19,39 @@ import type { Invoice } from '@/types';
 type RawInvoice = Omit<Invoice, 'createdAt' | 'updatedAt'> & {
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
+  // Production Firestore may store these with alternative casing
+  invoiceNo?: string;
+  isFavourite?: boolean;
 };
 
 function toInvoice(id: string, raw: RawInvoice): Invoice {
+  const data = raw as Record<string, unknown>;
+
+  // ── Field-name normalisation: production Firestore uses different casing ──
+  // invoiceNo (production) ↔ invoiceNumber (local)
+  const invoiceNumber = (
+    (data.invoiceNo as string | undefined) ?? (data.invoiceNumber as string | undefined) ?? ''
+  );
+  // isFavourite (British, production) ↔ isFavorite (US, local)
+  const isFavorite = Boolean(
+    (data.isFavourite as boolean | undefined) ?? (data.isFavorite as boolean | undefined) ?? false,
+  );
+
+  // ── dueDate: may arrive as a Firestore Timestamp or an ISO string ─────────
+  let dueDate: string | undefined;
+  const rawDue = data.dueDate;
+  if (rawDue && typeof rawDue === 'object' && typeof (rawDue as Timestamp).toDate === 'function') {
+    dueDate = (rawDue as Timestamp).toDate().toISOString().slice(0, 10);
+  } else if (typeof rawDue === 'string' && rawDue) {
+    dueDate = rawDue;
+  }
+
   return {
-    ...raw,
+    ...(raw as unknown as Invoice),
     id,
+    invoiceNumber,
+    isFavorite,
+    dueDate,
     createdAt: raw.createdAt?.toDate().toISOString() ?? new Date().toISOString(),
     updatedAt: raw.updatedAt?.toDate().toISOString() ?? new Date().toISOString(),
   };
@@ -187,8 +214,15 @@ export async function setInvoiceDoc(
   }
   await currentUser.getIdToken(false);
 
+  // Strip internal-only fields; also extract fields that need renaming for Firestore
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...rest } = data;
+  const {
+    id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps,
+    // Rename these fields for the production Firestore schema:
+    invoiceNumber,   // → invoiceNo
+    isFavorite,      // → isFavourite (British spelling used in production)
+    ...rest
+  } = data as Invoice;
 
   function stripUndefined(obj: unknown): unknown {
     if (Array.isArray(obj)) return obj.map(stripUndefined);
@@ -204,6 +238,16 @@ export async function setInvoiceDoc(
 
   const payload: Record<string, unknown> = {
     ...(stripUndefined(rest) as Record<string, unknown>),
+    // ── Production-schema field names ──────────────────────────────────────
+    invoiceNo: invoiceNumber,                          // production key
+    isFavourite: isFavorite ?? false,                  // British spelling in production
+    createdBy: (data as Invoice).createdBy ?? currentUser.uid,  // required in production
+    deleted: (data as Invoice).deleted ?? false,       // soft-delete flag
+    // Pass through new optional fields if present
+    ...((data as Invoice).invoiceType  ? { invoiceType:  (data as Invoice).invoiceType  } : {}),
+    ...((data as Invoice).paymentMethod ? { paymentMethod: (data as Invoice).paymentMethod } : {}),
+    ...((data as Invoice).paymentStatus ? { paymentStatus: (data as Invoice).paymentStatus } : {}),
+    // ── Standard server fields ─────────────────────────────────────────────
     userId: currentUser.uid,
     updatedAt: serverTimestamp(),
   };
