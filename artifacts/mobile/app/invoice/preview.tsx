@@ -361,7 +361,7 @@ export default function InvoicePreviewScreen() {
   const router = useRouter();
   const { invoiceId: fallbackInvoiceId, templateId: fallbackTemplateId } = useLocalSearchParams<{ invoiceId?: string; templateId?: string }>();
   const insets = useSafeAreaInsets();
-  const { createInvoice, updateInvoice, getInvoiceById } = useInvoices();
+  const { createInvoice, updateInvoice, getInvoiceById, refreshInvoices } = useInvoices();
   const { settings } = useSettings();
   const { user } = useAuth();
 
@@ -425,77 +425,97 @@ export default function InvoicePreviewScreen() {
       return;
     }
     setSaving(true);
-
-    const uid = user?.uid;
-    console.log('[Save] handleSave called — invoice:', invoice?.invoiceNumber, '| editId:', editId, '| uid:', uid ?? 'NOT AUTHENTICATED');
+    console.log('[Save] handleSave — invoice:', invoice.invoiceNumber, '| editId:', editId ?? '(new)');
 
     try {
-      if (!uid) {
-        throw new Error('Not authenticated. Please sign in and try again.');
-      }
-
-      // Strip generated fields before writing
+      // Strip generated-only fields — the context methods re-apply them
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } = invoice as Invoice & { pendingSync?: boolean };
+      const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } =
+        invoice as Invoice & { pendingSync?: boolean };
 
       let savedId: string;
-
       if (editId) {
-        console.log('[Save] Updating existing invoice in Firestore, id:', editId);
+        // Update existing invoice in SQLite (Firestore synced in background)
         await updateInvoice(editId, data);
         savedId = editId;
-        console.log('[Save] ✓ Firestore update succeeded for id:', savedId);
+        console.log('[Save] ✓ SQLite update confirmed — id:', savedId);
       } else {
-        console.log('[Save] Creating new invoice in Firestore...');
+        // Create new invoice in SQLite (Firestore synced in background)
         const saved = await createInvoice({ ...data, status: data.status || 'pending' });
         savedId = saved.id;
-        console.log('[Save] ✓ Firestore create succeeded. New id:', savedId);
+        console.log('[Save] ✓ SQLite create confirmed — id:', savedId);
       }
 
-      await clearDraft();
-      await clearPreviewData();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      console.log('[Save] ✓ Save complete. savedId:', savedId);
+      // Clear draft + preview cache — fire-and-forget, never block navigation
+      clearDraft().catch(() => {});
+      clearPreviewData().catch(() => {});
 
-      // Navigate immediately — invoice is already in the list via optimistic update
-      router.replace({ pathname: '/invoice/[id]', params: { id: savedId } });
+      // Force context to re-read SQLite so the Invoices list is current
+      refreshInvoices().catch(() => {});
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+      // Replace with Invoices list — Back cannot return to the preview form
+      router.replace('/(tabs)/invoices');
     } catch (err) {
       console.error('[Preview] Save error:', err);
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.toLowerCase().includes('no internet') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('offline')) {
-        Alert.alert('No Internet Connection', 'Please connect to the internet and try again.');
-      } else {
-        showToast(`Save failed: ${msg}`, 'error');
-        Alert.alert('Save Failed', msg);
-      }
+      showToast(`Save failed: ${msg}`, 'error');
+      Alert.alert('Save Failed', msg);
     } finally {
       setSaving(false);
     }
-  }, [invoice, editId, createInvoice, updateInvoice, router, user?.uid]);
+  }, [invoice, editId, createInvoice, updateInvoice, refreshInvoices, router]);
 
   const handleDownloadPDF = useCallback(async () => {
     if (!invoice) return;
-    console.log('[PDF][Download] handleDownloadPDF called — platform:', Platform.OS);
+    console.log('[PDF][Download] handleDownloadPDF — platform:', Platform.OS);
     setDownloadingPDF(true);
     showToast('Preparing PDF...');
+
     try {
+      // ── Step 1: Ensure invoice is persisted locally before any asset export ─
+      // Guarantees every exported PDF has a matching record in the local DB.
+      let currentEditId = editId;
+      if (!currentEditId) {
+        console.log('[PDF][Download] Invoice not yet saved — committing to local DB first');
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } =
+          invoice as Invoice & { pendingSync?: boolean };
+        try {
+          const saved = await createInvoice({ ...data, status: data.status || 'pending' });
+          currentEditId = saved.id;
+          // Propagate the new ID so the Save button uses the correct record
+          setPayload((prev) => prev ? { ...prev, editId: currentEditId! } : prev);
+          console.log('[PDF][Download] ✓ Invoice committed — id:', currentEditId);
+        } catch (saveErr) {
+          console.warn('[PDF][Download] Local save failed (PDF will still proceed):', saveErr);
+        }
+      }
+
+      // ── Step 2: Generate and deliver the PDF ──────────────────────────────
       if (Platform.OS === 'web') {
         await downloadForWeb(invoice, invoice.templateId ?? 'classic');
+        clearDraft().catch(() => {});
+        refreshInvoices().catch(() => {});
         showToast('PDF saved to Downloads.');
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         return;
       }
+
       const templateId = invoice.templateId ?? 'classic';
       const { uri, filename, publicUrl, cloudUploadBlocked } = await generateAndSaveInvoicePDF(
         invoice, templateId, false, user?.uid,
       );
       console.log('[PDF][Download] ✓ uri:', uri, '| publicUrl:', publicUrl, '| blocked:', cloudUploadBlocked);
 
-      // Cache for retry after earning ad credits
       lastPdfRef.current = { uri, filename };
-
       await savePDFToDownloads(uri, filename);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+
+      // ── Step 3: Wipe transient draft — invoice is now finalized + downloaded
+      clearDraft().catch(() => {});
+      refreshInvoices().catch(() => {});
 
       if (cloudUploadBlocked) {
         showToast('PDF saved locally. Cloud backup needs credits.');
@@ -510,18 +530,39 @@ export default function InvoicePreviewScreen() {
     } finally {
       setDownloadingPDF(false);
     }
-  }, [invoice, user?.uid]);
+  }, [invoice, user?.uid, editId, createInvoice, refreshInvoices]);
 
   const handleSharePDF = useCallback(async () => {
     if (!invoice) return;
-    console.log('[PDF][Share] handleSharePDF called — platform:', Platform.OS);
+    console.log('[PDF][Share] handleSharePDF — platform:', Platform.OS);
     setSharingPDF(true);
     showToast('Preparing PDF...');
+
     try {
+      // ── Step 1: Ensure invoice is persisted locally before sharing any asset ─
+      let currentEditId = editId;
+      if (!currentEditId) {
+        console.log('[PDF][Share] Invoice not yet saved — committing to local DB first');
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { id: _id, createdAt: _ca, updatedAt: _ua, downloadCount: _dc, pendingSync: _ps, ...data } =
+          invoice as Invoice & { pendingSync?: boolean };
+        try {
+          const saved = await createInvoice({ ...data, status: data.status || 'pending' });
+          currentEditId = saved.id;
+          setPayload((prev) => prev ? { ...prev, editId: currentEditId! } : prev);
+          console.log('[PDF][Share] ✓ Invoice committed — id:', currentEditId);
+        } catch (saveErr) {
+          console.warn('[PDF][Share] Local save failed (PDF will still proceed):', saveErr);
+        }
+      }
+
+      // ── Step 2: Generate and share the PDF ───────────────────────────────
       if (Platform.OS === 'web') {
         const templateId = invoice.templateId ?? 'classic';
         const result = await sharePDFWeb(invoice, templateId);
         console.log('[PDF][Share] web result:', result);
+        clearDraft().catch(() => {});
+        refreshInvoices().catch(() => {});
         showToast(result === 'shared' ? 'Shared successfully.' : 'PDF saved to Downloads.');
         return;
       }
@@ -532,15 +573,18 @@ export default function InvoicePreviewScreen() {
       );
       console.log('[PDF][Share] PDF ready — uri:', uri, '| blocked:', cloudUploadBlocked);
 
-      // Cache for retry after earning ad credits
       lastPdfRef.current = { uri, filename };
 
-      // Always share the LOCAL file — never re-download from Supabase for sharing
+      // Share the local file — never re-download from Supabase for sharing
       await sharePDF(uri, `Invoice — ${filename}`);
       console.log('[PDF][Share] ✓ Native share sheet opened');
 
+      // ── Step 3: Wipe transient draft — invoice is now finalized + shared ──
+      clearDraft().catch(() => {});
+      refreshInvoices().catch(() => {});
+
       if (cloudUploadBlocked) {
-        // Give the share sheet time to open before showing the dialog
+        // Give the share sheet time to open before showing the credit dialog
         setTimeout(() => setShowSyncDialog(true), 800);
       }
     } catch (err) {
@@ -549,7 +593,7 @@ export default function InvoicePreviewScreen() {
     } finally {
       setSharingPDF(false);
     }
-  }, [invoice, user?.uid]);
+  }, [invoice, user?.uid, editId, createInvoice, refreshInvoices]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const isAnyLoading = saving || downloadingPDF || sharingPDF;

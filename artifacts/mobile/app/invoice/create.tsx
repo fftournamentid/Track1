@@ -677,24 +677,13 @@ export default function CreateInvoiceScreen() {
 
       // ── Wipe draft in the background — only for new invoices; edit drafts
       //    are keyed to the invoice being edited, so they also clear here.
-      clearDraft().catch((e) => console.warn('[Save] clearDraft (non-fatal):', e));
+      // ── Wipe draft now that the invoice is finalized ─────────────────────
+      clearDraft().catch(() => {});
 
-      // ── Show "Saved Locally" toast ────────────────────────────────────────
-      setToastMessage('Invoice saved locally ✓');
-      setToastVisible(true);
-
-      // ── Navigate after brief toast window (700 ms) ────────────────────────
-      // Stored in navTimerRef so the unmount cleanup can cancel it if the user
-      // navigates away manually before the 700 ms elapses.
-      if (navTimerRef.current) clearTimeout(navTimerRef.current);
-      navTimerRef.current = setTimeout(() => {
-        navTimerRef.current = null;
-        setToastVisible(false);
-        router.replace({ pathname: '/invoice/[id]', params: { id: savedId } });
-      }, 700);
-
-      // ── Background: PDF generation + Supabase upload ──────────────────────
-      // Runs entirely after navigation — never delays the user.
+      // ── Background: fire PDF generation before navigating away ───────────
+      // router.replace unmounts this component, but the async task continues
+      // safely — updateInvoice writes to SQLite and the context via a closure
+      // that doesn't need this component to be mounted.
       if (Platform.OS !== 'web' && user?.uid) {
         const uid = user.uid;
         const existingInv = getInvoiceById(savedId);
@@ -711,6 +700,13 @@ export default function CreateInvoiceScreen() {
             .catch((pdfErr) => console.warn('[Save] Supabase upload (non-fatal):', pdfErr));
         }
       }
+
+      // ── Navigate immediately to Invoices list ─────────────────────────────
+      // refreshInvoices() has already re-read SQLite so the new row is in
+      // the list before this redirect completes. router.replace prevents
+      // Back from returning to the half-filled form.
+      console.log('[Save] Navigating to invoices list — savedId:', savedId);
+      router.replace('/(tabs)/invoices');
     } catch (err) {
       // Only SQLite errors reach here — network issues are fully background.
       clearSpinner();
