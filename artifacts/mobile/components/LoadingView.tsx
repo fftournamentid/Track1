@@ -1,18 +1,11 @@
 import React from 'react';
-import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
-import { useColors } from '@/hooks/useColors';
+import TruckLoadingAnimation from '@/components/TruckLoadingAnimation';
 
+/**
+ * In-app loading indicator. Uses the branded truck/PDF animation instead of a
+ * plain spinner (this component is used for short in-flow loading states, so
+ * it does not need the onFinish callback the boot splash uses).
+ */
 export default function LoadingView({ label }: { label?: string }) {
-  const colors = useColors();
-  return (
-    <View style={styles.container}>
-      <ActivityIndicator size="large" color="#2563EB" />
-      {label ? <Text style={[styles.label, { color: colors.mutedForeground }]}>{label}</Text> : null}
-    </View>
-  );
+  return <TruckLoadingAnimation label={label} />;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  label: { fontSize: 14, marginTop: 4 },
-});

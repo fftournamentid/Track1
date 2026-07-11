@@ -183,6 +183,13 @@ export default function DashboardScreen() {
         </View>
         <View style={styles.headerRightRow}>
           <Pressable
+            onPress={() => router.push('/cloud-backup' as never)}
+            style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            hitSlop={8}
+          >
+            <Feather name="cloud" size={18} color={colors.primary} />
+          </Pressable>
+          <Pressable
             onPress={() => router.push('/pdf-history' as never)}
             style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
             hitSlop={8}

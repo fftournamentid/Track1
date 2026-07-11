@@ -16,6 +16,7 @@ import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
 import { generateAndSaveInvoicePDF, openPDF, sharePDF } from '@/services/pdfService';
 import { useAuth } from '@/contexts/AuthContext';
+import { uploadInvoiceToCloud } from '@/services/cloudUploadService';
 import type { Invoice, InvoiceStatus } from '@/types';
 
 const STATUS_COLORS: Record<InvoiceStatus, { bg: string; text: string }> = {
@@ -109,7 +110,7 @@ export default function InvoiceDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
-  const { invoices, updateInvoice, deleteInvoice, duplicateInvoice, toggleFavorite, archiveInvoice, restoreInvoice } =
+  const { invoices, updateInvoice, deleteInvoice, duplicateInvoice, toggleFavorite, archiveInvoice, restoreInvoice, refreshInvoices } =
     useInvoices();
   const { settings, generateNextInvoiceNumber } = useSettings();
 
@@ -226,6 +227,36 @@ export default function InvoiceDetailScreen() {
         },
       },
     ]);
+  };
+
+  const [cloudUploading, setCloudUploading] = useState(false);
+
+  const handleUploadToCloud = async () => {
+    if (!invoice || !user || cloudUploading) return;
+    setCloudUploading(true);
+    try {
+      const result = await uploadInvoiceToCloud(invoice, user.uid);
+      if (result.status === 'success') {
+        await refreshInvoices();
+        Alert.alert('✓ Uploaded', `Invoice ${invoice.invoiceNumber} has been backed up to the cloud.`);
+      } else if (result.status === 'quota_exceeded') {
+        Alert.alert(
+          'Monthly Limit Reached',
+          `You've used ${result.used} of ${result.limit} free cloud uploads this month.`
+        );
+      } else if (result.status === 'ad_not_watched') {
+        Alert.alert('Watch an Ad to Upload', 'Please watch the full ad to earn your cloud upload, then try again.');
+      } else if (result.status === 'not_configured') {
+        Alert.alert('Cloud Not Available', 'Cloud backup is not configured for this installation.');
+      } else {
+        Alert.alert('Upload Failed', 'Could not upload to cloud. Please check your connection and try again.');
+      }
+    } catch (err) {
+      console.error('[InvoiceDetails] Cloud upload error:', err);
+      Alert.alert('Upload Failed', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setCloudUploading(false);
+    }
   };
 
   const handleDuplicate = async () => {
@@ -518,6 +549,20 @@ export default function InvoiceDetailScreen() {
               onPress={handleArchiveToggle}
             />
             <ActionBtn icon="trash-2" label="Delete" onPress={handleDelete} variant="danger" />
+          </View>
+          <View style={[styles.actionsRow, { marginTop: 8 }]}>
+            {invoice.cloudUploaded ? (
+              <View style={[abStyles.btn, { borderColor: '#BBF7D0', backgroundColor: '#DCFCE7', flex: 1 }]}>
+                <Feather name="check-circle" size={18} color="#15803D" />
+                <Text style={[abStyles.label, { color: '#15803D' }]}>Uploaded to Cloud</Text>
+              </View>
+            ) : cloudUploading ? (
+              <View style={[abStyles.btn, { borderColor: colors.border, backgroundColor: colors.secondary, flex: 1 }]}>
+                <ActivityIndicator color="#FF6B00" size="small" />
+              </View>
+            ) : (
+              <ActionBtn icon="upload-cloud" label="Upload to Cloud" onPress={handleUploadToCloud} />
+            )}
           </View>
         </Card>
 

@@ -1,4 +1,12 @@
 export type InvoiceStatus = 'draft' | 'pending' | 'paid' | 'archived';
+/**
+ * Local-first lifecycle badge shown in Recent Invoices — distinct from the
+ * payment-oriented InvoiceStatus above.
+ *   draft     → invoice.status === 'draft' (auto-saved, not yet finalized)
+ *   uploaded  → cloudUploaded === true (backed up to the cloud)
+ *   completed → finalized locally, not yet backed up
+ */
+export type InvoiceLifecycleStatus = 'draft' | 'completed' | 'uploaded';
 export type SortField = 'date' | 'amount' | 'customer';
 export type SortOrder = 'asc' | 'desc';
 export type FilterStatus = 'all' | 'active' | 'paid' | 'pending' | 'archived' | 'favorites' | 'synced';
@@ -64,6 +72,13 @@ export interface Invoice {
   pdfCreatedAt?: string;
   /** True when this invoice was saved locally and is waiting to be uploaded to Firestore. */
   pendingSync?: boolean;
+  /**
+   * Cloud Backup (manual, user-initiated — separate from the automatic
+   * Firestore `pendingSync` mechanism). Set once the user taps "Upload to
+   * Cloud" in Invoice Details and the JSON + PDF + metadata upload succeeds.
+   */
+  cloudUploaded?: boolean;
+  cloudUploadedAt?: string;
   /**
    * Manual override for the QR payment code visibility.
    * - `true`  → always show the QR code (if a UPI ID is configured).

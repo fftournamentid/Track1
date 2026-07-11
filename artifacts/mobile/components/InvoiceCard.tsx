@@ -44,6 +44,15 @@ interface Props {
   onPress: () => void;
 }
 
+// Local-first lifecycle badge — distinct from the payment-oriented status
+// badge above. Draft = not finalized yet; Uploaded = backed up to the cloud;
+// Completed = finalized locally but not yet backed up.
+function lifecycleOf(invoice: Invoice): { label: string; bg: string; text: string } | null {
+  if (invoice.status === 'draft') return { label: 'DRAFT', bg: '#FEF3C7', text: '#92400E' };
+  if (invoice.cloudUploaded) return { label: 'UPLOADED', bg: '#DBEAFE', text: '#1D4ED8' };
+  return { label: 'COMPLETED', bg: '#F1F5F9', text: '#475569' };
+}
+
 function statusColor(status: Invoice['status'], colors: ReturnType<typeof useColors>) {
   switch (status) {
     case 'paid': return { bg: '#DCFCE7', text: '#15803D' };
@@ -61,6 +70,7 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
   // mini invoice preview (colored header strip) instead of a generic list row.
   const template = getTemplateById(invoice.templateId || 'standard');
   const accentColor = template.primary;
+  const lifecycle = lifecycleOf(invoice);
 
   return (
     <Pressable
@@ -91,8 +101,15 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
             <Text style={[styles.amount, { color: colors.foreground }]}>
               {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
             </Text>
-            <View style={[styles.badge, { backgroundColor: sc.bg }]}>
-              <Text style={[styles.badgeText, { color: sc.text }]}>{invoice.status.toUpperCase()}</Text>
+            <View style={styles.badgeRow}>
+              <View style={[styles.badge, { backgroundColor: sc.bg }]}>
+                <Text style={[styles.badgeText, { color: sc.text }]}>{invoice.status.toUpperCase()}</Text>
+              </View>
+              {lifecycle && (
+                <View style={[styles.badge, { backgroundColor: lifecycle.bg }]}>
+                  <Text style={[styles.badgeText, { color: lifecycle.text }]}>{lifecycle.label}</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -163,6 +180,7 @@ const styles = StyleSheet.create({
   invNumber: { fontSize: 12, fontWeight: '700', marginBottom: 3 },
   client: { fontSize: 15, fontWeight: '600' },
   amount: { fontSize: 16, fontWeight: '800', marginBottom: 5 },
+  badgeRow: { flexDirection: 'row', gap: 4 },
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
   badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 10, marginLeft: 56 },

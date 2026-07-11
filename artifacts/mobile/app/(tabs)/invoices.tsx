@@ -34,7 +34,7 @@ export default function InvoicesScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { invoices, isOffline } = useInvoices();
+  const { invoices, isOffline, refreshInvoices } = useInvoices();
   const { user } = useAuth();
 
   const [search, setSearch] = useState('');
@@ -44,8 +44,10 @@ export default function InvoicesScreen() {
   const [sortVisible, setSortVisible] = useState(false);
 
   // ── Cloud upload state ─────────────────────────────────────────────────────
+  // "Uploaded" is persisted on the invoice record itself (cloudUploaded, set
+  // by cloudUploadService via sqliteService.markInvoiceUploaded) so it survives
+  // app restarts — no separate in-memory Set needed.
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const [uploadedIds, setUploadedIds] = useState<Set<string>>(new Set());
   const [monthlyUsed, setMonthlyUsed] = useState<number>(0);
 
   // Load monthly usage on mount
@@ -65,8 +67,8 @@ export default function InvoicesScreen() {
       const result = await uploadInvoiceToCloud(invoice, user.uid);
 
       if (result.status === 'success') {
-        setUploadedIds((prev) => new Set(prev).add(invoice.id));
         setMonthlyUsed((n) => n + 1);
+        await refreshInvoices();
         Alert.alert(
           '✓ Uploaded',
           `Invoice ${invoice.invoiceNumber} has been backed up to the cloud.`,
@@ -99,7 +101,7 @@ export default function InvoicesScreen() {
     } finally {
       setUploadingId(null);
     }
-  }, [user, uploadingId]);
+  }, [user, uploadingId, refreshInvoices]);
 
   const filtered = useMemo(() => {
     let list = [...invoices];
@@ -251,7 +253,7 @@ export default function InvoicesScreen() {
             />
             {/* Upload to Cloud button */}
             <View style={[styles.uploadRow, { borderColor: colors.border }]}>
-              {uploadedIds.has(item.id) ? (
+              {item.cloudUploaded ? (
                 <View style={[styles.uploadedBadge, { backgroundColor: '#DCFCE7' }]}>
                   <Feather name="check-circle" size={12} color="#15803D" />
                   <Text style={[styles.uploadedText, { color: '#15803D' }]}>Uploaded to Cloud</Text>

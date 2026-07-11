@@ -12,7 +12,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { getSessionJSON, setSessionJSON, upsertLocalInvoice, getLocalInvoices } from './sqliteService';
+import { getSessionJSON, setSessionJSON, upsertLocalInvoice, getLocalInvoices, markInvoiceUploaded } from './sqliteService';
 import { syncInvoiceToSupabase, isSupabaseConfigured, fetchInvoicesFromSupabase } from './supabaseSync';
 import { showRewardedVideo } from './admobService';
 import { isPremiumUser } from './syncCreditsService';
@@ -111,6 +111,12 @@ export async function uploadInvoiceToCloud(
 
     // ── Record usage ──────────────────────────────────────────────────────────
     await recordMonthlyUpload(userId);
+
+    // ── Persist "Uploaded" status locally so it survives restarts and shows
+    //    up as a lifecycle badge in Recent Invoices / the Cloud Backup hub. ──
+    await markInvoiceUploaded(invoice.id).catch((err) =>
+      console.warn('[CloudUpload] Failed to persist uploaded flag locally (non-fatal):', err)
+    );
 
     return { status: 'success' };
   } catch (err) {

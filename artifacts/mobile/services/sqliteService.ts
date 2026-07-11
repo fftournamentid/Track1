@@ -65,10 +65,14 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       is_favorite   INTEGER NOT NULL DEFAULT 0,
       is_archived   INTEGER NOT NULL DEFAULT 0,
       pending_sync  INTEGER NOT NULL DEFAULT 0,
+      cloud_uploaded INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL,
       updated_at    TEXT NOT NULL,
       data          TEXT NOT NULL       -- full Invoice JSON
     );
+
+    -- Upgrade path: existing DBs created before cloud_uploaded existed.
+    -- SQLite has no "ADD COLUMN IF NOT EXISTS"; guarded by pragma check below.
 
     CREATE INDEX IF NOT EXISTS idx_invoices_user
       ON invoices (user_uid, created_at DESC);
@@ -131,6 +135,16 @@ async function initSchema(db: SQLite.SQLiteDatabase): Promise<void> {
       saved_at  TEXT NOT NULL
     );
   `);
+
+  // ── Migration: add cloud_uploaded to invoices tables created before it existed ──
+  try {
+    const cols = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(invoices)`);
+    if (!cols.some((c) => c.name === 'cloud_uploaded')) {
+      await db.execAsync(`ALTER TABLE invoices ADD COLUMN cloud_uploaded INTEGER NOT NULL DEFAULT 0;`);
+    }
+  } catch (err) {
+    console.warn('[SQLite] cloud_uploaded migration check failed (non-fatal):', err);
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -155,6 +169,7 @@ export interface LocalInvoiceRow {
   is_favorite: number;
   is_archived: number;
   pending_sync: number;
+  cloud_uploaded: number;
   created_at: string;
   updated_at: string;
   data: string;
@@ -171,6 +186,7 @@ function invoiceToRow(invoice: Invoice, userUid: string): Omit<LocalInvoiceRow, 
     is_favorite: invoice.isFavorite ? 1 : 0,
     is_archived: invoice.isArchived ? 1 : 0,
     pending_sync: invoice.pendingSync ? 1 : 0,
+    cloud_uploaded: invoice.cloudUploaded ? 1 : 0,
     created_at: invoice.createdAt,
     updated_at: invoice.updatedAt,
     data: JSON.stringify(invoice),
@@ -188,8 +204,8 @@ export async function upsertLocalInvoice(invoice: Invoice, userUid: string): Pro
   await db.runAsync(
     `INSERT INTO invoices
        (id, user_uid, invoice_number, status, client_name, total_amount,
-        is_favorite, is_archived, pending_sync, created_at, updated_at, data)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        is_favorite, is_archived, pending_sync, cloud_uploaded, created_at, updated_at, data)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        invoice_number = excluded.invoice_number,
        status         = excluded.status,
@@ -198,11 +214,12 @@ export async function upsertLocalInvoice(invoice: Invoice, userUid: string): Pro
        is_favorite    = excluded.is_favorite,
        is_archived    = excluded.is_archived,
        pending_sync   = excluded.pending_sync,
+       cloud_uploaded = excluded.cloud_uploaded,
        updated_at     = excluded.updated_at,
        data           = excluded.data`,
     [
       r.id, r.user_uid, r.invoice_number, r.status, r.client_name,
-      r.total_amount, r.is_favorite, r.is_archived, r.pending_sync,
+      r.total_amount, r.is_favorite, r.is_archived, r.pending_sync, r.cloud_uploaded,
       r.created_at, r.updated_at, r.data,
     ]
   );
@@ -221,11 +238,11 @@ export async function replaceAllLocalInvoices(
       await db.runAsync(
         `INSERT INTO invoices
            (id, user_uid, invoice_number, status, client_name, total_amount,
-            is_favorite, is_archived, pending_sync, created_at, updated_at, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            is_favorite, is_archived, pending_sync, cloud_uploaded, created_at, updated_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           r.id, r.user_uid, r.invoice_number, r.status, r.client_name,
-          r.total_amount, r.is_favorite, r.is_archived, r.pending_sync,
+          r.total_amount, r.is_favorite, r.is_archived, r.pending_sync, r.cloud_uploaded,
           r.created_at, r.updated_at, r.data,
         ]
       );
@@ -282,6 +299,26 @@ export async function getPendingSyncInvoices(userUid: string): Promise<Invoice[]
     [userUid]
   );
   return rows.map(rowToInvoice);
+}
+
+/**
+ * Mark an invoice as backed up to Cloud Backup (manual "Upload to Cloud"
+ * flow — see cloudUploadService.ts). Idempotent; safe to call repeatedly.
+ */
+export async function markInvoiceUploaded(id: string): Promise<void> {
+  const existing = await getLocalInvoiceById(id);
+  if (!existing) return;
+  const db = await getDb();
+  const userUid = await db
+    .getFirstAsync<{ user_uid: string }>('SELECT user_uid FROM invoices WHERE id = ?', [id])
+    .then((r) => r?.user_uid ?? '');
+  const merged: Invoice = {
+    ...existing,
+    cloudUploaded: true,
+    cloudUploadedAt: now(),
+    updatedAt: now(),
+  };
+  await upsertLocalInvoice(merged, userUid);
 }
 
 // ─── CFT CALCULATOR HISTORY ───────────────────────────────────────────────────

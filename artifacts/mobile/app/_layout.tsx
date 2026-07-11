@@ -10,6 +10,7 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
+import TruckLoadingAnimation from "@/components/TruckLoadingAnimation";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -27,11 +28,7 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
-const LoadingScreen = () => (
-  <View style={{ flex: 1, backgroundColor: "#FF6B00", alignItems: "center", justifyContent: "center" }}>
-    <ActivityIndicator color="#FFFFFF" size="large" />
-  </View>
-);
+const LoadingScreen = () => <TruckLoadingAnimation label="Loading FleetInvoice…" />;
 
 // Same UID as AuthContext — used as a belt-and-suspenders fallback so the
 // hardcoded admin is never blocked by stale SQLite cache or a Firestore race.
@@ -108,6 +105,7 @@ function RootLayoutNav() {
       <Stack.Screen name="invoice/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="invoice/preview" options={{ headerShown: false }} />
       <Stack.Screen name="pdf-history" options={{ headerShown: false }} />
+      <Stack.Screen name="cloud-backup" options={{ headerShown: false }} />
     </Stack>
   );
 }
@@ -165,11 +163,7 @@ export default function RootLayout() {
   }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#FF6B00", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color="#FFFFFF" size="large" />
-      </View>
-    );
+    return <TruckLoadingAnimation label="Loading FleetInvoice…" />;
   }
 
   // Block the entire UI when there is no internet connection.
