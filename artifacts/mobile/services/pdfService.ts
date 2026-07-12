@@ -412,20 +412,54 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   console.log('[PDF][share] sharePDF — uri:', uri, '| platform:', Platform.OS);
 
   // ── Web ───────────────────────────────────────────────────────────────────
-  // Use navigator.share() to open the native Web Share sheet.
-  // Never call window.open() here — that would open the PDF, not share it.
+  // Fetch the PDF bytes from the URI (handles blob:, https:, etc.) and share
+  // as a File object so the browser share sheet receives the actual PDF — not
+  // a blob URL string.  Never pass blob: / file: / content: as plain text.
   if (Platform.OS === 'web') {
-    console.log('[PDF][share] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
-    if (
-      typeof navigator !== 'undefined' &&
-      typeof navigator.share === 'function'
-    ) {
-      await navigator.share({ title, url: isValidWebUrl(uri) ? uri : undefined });
-      return;
+    const filename = 'Invoice.pdf';
+
+    // Step 1: Resolve URI → in-memory File
+    let pdfFile: File | null = null;
+    try {
+      const resp = await fetch(uri);
+      const blob = await resp.blob();
+      pdfFile = new File([blob], filename, { type: 'application/pdf' });
+    } catch (fetchErr) {
+      console.warn('[PDF][share] web: could not fetch PDF blob:', fetchErr);
     }
-    // navigator.share not supported on this browser — nothing to do.
-    throw new Error('Sharing is not supported in this browser.');
+
+    // Step 2: Try navigator.share({ files }) — shares the actual PDF bytes
+    if (
+      pdfFile &&
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [pdfFile] })
+    ) {
+      try {
+        await navigator.share({ title, files: [pdfFile] });
+        return;
+      } catch (shareErr) {
+        // User dismissed the share sheet — treat as success (no error toast)
+        if ((shareErr as DOMException)?.name === 'AbortError') return;
+        console.warn('[PDF][share] web: navigator.share failed:', shareErr);
+      }
+    }
+
+    // Step 3: Fallback — download the PDF directly
+    const objectUrl = pdfFile ? URL.createObjectURL(pdfFile) : uri;
+    if (typeof document !== 'undefined') {
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    if (pdfFile) URL.revokeObjectURL(objectUrl);
+    return;
   }
+
   // ── Native (Android / iOS) ────────────────────────────────────────────────
 
   let localUri = uri;
@@ -451,38 +485,9 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   const validHeader = await hasValidPdfHeader(localUri);
   if (!validHeader) throw new Error('Unable to share PDF. Please try again.');
 
-  if (Platform.OS === 'android') {
-    // Use ACTION_SEND via IntentLauncher with a content URI so the system
-    // shows the full Android share sheet (Nearby Share, Gmail, Drive,
-    // Bluetooth, WhatsApp, etc.).  Never use ACTION_VIEW here — that opens
-    // the PDF viewer, not the share sheet.
-    try {
-      const IntentLauncher = await import('expo-intent-launcher');
-      const contentUri = await FileSystem.getContentUriAsync(localUri);
-      await IntentLauncher.startActivityAsync('android.intent.action.SEND', {
-        type: 'application/pdf',
-        extra: {
-          'android.intent.extra.STREAM': contentUri,
-          'android.intent.extra.SUBJECT': title,
-        },
-        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-        // No packageName — shows the full chooser/share sheet
-      });
-      return;
-    } catch (intentErr) {
-      console.warn('[PDF][share] IntentLauncher ACTION_SEND failed, trying Sharing.shareAsync:', intentErr);
-    }
-    // Fallback: expo-sharing (still opens share sheet, not viewer)
-    const canShare = await Sharing.isAvailableAsync();
-    if (!canShare) throw new Error('Sharing is not available on this device.');
-    await Sharing.shareAsync(localUri, {
-      mimeType: 'application/pdf',
-      dialogTitle: title,
-      UTI: 'com.adobe.pdf',
-    });
-    return;
-  }
-
+  // Use Sharing.shareAsync with the local file URI — expo-sharing opens the
+  // native share sheet (Nearby Share, Gmail, Drive, Bluetooth, WhatsApp…)
+  // with the PDF attached.  Works on both Android and iOS.
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) throw new Error('Sharing is not available on this device.');
   await Sharing.shareAsync(localUri, {
@@ -493,25 +498,65 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
 }
 
 /**
- * Share PDF directly to WhatsApp (Android: direct intent; web: wa.me link; iOS: share sheet).
- * If WhatsApp is not installed on Android, falls back to the full native share sheet.
- * Never opens the PDF viewer.
+ * Share PDF directly to WhatsApp.
+ *   Android: ACTION_SEND direct to com.whatsapp with content URI attachment;
+ *            falls back to the native share sheet via Sharing.shareAsync.
+ *   Web:     navigator.share({ files }) so the browser share sheet (including
+ *            WhatsApp Web) receives the actual PDF file — never a blob: URL.
+ *            Falls back to downloading the PDF if file-share is unsupported.
+ *   iOS:     Sharing.shareAsync (native share sheet).
+ *
+ * Never sends blob:, file://, or content:// URIs as plain text.
  */
 export async function shareToWhatsApp(uri: string): Promise<void> {
   console.log('[PDF][whatsapp] shareToWhatsApp — uri:', uri, '| platform:', Platform.OS);
 
   // ── Web ───────────────────────────────────────────────────────────────────
-  // Open WhatsApp Web/app via wa.me deep link.  File attachments are not
-  // supported over the wa.me URL scheme, so we pass the PDF URL as text.
-  // Never call window.open(uri) here — that would open the PDF, not WhatsApp.
+  // Fetch the PDF bytes so we can share the actual file, not a blob: URL string.
   if (Platform.OS === 'web') {
-    console.log('[PDF][whatsapp] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
-    const text = isValidWebUrl(uri) ? uri : 'Please find the invoice PDF attached.';
-    if (typeof window !== 'undefined') {
-      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    const filename = 'Invoice.pdf';
+
+    // Step 1: Resolve URI → in-memory File
+    let pdfFile: File | null = null;
+    try {
+      const resp = await fetch(uri);
+      const blob = await resp.blob();
+      pdfFile = new File([blob], filename, { type: 'application/pdf' });
+    } catch (fetchErr) {
+      console.warn('[PDF][whatsapp] web: could not fetch PDF blob:', fetchErr);
     }
+
+    // Step 2: Try navigator.share({ files }) — WhatsApp Web can receive the attachment
+    if (
+      pdfFile &&
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [pdfFile] })
+    ) {
+      try {
+        await navigator.share({ title: 'Invoice PDF', files: [pdfFile] });
+        return;
+      } catch (shareErr) {
+        if ((shareErr as DOMException)?.name === 'AbortError') return;
+        console.warn('[PDF][whatsapp] web: navigator.share failed:', shareErr);
+      }
+    }
+
+    // Step 3: Fallback — download the PDF (never send blob URL as text)
+    const objectUrl = pdfFile ? URL.createObjectURL(pdfFile) : uri;
+    if (typeof document !== 'undefined') {
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    if (pdfFile) URL.revokeObjectURL(objectUrl);
     return;
   }
+
   // ── Native (Android / iOS) ────────────────────────────────────────────────
 
   let localUri = uri;
@@ -534,9 +579,9 @@ export async function shareToWhatsApp(uri: string): Promise<void> {
   if (!info.exists) throw new Error('Unable to share PDF. Please try again.');
 
   if (Platform.OS === 'android') {
-    // 1. Try direct WhatsApp intent via ACTION_SEND + packageName.
-    //    Requires a content URI (getContentUriAsync).  If WhatsApp is not
-    //    installed, or if getContentUriAsync fails, fall through.
+    // 1. Try direct WhatsApp intent: ACTION_SEND + packageName so WhatsApp
+    //    receives the PDF as a file attachment (not a link).
+    //    Requires a content:// URI — getContentUriAsync handles the conversion.
     try {
       const contentUri = await FileSystem.getContentUriAsync(localUri);
       const IntentLauncher = await import('expo-intent-launcher');
@@ -553,26 +598,10 @@ export async function shareToWhatsApp(uri: string): Promise<void> {
     } catch {
       // WhatsApp not installed or intent failed — fall through to share sheet.
     }
-    // 2. Fallback: full Android share sheet via ACTION_SEND (no packageName).
-    //    Uses IntentLauncher directly (not Sharing.shareAsync) to guarantee
-    //    the chooser appears rather than opening a PDF viewer.
-    try {
-      const contentUri = await FileSystem.getContentUriAsync(localUri);
-      const IntentLauncher = await import('expo-intent-launcher');
-      await IntentLauncher.startActivityAsync('android.intent.action.SEND', {
-        type: 'application/pdf',
-        extra: {
-          'android.intent.extra.STREAM': contentUri,
-          'android.intent.extra.SUBJECT': 'Invoice PDF',
-        },
-        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-        // No packageName — shows the full chooser/share sheet
-      });
-      return;
-    } catch (intentErr) {
-      console.warn('[PDF][whatsapp] fallback ACTION_SEND failed:', intentErr);
-    }
-    // Last resort: expo-sharing
+    // 2. Fallback: full native share sheet via Sharing.shareAsync.
+    //    The user can pick WhatsApp (or any other app) from the chooser.
+    const canShare = await Sharing.isAvailableAsync();
+    if (!canShare) throw new Error('Sharing is not available on this device.');
     await Sharing.shareAsync(localUri, {
       mimeType: 'application/pdf',
       dialogTitle: 'Share Invoice via WhatsApp',
@@ -581,7 +610,7 @@ export async function shareToWhatsApp(uri: string): Promise<void> {
     return;
   }
 
-  // iOS / other
+  // iOS / other — native share sheet
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) throw new Error('Sharing is not available on this device.');
   await Sharing.shareAsync(localUri, {
