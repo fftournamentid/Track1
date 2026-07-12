@@ -24,6 +24,16 @@
         "APP_VARIANT": "preview"
       }
     },
+    "release-apk": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "APP_VARIANT": "production"
+      }
+    },
     "production": {
       "android": {
         "buildType": "app-bundle"
