@@ -284,6 +284,41 @@ export async function getCachedLocalPDFUri(
   return valid ? dest : null;
 }
 
+/**
+ * Resolve the local URI for a PDF, downloading from cloud if the local file
+ * is missing.  Always saves to the canonical documentDirectory path so that
+ * getCachedLocalPDFUri() finds it on every subsequent call (no re-download).
+ *
+ * Returns the local file:// URI, or null only when the PDF truly does not
+ * exist anywhere (not locally, not in the cloud).
+ */
+export async function resolveLocalPDF(
+  invoiceNumber: string,
+  templateId: string,
+  cloudUrl?: string | null,
+): Promise<string | null> {
+  // On web there is no local filesystem — return the cloud URL as-is.
+  if (Platform.OS === 'web') return cloudUrl ?? null;
+
+  const filename = `Invoice_${safeName(invoiceNumber)}_${safeName(templateId)}.pdf`;
+  const dest = `${FileSystem.documentDirectory}${filename}`;
+
+  // 1. Local cache hit — instant, no network.
+  if (await fileExistsAndValid(dest)) return dest;
+
+  // 2. Download from cloud URL and save to the canonical local path.
+  if (cloudUrl) {
+    try {
+      const dl = await FileSystem.downloadAsync(cloudUrl, dest);
+      if (await fileExistsAndValid(dl.uri)) return dl.uri;
+    } catch (downloadErr) {
+      console.warn('[PDF][resolve] Cloud download failed:', downloadErr);
+    }
+  }
+
+  return null;
+}
+
 /** Legacy compat — returns a raw PDFResult (uri only). */
 export async function generatePDF(
   invoice: Invoice,

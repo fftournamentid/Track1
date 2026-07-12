@@ -14,7 +14,7 @@ import { formatCurrency } from '@/utils/formatters';
 import TemplatePicker from '@/components/TemplatePicker';
 import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
-import { generateAndSaveInvoicePDF, openPDF, sharePDF, shareToWhatsApp, getCachedLocalPDFUri } from '@/services/pdfService';
+import { generateAndSaveInvoicePDF, openPDF, sharePDF, shareToWhatsApp, resolveLocalPDF } from '@/services/pdfService';
 import { useAuth } from '@/contexts/AuthContext';
 import { uploadInvoiceToCloud } from '@/services/cloudUploadService';
 import type { Invoice, InvoiceStatus } from '@/types';
@@ -219,39 +219,29 @@ export default function InvoiceDetailScreen() {
     if (!invoice) return;
 
     setGenerating(true);
-    let resolvedUri: string | null = null;
-
     try {
-      // 1. Check the local documentDirectory cache first (no network, instant).
-      //    getCachedLocalPDFUri validates existence and the %PDF- magic header.
-      const localUri = await getCachedLocalPDFUri(
+      // resolveLocalPDF: checks documentDirectory cache first (instant),
+      // then silently downloads from cloud to the same canonical local path.
+      // Returns null only when the PDF truly does not exist anywhere.
+      const uri = await resolveLocalPDF(
         invoice.invoiceNumber,
         invoice.templateId ?? 'classic',
+        invoice.pdfUrl,
       );
-      if (localUri) {
-        resolvedUri = localUri;
-      } else if (invoice.pdfUrl) {
-        // 2. Fall back to stored Supabase / cloud URL.
-        resolvedUri = invoice.pdfUrl;
+
+      if (!uri) {
+        // No PDF has ever been generated — show template picker.
+        setTemplatePickerVisible(true);
+        return;
       }
+
+      // Open directly in the system PDF viewer (IntentLauncher → share-sheet
+      // fallback is handled inside openPDF).  Viewer failures are swallowed
+      // silently — openPDF already has its own fallback chain.
+      try { await openPDF(uri); } catch { /* viewer unavailable on this platform */ }
     } finally {
       setGenerating(false);
     }
-
-    if (resolvedUri) {
-      // PDF exists — open it directly in the system PDF viewer.
-      // A failure here (no viewer installed, intent error, etc.) gets a toast.
-      // We must not fall through to the template picker or show the PDF Ready sheet.
-      try {
-        await openPDF(resolvedUri);
-      } catch {
-        showToast('Could not open PDF viewer. Try "Share PDF" instead.', 'error');
-      }
-      return;
-    }
-
-    // 3. No PDF has ever been generated — show template picker to generate one.
-    setTemplatePickerVisible(true);
   }, [invoice]);
 
   const handleToggleFavorite = async () => {
@@ -527,16 +517,18 @@ export default function InvoiceDetailScreen() {
                   if (sharingPDF || sharingWhatsApp) return;
                   setSharingPDF(true);
                   try {
-                    // Use the saved local file — never regenerate
-                    const localUri = await getCachedLocalPDFUri(
-                      invoice.invoiceNumber, invoice.templateId ?? 'classic',
+                    // resolveLocalPDF returns a guaranteed local file URI —
+                    // local cache hit or silent cloud download to documentDirectory.
+                    const uri = await resolveLocalPDF(
+                      invoice.invoiceNumber,
+                      invoice.templateId ?? 'classic',
+                      invoice.pdfUrl,
                     );
-                    const uriToShare = localUri ?? invoice.pdfUrl;
-                    if (!uriToShare) {
+                    if (!uri) {
                       showToast('PDF not found. Please generate it first.', 'error');
                       return;
                     }
-                    await sharePDF(uriToShare, `Invoice — ${invoice.invoiceNumber}`);
+                    await sharePDF(uri, `Invoice — ${invoice.invoiceNumber}`);
                     showToast('PDF shared.');
                   } catch (err) {
                     console.error('[PDF] Share failed:', err);
@@ -555,16 +547,18 @@ export default function InvoiceDetailScreen() {
                   if (sharingPDF || sharingWhatsApp) return;
                   setSharingWhatsApp(true);
                   try {
-                    // Use the saved local file — never regenerate
-                    const localUri = await getCachedLocalPDFUri(
-                      invoice.invoiceNumber, invoice.templateId ?? 'classic',
+                    // resolveLocalPDF returns a guaranteed local file URI —
+                    // local cache hit or silent cloud download to documentDirectory.
+                    const uri = await resolveLocalPDF(
+                      invoice.invoiceNumber,
+                      invoice.templateId ?? 'classic',
+                      invoice.pdfUrl,
                     );
-                    const uriToShare = localUri ?? invoice.pdfUrl;
-                    if (!uriToShare) {
+                    if (!uri) {
                       showToast('PDF not found. Please generate it first.', 'error');
                       return;
                     }
-                    await shareToWhatsApp(uriToShare);
+                    await shareToWhatsApp(uri);
                     showToast('WhatsApp opened.');
                   } catch (err) {
                     console.error('[PDF] WhatsApp share failed:', err);
