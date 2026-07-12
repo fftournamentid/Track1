@@ -331,8 +331,35 @@ export async function generatePDF(
 // Open / Share / Download — unchanged from original
 // ─────────────────────────────────────────────────────────────────────────────
 
+function isValidWebUrl(uri: string): boolean {
+  return (
+    typeof uri === 'string' &&
+    uri.length > 0 &&
+    (uri.startsWith('https://') || uri.startsWith('http://') || uri.startsWith('blob:'))
+  );
+}
+
 export async function openPDF(uri: string): Promise<void> {
   console.log('[PDF][open] openPDF called, uri:', uri);
+
+  // ── Web ───────────────────────────────────────────────────────────────────
+  // file:// and content:// URIs are Android-only.
+  // On web, only https://, http://, or blob: URLs are valid for window.open().
+  // navigator.share() throws "Invalid URL" for anything else — do NOT use it.
+  if (Platform.OS === 'web') {
+    console.log('[PDF][open] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
+    if (!isValidWebUrl(uri)) {
+      throw new Error(
+        `Cannot open PDF in browser: "${uri}" is not a valid web URL. ` +
+        `file:// and content:// URIs only work on Android. ` +
+        `Upload the PDF to cloud so it has an https:// URL, then try again.`,
+      );
+    }
+    if (typeof window !== 'undefined') window.open(uri, '_blank');
+    return;
+  }
+  // ── Native (Android / iOS) ────────────────────────────────────────────────
+
   let localUri = uri;
 
   if (uri.startsWith('http://') || uri.startsWith('https://')) {
@@ -384,10 +411,19 @@ export async function openPDF(uri: string): Promise<void> {
 export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promise<void> {
   console.log('[PDF][share] sharePDF — uri:', uri, '| platform:', Platform.OS);
 
+  // ── Web ───────────────────────────────────────────────────────────────────
   if (Platform.OS === 'web') {
+    console.log('[PDF][share] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
+    if (!isValidWebUrl(uri)) {
+      throw new Error(
+        `Cannot share PDF in browser: "${uri}" is not a valid web URL. ` +
+        `file:// and content:// URIs only work on Android.`,
+      );
+    }
     if (typeof window !== 'undefined') window.open(uri, '_blank');
     return;
   }
+  // ── Native (Android / iOS) ────────────────────────────────────────────────
 
   let localUri = uri;
 
@@ -443,10 +479,19 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
 export async function shareToWhatsApp(uri: string): Promise<void> {
   console.log('[PDF][whatsapp] shareToWhatsApp — uri:', uri, '| platform:', Platform.OS);
 
+  // ── Web ───────────────────────────────────────────────────────────────────
   if (Platform.OS === 'web') {
+    console.log('[PDF][whatsapp] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
+    if (!isValidWebUrl(uri)) {
+      throw new Error(
+        `Cannot share PDF to WhatsApp in browser: "${uri}" is not a valid web URL. ` +
+        `file:// and content:// URIs only work on Android.`,
+      );
+    }
     if (typeof window !== 'undefined') window.open(uri, '_blank');
     return;
   }
+  // ── Native (Android / iOS) ────────────────────────────────────────────────
 
   let localUri = uri;
 
