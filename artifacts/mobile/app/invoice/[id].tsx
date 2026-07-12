@@ -15,6 +15,7 @@ import TemplatePicker from '@/components/TemplatePicker';
 import PDFActionModal from '@/components/PDFActionModal';
 import Toast from '@/components/Toast';
 import { generateAndSaveInvoicePDF, openPDF, sharePDF, shareToWhatsApp, getCachedLocalPDFUri } from '@/services/pdfService';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useAuth } from '@/contexts/AuthContext';
 import { uploadInvoiceToCloud } from '@/services/cloudUploadService';
 import type { Invoice, InvoiceStatus } from '@/types';
@@ -225,23 +226,45 @@ export default function InvoiceDetailScreen() {
     if (invoice.pdfUrl) {
       setGenerating(true);
       try {
-        // Prefer the local cached file (instant, no network).
-        // Fall back to the stored URL — openPDF handles remote URLs internally
-        // (downloads to cacheDirectory then opens).
         const localUri = await getCachedLocalPDFUri(
           invoice.invoiceNumber,
           invoice.templateId ?? 'classic',
         );
+
+        // ── DIAGNOSTIC BLOCK ─────────────────────────────────────────────────
+        const uriToOpen = localUri ?? invoice.pdfUrl;
+        let fileExists = false;
         try {
-          await openPDF(localUri ?? invoice.pdfUrl);
+          const info = await FileSystem.getInfoAsync(uriToOpen);
+          fileExists = info.exists;
+        } catch { /* remote URL — getInfoAsync will throw */ }
+
+        console.log('━━━ [OPEN PDF DIAGNOSTIC] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('[1] Invoice ID       :', invoice.id);
+        console.log('[2] Local path       :', localUri ?? '(null — no local cache)');
+        console.log('[3] Remote URL       :', invoice.pdfUrl ?? '(none)');
+        console.log('[4] File exists?     :', fileExists);
+        console.log('[5] Function called  : openPDF(', uriToOpen, ')');
+        console.log('[5] URI being opened :', uriToOpen);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        // ─────────────────────────────────────────────────────────────────────
+
+        try {
+          await openPDF(uriToOpen);
         } catch (openErr) {
-          console.warn('[PDF] openPDF failed:', openErr);
+          const msg   = openErr instanceof Error ? openErr.message : String(openErr);
+          const stack = openErr instanceof Error ? openErr.stack   : '(no stack)';
+          console.error('━━━ [OPEN PDF EXCEPTION] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.error('[6] Stack trace      :', stack);
+          console.error('[7] Exception message:', msg);
+          console.error('[8] Thrown in        : openPDF() — services/pdfService.ts');
+          console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
           showToast('Could not open PDF. Try "Share PDF" instead.', 'error');
         }
       } finally {
         setGenerating(false);
       }
-      return; // ← always return; never fall through to TemplatePicker
+      return;
     }
 
     // No PDF has ever been generated for this invoice — show the template picker.
