@@ -412,16 +412,19 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   console.log('[PDF][share] sharePDF — uri:', uri, '| platform:', Platform.OS);
 
   // ── Web ───────────────────────────────────────────────────────────────────
+  // Use navigator.share() to open the native Web Share sheet.
+  // Never call window.open() here — that would open the PDF, not share it.
   if (Platform.OS === 'web') {
     console.log('[PDF][share] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
-    if (!isValidWebUrl(uri)) {
-      throw new Error(
-        `Cannot share PDF in browser: "${uri}" is not a valid web URL. ` +
-        `file:// and content:// URIs only work on Android.`,
-      );
+    if (
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function'
+    ) {
+      await navigator.share({ title, url: isValidWebUrl(uri) ? uri : undefined });
+      return;
     }
-    if (typeof window !== 'undefined') window.open(uri, '_blank');
-    return;
+    // navigator.share not supported on this browser — nothing to do.
+    throw new Error('Sharing is not supported in this browser.');
   }
   // ── Native (Android / iOS) ────────────────────────────────────────────────
 
@@ -449,10 +452,27 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   if (!validHeader) throw new Error('Unable to share PDF. Please try again.');
 
   if (Platform.OS === 'android') {
-    // Use Sharing.shareAsync with the raw file:// URI.
-    // expo-sharing handles the FileProvider conversion internally on Android,
-    // exactly like savePDFToDownloads does.  Calling getContentUriAsync first
-    // is unnecessary and fails on some devices.
+    // Use ACTION_SEND via IntentLauncher with a content URI so the system
+    // shows the full Android share sheet (Nearby Share, Gmail, Drive,
+    // Bluetooth, WhatsApp, etc.).  Never use ACTION_VIEW here — that opens
+    // the PDF viewer, not the share sheet.
+    try {
+      const IntentLauncher = await import('expo-intent-launcher');
+      const contentUri = await FileSystem.getContentUriAsync(localUri);
+      await IntentLauncher.startActivityAsync('android.intent.action.SEND', {
+        type: 'application/pdf',
+        extra: {
+          'android.intent.extra.STREAM': contentUri,
+          'android.intent.extra.SUBJECT': title,
+        },
+        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+        // No packageName — shows the full chooser/share sheet
+      });
+      return;
+    } catch (intentErr) {
+      console.warn('[PDF][share] IntentLauncher ACTION_SEND failed, trying Sharing.shareAsync:', intentErr);
+    }
+    // Fallback: expo-sharing (still opens share sheet, not viewer)
     const canShare = await Sharing.isAvailableAsync();
     if (!canShare) throw new Error('Sharing is not available on this device.');
     await Sharing.shareAsync(localUri, {
@@ -473,22 +493,23 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
 }
 
 /**
- * Share PDF directly to WhatsApp (Android: direct intent; iOS / fallback: generic share sheet).
- * If WhatsApp is not installed, falls back to the native share sheet via sharePDF.
+ * Share PDF directly to WhatsApp (Android: direct intent; web: wa.me link; iOS: share sheet).
+ * If WhatsApp is not installed on Android, falls back to the full native share sheet.
+ * Never opens the PDF viewer.
  */
 export async function shareToWhatsApp(uri: string): Promise<void> {
   console.log('[PDF][whatsapp] shareToWhatsApp — uri:', uri, '| platform:', Platform.OS);
 
   // ── Web ───────────────────────────────────────────────────────────────────
+  // Open WhatsApp Web/app via wa.me deep link.  File attachments are not
+  // supported over the wa.me URL scheme, so we pass the PDF URL as text.
+  // Never call window.open(uri) here — that would open the PDF, not WhatsApp.
   if (Platform.OS === 'web') {
     console.log('[PDF][whatsapp] web path — isValidWebUrl:', isValidWebUrl(uri), '| uri:', uri);
-    if (!isValidWebUrl(uri)) {
-      throw new Error(
-        `Cannot share PDF to WhatsApp in browser: "${uri}" is not a valid web URL. ` +
-        `file:// and content:// URIs only work on Android.`,
-      );
+    const text = isValidWebUrl(uri) ? uri : 'Please find the invoice PDF attached.';
+    if (typeof window !== 'undefined') {
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
     }
-    if (typeof window !== 'undefined') window.open(uri, '_blank');
     return;
   }
   // ── Native (Android / iOS) ────────────────────────────────────────────────
@@ -525,16 +546,33 @@ export async function shareToWhatsApp(uri: string): Promise<void> {
           'android.intent.extra.STREAM': contentUri,
           'android.intent.extra.SUBJECT': 'Invoice PDF',
         },
-        flags: 1,
+        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
         packageName: 'com.whatsapp',
       });
       return;
     } catch {
-      // WhatsApp not installed or getContentUriAsync failed — fall through.
+      // WhatsApp not installed or intent failed — fall through to share sheet.
     }
-    // 2. Fallback: generic Android share sheet with the raw file:// URI.
-    //    expo-sharing handles FileProvider conversion internally (same pattern
-    //    as savePDFToDownloads which is confirmed working).
+    // 2. Fallback: full Android share sheet via ACTION_SEND (no packageName).
+    //    Uses IntentLauncher directly (not Sharing.shareAsync) to guarantee
+    //    the chooser appears rather than opening a PDF viewer.
+    try {
+      const contentUri = await FileSystem.getContentUriAsync(localUri);
+      const IntentLauncher = await import('expo-intent-launcher');
+      await IntentLauncher.startActivityAsync('android.intent.action.SEND', {
+        type: 'application/pdf',
+        extra: {
+          'android.intent.extra.STREAM': contentUri,
+          'android.intent.extra.SUBJECT': 'Invoice PDF',
+        },
+        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+        // No packageName — shows the full chooser/share sheet
+      });
+      return;
+    } catch (intentErr) {
+      console.warn('[PDF][whatsapp] fallback ACTION_SEND failed:', intentErr);
+    }
+    // Last resort: expo-sharing
     await Sharing.shareAsync(localUri, {
       mimeType: 'application/pdf',
       dialogTitle: 'Share Invoice via WhatsApp',
