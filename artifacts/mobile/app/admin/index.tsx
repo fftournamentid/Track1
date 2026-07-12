@@ -7,21 +7,21 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import {
-  collection, collectionGroup, getDocs, query, orderBy, limit,
-  doc, updateDoc, deleteDoc, serverTimestamp,
+  collection, collectionGroup, getDocs, getDoc, query, orderBy, limit,
+  doc, setDoc, updateDoc, deleteDoc, serverTimestamp, where,
 } from 'firebase/firestore';
 import { setAdminVerified } from '@/services/firebase/repositories/user.repository';
-import { db } from '@/services/firebase/config';
+import { db, auth } from '@/services/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { signOut } from '@/services/firebase/auth.service';
 import type { UserDocument } from '@/services/firebase/repositories/user.repository';
-import type { Invoice } from '@/types';
+import type { Invoice, UserFeedback } from '@/types';
 
 const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 const BG = '#F3F6FB';
 
-type Tab = 'dashboard' | 'users' | 'invoices' | 'premium' | 'analytics' | 'more';
+type Tab = 'dashboard' | 'users' | 'invoices' | 'premium' | 'analytics' | 'more' | 'feedback' | 'support' | 'settings' | 'security';
 
 interface UserWithInvoices extends UserDocument {
   invoiceTotal?: number;
@@ -33,10 +33,11 @@ function fmtCurrency(n: number) {
 
 // ─── Dashboard Tab ──────────────────────────────────────────────────────────
 
-function DashboardTab({ users, loading, onRefresh }: {
+function DashboardTab({ users, loading, onRefresh, bugCount }: {
   users: UserWithInvoices[];
   loading: boolean;
   onRefresh: () => void;
+  bugCount: number;
 }) {
   const insets = useSafeAreaInsets();
   const stats = {
@@ -53,9 +54,12 @@ function DashboardTab({ users, loading, onRefresh }: {
     { icon: 'star', label: 'Premium Users', value: String(stats.premium) },
     { icon: 'file-text', label: 'Total Invoices', value: String(stats.invoices) },
     { icon: 'download', label: 'PDF Downloads', value: '—' },
-    { icon: 'trending-up', label: 'Revenue Tracked', value: fmtCurrency(stats.revenue) },
-    { icon: 'thumbs-up', label: 'Avg. Rating', value: '4.8 ★' },
-    { icon: 'alert-circle', label: 'Bug Reports', value: '0' },
+    // Revenue: show "Coming Soon" when no payment data exists (totalRevenue is 0 across all users)
+    { icon: 'trending-up', label: 'Revenue Tracked', value: stats.revenue > 0 ? fmtCurrency(stats.revenue) : 'Coming Soon' },
+    // Rating: no rating system exists in Firestore — never fake this value
+    { icon: 'thumbs-up', label: 'Avg. Rating', value: 'Unknown' },
+    // Bug Reports: real count from feedback collection (type='bug')
+    { icon: 'alert-circle', label: 'Bug Reports', value: String(bugCount) },
   ];
 
   const quickActions: {
@@ -337,13 +341,23 @@ function InvoicesTab() {
       setLoading(true);
       setError(null);
       try {
+        // No orderBy — avoids the composite index requirement on collectionGroup.
+        // Sort client-side after fetching so the query works without a deployed index.
         const snap = await getDocs(
-          query(collectionGroup(db, 'invoices'), orderBy('createdAt', 'desc'), limit(200))
+          query(collectionGroup(db, 'invoices'), limit(500))
         );
         const list: AdminInvoice[] = snap.docs.map((d) => {
           const pathParts = d.ref.path.split('/');
           const userId = pathParts[1] ?? '';
           return { id: d.id, userId, ...d.data() } as AdminInvoice;
+        }).sort((a, b) => {
+          const toMs = (v: unknown): number => {
+            if (!v) return 0;
+            if (typeof v === 'string') return new Date(v).getTime();
+            if (typeof v === 'object' && v !== null && 'seconds' in v) return (v as { seconds: number }).seconds * 1000;
+            return 0;
+          };
+          return toMs((b as any).createdAt) - toMs((a as any).createdAt);
         });
         setInvoices(list);
       } catch (err: unknown) {
@@ -568,12 +582,502 @@ function AnalyticsTab({ users }: { users: UserWithInvoices[] }) {
   );
 }
 
+// ─── Feedback Tab ────────────────────────────────────────────────────────────
+
+function FeedbackTab({ typeFilter }: { typeFilter?: UserFeedback['type'] }) {
+  const insets = useSafeAreaInsets();
+  const [items, setItems] = useState<UserFeedback[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [replyingId, setReplyingId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const clauses: any[] = [orderBy('createdAt', 'desc')];
+      if (typeFilter) clauses.unshift(where('type', '==', typeFilter));
+      const q = query(collection(db, 'feedback'), ...clauses);
+      const snap = await getDocs(q);
+      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as UserFeedback)));
+    } catch (err: unknown) {
+      const msg = (err as Error).message ?? String(err);
+      if (msg.includes('requires an index') || msg.includes('FAILED_PRECONDITION')) {
+        // Retry without orderBy if index missing
+        try {
+          const q2 = typeFilter
+            ? query(collection(db, 'feedback'), where('type', '==', typeFilter))
+            : collection(db, 'feedback');
+          const snap2 = await getDocs(q2 as any);
+          setItems(
+            snap2.docs
+              .map((d) => ({ id: d.id, ...(d.data() as Omit<UserFeedback, 'id'>) }))
+              .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
+          );
+          return;
+        } catch { /* fall through to show original error */ }
+      }
+      setError(
+        msg.includes('permission') || msg.includes('Missing or insufficient')
+          ? 'Permission denied. Deploy Firestore rules to allow admin list access.'
+          : `Load failed: ${msg}`
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [typeFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleReply = async (id: string) => {
+    if (!replyText.trim()) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'feedback', id), {
+        adminReply: replyText.trim(),
+        status: 'in_progress',
+      });
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === id ? { ...i, adminReply: replyText.trim(), status: 'in_progress' } : i
+        )
+      );
+      setReplyingId(null);
+      setReplyText('');
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message ?? 'Reply failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStatusChange = async (item: UserFeedback) => {
+    const next: UserFeedback['status'] =
+      item.status === 'open' ? 'in_progress' : item.status === 'in_progress' ? 'resolved' : 'open';
+    try {
+      await updateDoc(doc(db, 'feedback', item.id), {
+        status: next,
+        ...(next === 'resolved' ? { resolvedAt: new Date().toISOString() } : {}),
+      });
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: next } : i)));
+    } catch (err) {
+      Alert.alert('Error', (err as Error).message ?? 'Status update failed.');
+    }
+  };
+
+  const handleDelete = (item: UserFeedback) => {
+    const doDelete = async () => {
+      try {
+        await deleteDoc(doc(db, 'feedback', item.id));
+        setItems((prev) => prev.filter((i) => i.id !== item.id));
+      } catch (err) {
+        Alert.alert('Error', (err as Error).message ?? 'Delete failed.');
+      }
+    };
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm(`Delete "${item.subject}"? This cannot be undone.`)) {
+        doDelete();
+      }
+    } else {
+      Alert.alert('Delete', `Delete "${item.subject}"? This cannot be undone.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: doDelete },
+      ]);
+    }
+  };
+
+  const statusColor: Record<string, string> = {
+    open: '#D97706', in_progress: '#2563EB', resolved: '#16A34A',
+  };
+  const typeColor: Record<string, string> = {
+    feedback: '#7C3AED', bug: '#DC2626', contact: '#0891B2', faq: '#6B7280',
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color="#2563EB" size="large" />
+        <Text style={styles.loadingText}>Loading…</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Feather name="alert-triangle" size={36} color="#F59E0B" />
+        <Text style={[styles.emptyText, { textAlign: 'center', paddingHorizontal: 32 }]}>{error}</Text>
+        <Pressable onPress={load} style={styles.retryBtn}>
+          <Text style={styles.retryText}>Retry</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
+    >
+      <Text style={styles.sectionTitle}>{items.length} item{items.length !== 1 ? 's' : ''}</Text>
+      {items.length === 0 && (
+        <View style={styles.empty}>
+          <Feather name="message-square" size={36} color="#D1D5DB" />
+          <Text style={styles.emptyText}>No items found</Text>
+        </View>
+      )}
+      {items.map((item) => (
+        <View key={item.id} style={[styles.userCard, { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
+          {/* Header row */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={[styles.statusBadge, { backgroundColor: (typeColor[item.type] ?? '#6B7280') + '18' }]}>
+              <Text style={[styles.statusText, { color: typeColor[item.type] ?? '#6B7280' }]}>
+                {item.type?.toUpperCase()}
+              </Text>
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: (statusColor[item.status] ?? '#6B7280') + '18' }]}>
+              <Text style={[styles.statusText, { color: statusColor[item.status] ?? '#6B7280' }]}>
+                {item.status?.replace('_', ' ').toUpperCase()}
+              </Text>
+            </View>
+            <Text style={{ flex: 1, fontSize: 11, color: '#9CA3AF' }} numberOfLines={1}>
+              {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ''}
+            </Text>
+            <Pressable
+              onPress={() => handleDelete(item)}
+              hitSlop={8}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+            >
+              <Feather name="trash-2" size={14} color="#EF4444" />
+            </Pressable>
+          </View>
+          {/* Subject + message */}
+          <Text style={{ fontSize: 13, fontWeight: '700', color: NAVY }}>{item.subject}</Text>
+          <Text style={{ fontSize: 12, color: '#374151', lineHeight: 18 }}>{item.message}</Text>
+          {/* Admin reply */}
+          {item.adminReply ? (
+            <View style={{ backgroundColor: '#F0FDF4', borderRadius: 8, padding: 10 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#166534', marginBottom: 2 }}>Admin Reply</Text>
+              <Text style={{ fontSize: 12, color: '#374151' }}>{item.adminReply}</Text>
+            </View>
+          ) : null}
+          {/* Reply input */}
+          {replyingId === item.id ? (
+            <View style={{ gap: 8 }}>
+              <TextInput
+                value={replyText}
+                onChangeText={setReplyText}
+                placeholder="Type your reply…"
+                placeholderTextColor="#9CA3AF"
+                multiline
+                style={[styles.searchInput, {
+                  borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8,
+                  padding: 10, minHeight: 60, textAlignVertical: 'top',
+                }]}
+              />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Pressable
+                  onPress={() => handleReply(item.id)}
+                  disabled={saving || !replyText.trim()}
+                  style={({ pressed }) => [
+                    styles.grantBtn, styles.grantBtnActive,
+                    { opacity: pressed || saving || !replyText.trim() ? 0.6 : 1 },
+                  ]}
+                >
+                  {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.grantBtnText}>Send</Text>}
+                </Pressable>
+                <Pressable
+                  onPress={() => { setReplyingId(null); setReplyText(''); }}
+                  style={({ pressed }) => [styles.grantBtn, { backgroundColor: '#6B7280', opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <Text style={styles.grantBtnText}>Cancel</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+          {/* Action buttons */}
+          {replyingId !== item.id && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Pressable
+                onPress={() => { setReplyingId(item.id); setReplyText(item.adminReply ?? ''); }}
+                style={({ pressed }) => [styles.grantBtn, styles.grantBtnActive, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.grantBtnText}>Reply</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => handleStatusChange(item)}
+                style={({ pressed }) => [
+                  styles.grantBtn,
+                  { backgroundColor: statusColor[item.status] ?? '#6B7280', opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={styles.grantBtnText}>
+                  {item.status === 'open' ? '→ In Progress' : item.status === 'in_progress' ? '→ Resolved' : '→ Reopen'}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+// ─── App Settings Tab ────────────────────────────────────────────────────────
+
+const SETTINGS_DOC_PATH = { col: 'app_config', docId: 'remote_settings' };
+
+function AppSettingsTab() {
+  const insets = useSafeAreaInsets();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fields, setFields] = useState({
+    contactEmail: '',
+    contactPhone: '',
+    latestVersion: '',
+    forceUpdateVersion: '',
+    maintenanceMode: false,
+    privacyPolicyUrl: '',
+    termsUrl: '',
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const snap = await getDoc(doc(db, SETTINGS_DOC_PATH.col, SETTINGS_DOC_PATH.docId));
+      if (snap.exists()) {
+        const d = snap.data() as any;
+        setFields({
+          contactEmail: d.contactEmail ?? '',
+          contactPhone: d.contactPhone ?? '',
+          latestVersion: d.latestVersion ?? '',
+          forceUpdateVersion: d.forceUpdateVersion ?? '',
+          maintenanceMode: !!d.maintenanceMode,
+          privacyPolicyUrl: d.privacyPolicyUrl ?? '',
+          termsUrl: d.termsUrl ?? '',
+        });
+      }
+      // If doc doesn't exist yet, keep the empty defaults — it will be created on first save.
+    } catch (err: unknown) {
+      const msg = (err as Error).message ?? String(err);
+      setError(msg.includes('permission') ? 'Permission denied reading app_config/remote_settings.' : `Load failed: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await setDoc(
+        doc(db, SETTINGS_DOC_PATH.col, SETTINGS_DOC_PATH.docId),
+        {
+          contactEmail: fields.contactEmail.trim(),
+          contactPhone: fields.contactPhone.trim(),
+          latestVersion: fields.latestVersion.trim(),
+          forceUpdateVersion: fields.forceUpdateVersion.trim(),
+          maintenanceMode: fields.maintenanceMode,
+          privacyPolicyUrl: fields.privacyPolicyUrl.trim(),
+          termsUrl: fields.termsUrl.trim(),
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+      Alert.alert('Saved', 'App settings updated successfully.');
+    } catch (err: unknown) {
+      const msg = (err as Error).message ?? String(err);
+      Alert.alert('Error', msg.includes('permission') ? 'Permission denied. Ensure admin role is set and rules are deployed.' : msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fieldRows: { key: keyof typeof fields; label: string; placeholder: string; keyboard?: 'default' | 'email-address' | 'url' | 'phone-pad' }[] = [
+    { key: 'contactEmail', label: 'Support Email', placeholder: 'support@example.com', keyboard: 'email-address' },
+    { key: 'contactPhone', label: 'Support Phone', placeholder: '+91 00000 00000', keyboard: 'phone-pad' },
+    { key: 'latestVersion', label: 'Latest Version', placeholder: '1.0.0' },
+    { key: 'forceUpdateVersion', label: 'Minimum Version', placeholder: '1.0.0' },
+    { key: 'privacyPolicyUrl', label: 'Privacy Policy URL', placeholder: 'https://...', keyboard: 'url' },
+    { key: 'termsUrl', label: 'Terms & Conditions URL', placeholder: 'https://...', keyboard: 'url' },
+  ];
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color="#2563EB" size="large" />
+        <Text style={styles.loadingText}>Loading settings…</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.center}>
+        <Feather name="alert-triangle" size={36} color="#F59E0B" />
+        <Text style={[styles.emptyText, { textAlign: 'center', paddingHorizontal: 32 }]}>{error}</Text>
+        <Pressable onPress={load} style={styles.retryBtn}><Text style={styles.retryText}>Retry</Text></Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
+    >
+      <Text style={styles.sectionTitle}>General</Text>
+      {fieldRows.map((row) => (
+        <View key={row.key} style={[styles.userCard, { flexDirection: 'column', gap: 6 }]}>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            {row.label}
+          </Text>
+          <TextInput
+            value={String(fields[row.key])}
+            onChangeText={(v) => setFields((prev) => ({ ...prev, [row.key]: v }))}
+            placeholder={row.placeholder}
+            placeholderTextColor="#9CA3AF"
+            keyboardType={row.keyboard ?? 'default'}
+            autoCapitalize="none"
+            style={[styles.searchInput, { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, padding: 10 }]}
+          />
+        </View>
+      ))}
+
+      {/* Maintenance Mode toggle */}
+      <Text style={styles.sectionTitle}>Maintenance</Text>
+      <Pressable
+        onPress={() => setFields((prev) => ({ ...prev, maintenanceMode: !prev.maintenanceMode }))}
+        style={({ pressed }) => [styles.userCard, { flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.8 : 1 }]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 14, fontWeight: '600', color: NAVY }}>Maintenance Mode</Text>
+          <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+            {fields.maintenanceMode ? 'App is in maintenance — users will see a maintenance screen.' : 'App is live.'}
+          </Text>
+        </View>
+        <View style={{
+          width: 44, height: 24, borderRadius: 12,
+          backgroundColor: fields.maintenanceMode ? '#DC2626' : '#D1D5DB',
+          justifyContent: 'center', paddingHorizontal: 2,
+        }}>
+          <View style={{
+            width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
+            alignSelf: fields.maintenanceMode ? 'flex-end' : 'flex-start',
+          }} />
+        </View>
+      </Pressable>
+
+      <Pressable
+        onPress={handleSave}
+        disabled={saving}
+        style={({ pressed }) => [
+          styles.refreshBtn,
+          { backgroundColor: NAVY, borderColor: NAVY, marginTop: 16, opacity: pressed || saving ? 0.8 : 1 },
+        ]}
+      >
+        {saving
+          ? <ActivityIndicator color="#fff" size="small" />
+          : <Text style={[styles.refreshText, { color: '#fff' }]}>Save Settings</Text>}
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+// ─── Security Tab ─────────────────────────────────────────────────────────────
+
+function SecurityTab() {
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const [firestoreStatus, setFirestoreStatus] = useState<'checking' | 'connected' | 'error'>('checking');
+  const [firestoreError, setFirestoreError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Test Firestore connectivity with a public-readable document
+    getDoc(doc(db, 'app_config', 'remote_settings'))
+      .then(() => setFirestoreStatus('connected'))
+      .catch((err) => {
+        setFirestoreStatus('error');
+        setFirestoreError((err as Error).message ?? 'Unknown error');
+      });
+  }, []);
+
+  const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'Unknown';
+  const authUser = auth.currentUser;
+
+  const rows: { label: string; value: string; ok?: boolean }[] = [
+    { label: 'Firebase Project ID', value: projectId !== 'Unknown' ? projectId : 'Unknown' },
+    {
+      label: 'Firestore Connection',
+      value: firestoreStatus === 'checking' ? 'Checking…' : firestoreStatus === 'connected' ? 'Connected' : `Error: ${firestoreError ?? 'Unknown'}`,
+      ok: firestoreStatus === 'connected' ? true : firestoreStatus === 'error' ? false : undefined,
+    },
+    {
+      label: 'Firebase Auth Status',
+      value: authUser ? 'Authenticated' : 'Not authenticated',
+      ok: !!authUser,
+    },
+    { label: 'Current User', value: authUser?.email ?? user?.email ?? 'Unknown' },
+    { label: 'User UID', value: authUser?.uid ?? user?.uid ?? 'Unknown' },
+    {
+      label: 'Admin Role',
+      value: (user as any)?.role === 'admin' ? 'admin' : 'Unknown (check Firestore users doc)',
+    },
+    {
+      label: 'Rules Status',
+      value: firestoreStatus === 'connected' ? 'Reachable (deploy status unknown — use Firebase Console)' : 'Unknown',
+    },
+  ];
+
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
+    >
+      <Text style={styles.sectionTitle}>Firebase Status</Text>
+      {rows.map((row) => (
+        <View key={row.label} style={styles.metricRow}>
+          <View style={[styles.metricIcon, {
+            backgroundColor: row.ok === true ? '#DCFCE7' : row.ok === false ? '#FEE2E2' : '#F3F6FB',
+          }]}>
+            <Feather
+              name={row.ok === true ? 'check-circle' : row.ok === false ? 'x-circle' : 'info'}
+              size={16}
+              color={row.ok === true ? '#16A34A' : row.ok === false ? '#DC2626' : NAVY}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
+              {row.label}
+            </Text>
+            <Text style={{ fontSize: 13, color: '#111827' }}>{row.value}</Text>
+          </View>
+        </View>
+      ))}
+      <View style={styles.analyticsNote}>
+        <Feather name="info" size={14} color="#6B7280" />
+        <Text style={styles.analyticsNoteText}>
+          Deploy security rules via Firebase CLI:{'\n'}
+          firebase deploy --only firestore:rules{'\n\n'}
+          Rules file: artifacts/mobile/firestore.rules
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
 // ─── More Tab ────────────────────────────────────────────────────────────────
 
-function MoreTab({ user, onLogout, isSigningOut }: {
+function MoreTab({ user, onLogout, isSigningOut, onNavigate }: {
   user: ReturnType<typeof useAuth>['user'];
   onLogout: () => void;
   isSigningOut: boolean;
+  onNavigate: (tab: Tab) => void;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -606,7 +1110,13 @@ function MoreTab({ user, onLogout, isSigningOut }: {
           icon: 'message-square',
           label: 'User Feedback',
           desc: 'Review bugs and feature requests',
-          onPress: () => Alert.alert('Feedback', 'Feedback inbox coming soon.'),
+          onPress: () => onNavigate('feedback'),
+        },
+        {
+          icon: 'headphones',
+          label: 'Support Tickets',
+          desc: 'Manage user contact / support requests',
+          onPress: () => onNavigate('support'),
         },
       ],
     },
@@ -617,17 +1127,13 @@ function MoreTab({ user, onLogout, isSigningOut }: {
           icon: 'shield',
           label: 'Security',
           desc: 'Firestore rules and auth config',
-          onPress: () =>
-            Alert.alert(
-              'Security',
-              'Deploy Firestore rules:\n\nfirebase deploy --only firestore:rules\n\nRules file: artifacts/mobile/firestore.rules'
-            ),
+          onPress: () => onNavigate('security'),
         },
         {
           icon: 'settings',
           label: 'App Settings',
           desc: 'Global app configuration',
-          onPress: () => Alert.alert('Settings', 'Global app settings coming soon.'),
+          onPress: () => onNavigate('settings'),
         },
       ],
     },
@@ -729,13 +1235,19 @@ export default function AdminScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [bugCount, setBugCount] = useState(0);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const snap = await getDocs(query(collection(db, 'users'), orderBy('createdAt', 'desc')));
-      setUsers(snap.docs.map((d) => ({ ...d.data(), uid: d.id } as UserWithInvoices)));
+      // Load users + bug-report count in parallel
+      const [usersSnap, bugSnap] = await Promise.all([
+        getDocs(query(collection(db, 'users'), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'feedback'), where('type', '==', 'bug'))).catch(() => null),
+      ]);
+      setUsers(usersSnap.docs.map((d) => ({ ...d.data(), uid: d.id } as UserWithInvoices)));
+      if (bugSnap) setBugCount(bugSnap.size);
     } catch (err: unknown) {
       const msg = (err as Error).message ?? String(err);
       setError(
@@ -853,27 +1365,32 @@ export default function AdminScreen() {
   };
 
   const handleLogout = () => {
+    const doSignOut = async () => {
+      setIsSigningOut(true);
+      try {
+        await signOut();
+        router.replace('/(auth)/login' as never);
+      } catch (err: unknown) {
+        Alert.alert('Error', `Sign out failed: ${(err as Error).message ?? 'Unknown error'}`);
+        setIsSigningOut(false);
+      }
+      // No finally: success unmounts component, so resetting state would cause stale-state flash.
+    };
+
+    // Alert.alert button callbacks are unreliable on web — use window.confirm instead.
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Sign out of the admin panel?')) {
+        doSignOut();
+      }
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out of the admin panel?',
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            setIsSigningOut(true);
-            try {
-              await signOut();
-              // AuthContext onAuthStateChanged fires → _layout.tsx redirects to login.
-              // Explicit replace as a safety net.
-              router.replace('/(auth)/login' as never);
-            } catch (err: unknown) {
-              Alert.alert('Error', `Sign out failed: ${(err as Error).message ?? 'Unknown error'}`);
-              setIsSigningOut(false);
-            }
-          },
-        },
+        { text: 'Sign Out', style: 'destructive', onPress: doSignOut },
       ]
     );
   };
@@ -887,6 +1404,10 @@ export default function AdminScreen() {
     premium: 'Premium',
     analytics: 'Analytics',
     more: 'More',
+    feedback: 'User Feedback',
+    support: 'Support Tickets',
+    settings: 'App Settings',
+    security: 'Security',
   };
 
   return (
@@ -917,7 +1438,7 @@ export default function AdminScreen() {
 
       <View style={{ flex: 1 }}>
         {tab === 'dashboard' && (
-          <DashboardTab users={users} loading={loading} onRefresh={loadData} />
+          <DashboardTab users={users} loading={loading} onRefresh={loadData} bugCount={bugCount} />
         )}
         {tab === 'users' && (
           loading
@@ -936,8 +1457,12 @@ export default function AdminScreen() {
             : <AnalyticsTab users={users} />
         )}
         {tab === 'more' && (
-          <MoreTab user={user} onLogout={handleLogout} isSigningOut={isSigningOut} />
+          <MoreTab user={user} onLogout={handleLogout} isSigningOut={isSigningOut} onNavigate={setTab} />
         )}
+        {tab === 'feedback' && <FeedbackTab />}
+        {tab === 'support' && <FeedbackTab typeFilter="contact" />}
+        {tab === 'settings' && <AppSettingsTab />}
+        {tab === 'security' && <SecurityTab />}
       </View>
 
       <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
