@@ -175,13 +175,39 @@ service cloud.firestore {
 
     // ─── app_config/{docId} ───────────────────────────────────────────────────
     //
-    // Remote app settings (maintenance mode, force-update version, etc).
-    // Readable by everyone (even signed-out, so a maintenance banner can show
-    // before login); only admins can write.
+    // Legacy path — kept for read compatibility with any existing references.
+    // New code uses appSettings instead.
     //
     match /app_config/{docId} {
       allow read:                   if true;
       allow create, update, delete: if isAdmin() || isBootstrapAdmin();
+    }
+
+    // ─── appSettings/{docId} ─────────────────────────────────────────────────
+    //
+    // Active remote app settings collection (maintenance mode, version gates,
+    // contact info, URLs). Readable by everyone (maintenance banner can show
+    // before login); only admins can write.
+    //
+    match /appSettings/{docId} {
+      allow read:                   if true;
+      allow create, update, delete: if isAdmin() || isBootstrapAdmin();
+    }
+
+    // ─── invoices/{invoiceId} ────────────────────────────────────────────────
+    //
+    // Root-level invoices collection. Admins can list and delete all invoices.
+    // Users can only read their own invoices (matched by userId field).
+    // Note: the per-user subcollection (users/{uid}/invoices) is governed by
+    // the nested match above; this rule covers the root collection.
+    //
+    match /invoices/{invoiceId} {
+      allow read:   if isAdmin() || isBootstrapAdmin() ||
+                       (request.auth != null && resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null;
+      allow update: if isAdmin() || isBootstrapAdmin() ||
+                       (request.auth != null && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin() || isBootstrapAdmin();
     }
   }
 }

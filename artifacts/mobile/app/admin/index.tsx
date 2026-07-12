@@ -33,11 +33,12 @@ function fmtCurrency(n: number) {
 
 // ─── Dashboard Tab ──────────────────────────────────────────────────────────
 
-function DashboardTab({ users, loading, onRefresh, bugCount }: {
+function DashboardTab({ users, loading, onRefresh, bugCount, onNavigate }: {
   users: UserWithInvoices[];
   loading: boolean;
   onRefresh: () => void;
   bugCount: number;
+  onNavigate: (tab: Tab) => void;
 }) {
   const insets = useSafeAreaInsets();
   const stats = {
@@ -53,7 +54,8 @@ function DashboardTab({ users, loading, onRefresh, bugCount }: {
     { icon: 'user-check', label: 'Active Users', value: String(stats.active) },
     { icon: 'star', label: 'Premium Users', value: String(stats.premium) },
     { icon: 'file-text', label: 'Total Invoices', value: String(stats.invoices) },
-    { icon: 'download', label: 'PDF Downloads', value: '—' },
+    // PDF Downloads: no implementation in Firestore — never show fake numbers
+    { icon: 'download', label: 'PDF Downloads', value: 'Coming Soon' },
     // Revenue: show "Coming Soon" when no payment data exists (totalRevenue is 0 across all users)
     { icon: 'trending-up', label: 'Revenue Tracked', value: stats.revenue > 0 ? fmtCurrency(stats.revenue) : 'Coming Soon' },
     // Rating: no rating system exists in Firestore — never fake this value
@@ -71,18 +73,18 @@ function DashboardTab({ users, loading, onRefresh, bugCount }: {
     },
     {
       icon: 'star', label: 'Grant Premium', color: ORANGE,
-      onPress: () => Alert.alert('Grant Premium', 'Go to the Users tab to grant premium to a specific user.'),
+      // Navigate to Users tab where admin can grant/revoke premium per user
+      onPress: () => onNavigate('users'),
     },
     {
       icon: 'tool', label: 'Maintenance', color: '#DC2626',
-      onPress: () => Alert.alert('Maintenance Mode', 'Toggle maintenance mode?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Enable', style: 'destructive', onPress: () => Alert.alert('Done', 'Maintenance mode enabled.') },
-      ]),
+      // Navigate to App Settings where the Maintenance Mode toggle lives
+      onPress: () => onNavigate('settings'),
     },
     {
       icon: 'bar-chart-2', label: 'Export Data', color: '#16A34A',
-      onPress: () => Alert.alert('Export Analytics', 'Analytics export coming soon.'),
+      // Navigate to Analytics tab
+      onPress: () => onNavigate('analytics'),
     },
   ];
 
@@ -117,7 +119,10 @@ function DashboardTab({ users, loading, onRefresh, bugCount }: {
 
       <View style={styles.revenueCard}>
         <Text style={styles.revenueLabel}>Total Revenue Tracked</Text>
-        <Text style={styles.revenueValue}>{fmtCurrency(stats.revenue)}</Text>
+        {/* Never display ₹0 — show "Coming Soon" when no payment data exists */}
+        <Text style={styles.revenueValue}>
+          {stats.revenue > 0 ? fmtCurrency(stats.revenue) : 'Coming Soon'}
+        </Text>
         <Text style={styles.revenueSub}>{stats.invoices} invoices across {stats.total} users</Text>
       </View>
 
@@ -325,7 +330,8 @@ function InvoicesTab() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, 'users', inv.userId!, 'invoices', inv.id));
+              // Root collection — not a user subcollection
+              await deleteDoc(doc(db, 'invoices', inv.id));
               setInvoices((prev) => prev.filter((i) => i.id !== inv.id));
             } catch (err: unknown) {
               Alert.alert('Error', (err as Error).message ?? String(err));
@@ -341,15 +347,12 @@ function InvoicesTab() {
       setLoading(true);
       setError(null);
       try {
-        // No orderBy — avoids the composite index requirement on collectionGroup.
-        // Sort client-side after fetching so the query works without a deployed index.
-        const snap = await getDocs(
-          query(collectionGroup(db, 'invoices'), limit(500))
-        );
+        // Use the root 'invoices' collection — no index required, no subcollection path issues.
+        // The collectionGroup query on user subcollections caused "Permission Denied" for
+        // admins because it requires a composite index that isn't deployed.
+        const snap = await getDocs(collection(db, 'invoices'));
         const list: AdminInvoice[] = snap.docs.map((d) => {
-          const pathParts = d.ref.path.split('/');
-          const userId = pathParts[1] ?? '';
-          return { id: d.id, userId, ...d.data() } as AdminInvoice;
+          return { id: d.id, ...(d.data() as Omit<AdminInvoice, 'id'>) };
         }).sort((a, b) => {
           const toMs = (v: unknown): number => {
             if (!v) return 0;
@@ -551,7 +554,8 @@ function AnalyticsTab({ users }: { users: UserWithInvoices[] }) {
     { label: 'Active Users', value: String(users.filter((u) => u.isActive).length), icon: 'activity', color: '#16A34A' },
     { label: 'Premium Users', value: String(users.filter((u) => u.isPremium).length), icon: 'star', color: ORANGE },
     { label: 'Total Invoices', value: String(totalInvoices), icon: 'file-text', color: '#7C3AED' },
-    { label: 'Revenue Tracked', value: fmtCurrency(totalRevenue), icon: 'trending-up', color: '#FF6B00' },
+    // Never display ₹0 — use "Coming Soon" when revenue cannot be calculated
+    { label: 'Revenue Tracked', value: totalRevenue > 0 ? fmtCurrency(totalRevenue) : 'Coming Soon', icon: 'trending-up', color: '#FF6B00' },
     { label: 'Avg. Invoices/User', value: avgInvoicesPerUser, icon: 'bar-chart', color: '#DC2626' },
   ];
 
@@ -827,13 +831,16 @@ function FeedbackTab({ typeFilter }: { typeFilter?: UserFeedback['type'] }) {
 
 // ─── App Settings Tab ────────────────────────────────────────────────────────
 
-const SETTINGS_DOC_PATH = { col: 'app_config', docId: 'remote_settings' };
+// appSettings is the actual Firestore collection name (no app_config/remote_settings).
+// Document ID is unknown — we load the first document in the collection.
+const APP_SETTINGS_COL = 'appSettings';
 
 function AppSettingsTab() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settingsDocId, setSettingsDocId] = useState<string | null>(null);
   const [fields, setFields] = useState({
     contactEmail: '',
     contactPhone: '',
@@ -848,9 +855,12 @@ function AppSettingsTab() {
     setLoading(true);
     setError(null);
     try {
-      const snap = await getDoc(doc(db, SETTINGS_DOC_PATH.col, SETTINGS_DOC_PATH.docId));
-      if (snap.exists()) {
-        const d = snap.data() as any;
+      // Load the first document in appSettings — document ID is not predetermined
+      const snap = await getDocs(collection(db, APP_SETTINGS_COL));
+      if (!snap.empty) {
+        const firstDoc = snap.docs[0];
+        setSettingsDocId(firstDoc.id);
+        const d = firstDoc.data() as any;
         setFields({
           contactEmail: d.contactEmail ?? '',
           contactPhone: d.contactPhone ?? '',
@@ -861,10 +871,10 @@ function AppSettingsTab() {
           termsUrl: d.termsUrl ?? '',
         });
       }
-      // If doc doesn't exist yet, keep the empty defaults — it will be created on first save.
+      // Empty collection is fine — defaults shown; a new doc is created on first save.
     } catch (err: unknown) {
       const msg = (err as Error).message ?? String(err);
-      setError(msg.includes('permission') ? 'Permission denied reading app_config/remote_settings.' : `Load failed: ${msg}`);
+      setError(msg.includes('permission') ? 'Permission denied reading appSettings collection.' : `Load failed: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -875,8 +885,12 @@ function AppSettingsTab() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Use the loaded doc ID, or create a new document if none exists yet
+      const docRef = settingsDocId
+        ? doc(db, APP_SETTINGS_COL, settingsDocId)
+        : doc(collection(db, APP_SETTINGS_COL));
       await setDoc(
-        doc(db, SETTINGS_DOC_PATH.col, SETTINGS_DOC_PATH.docId),
+        docRef,
         {
           contactEmail: fields.contactEmail.trim(),
           contactPhone: fields.contactPhone.trim(),
@@ -889,6 +903,8 @@ function AppSettingsTab() {
         },
         { merge: true }
       );
+      // Store the new doc ID so subsequent saves update the same document
+      if (!settingsDocId) setSettingsDocId(docRef.id);
       Alert.alert('Saved', 'App settings updated successfully.');
     } catch (err: unknown) {
       const msg = (err as Error).message ?? String(err);
@@ -998,8 +1014,8 @@ function SecurityTab() {
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Test Firestore connectivity with a public-readable document
-    getDoc(doc(db, 'app_config', 'remote_settings'))
+    // Test Firestore connectivity using the appSettings collection
+    getDocs(collection(db, 'appSettings'))
       .then(() => setFirestoreStatus('connected'))
       .catch((err) => {
         setFirestoreStatus('error');
@@ -1438,7 +1454,7 @@ export default function AdminScreen() {
 
       <View style={{ flex: 1 }}>
         {tab === 'dashboard' && (
-          <DashboardTab users={users} loading={loading} onRefresh={loadData} bugCount={bugCount} />
+          <DashboardTab users={users} loading={loading} onRefresh={loadData} bugCount={bugCount} onNavigate={setTab} />
         )}
         {tab === 'users' && (
           loading
@@ -1535,7 +1551,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginTop: 10,
   },
   revenueLabel: { fontSize: 10, color: 'rgba(255,255,255,0.7)', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  revenueValue: { fontSize: 34, fontWeight: '900', color: ORANGE, letterSpacing: -1, marginTop: 4 },
+  revenueValue: { fontSize: 34, fontWeight: '900', color: '#fff', letterSpacing: -1, marginTop: 4 },
   revenueSub: { fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 4 },
 
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

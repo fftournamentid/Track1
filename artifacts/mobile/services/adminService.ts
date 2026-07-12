@@ -32,7 +32,7 @@ const TEMPLATES_COL = 'invoice_templates';
 const BANNERS_COL = 'app_banners';
 const NOTIFICATIONS_COL = 'notifications';
 const FEEDBACK_COL = 'feedback';
-const SETTINGS_DOC = 'app_config/remote_settings';
+const SETTINGS_COL = 'appSettings';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -266,9 +266,9 @@ export async function getRemoteSettings(): Promise<{
   termsUrl: string;
   contactEmail: string;
 }> {
-  const [colId, docId] = SETTINGS_DOC.split('/');
-  const snap = await getDoc(doc(db, colId, docId));
-  if (!snap.exists()) {
+  // Load first document in the appSettings collection — document ID is not predetermined
+  const snap = await getDocs(query(collection(db, SETTINGS_COL), fbLimit(1)));
+  if (snap.empty) {
     return {
       maintenanceMode: false,
       latestVersion: '1.0.0',
@@ -277,10 +277,14 @@ export async function getRemoteSettings(): Promise<{
       contactEmail: '',
     };
   }
-  return snap.data() as any;
+  return snap.docs[0].data() as any;
 }
 
 export async function updateRemoteSettings(settings: Record<string, unknown>): Promise<void> {
-  const [colId, docId] = SETTINGS_DOC.split('/');
-  await setDoc(doc(db, colId, docId), settings, { merge: true });
+  // Update first existing doc in appSettings, or create one if the collection is empty
+  const snap = await getDocs(query(collection(db, SETTINGS_COL), fbLimit(1)));
+  const docRef = snap.empty
+    ? doc(collection(db, SETTINGS_COL))
+    : snap.docs[0].ref;
+  await setDoc(docRef, settings, { merge: true });
 }
