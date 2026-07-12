@@ -10,14 +10,17 @@ A mobile invoicing app for fleet/trucking businesses built with Expo (React Nati
 
 ## Running the project
 
-Both services start automatically via configured workflows:
+All services start automatically via configured workflows:
 
 | Workflow | Command | Port |
 |---|---|---|
-| `artifacts/mobile: expo` | `PORT=18115 pnpm --filter @workspace/mobile run dev` | 18115 |
+| `artifacts/mobile: expo` | `pnpm --filter @workspace/mobile run dev` | 18115 |
 | `artifacts/api-server: API Server` | `pnpm --filter @workspace/api-server run dev` | 8080 |
+| `artifacts/mockup-sandbox: Component Preview Server` | `pnpm --filter @workspace/mockup-sandbox run dev` | — |
 
 The Expo dev server exposes a QR code for Expo Go (mobile) and a web preview at `http://localhost:18115`.
+
+Setup after import: run `pnpm install` at the workspace root (dependencies aren't committed), then restart the workflows above.
 
 ## Environment
 
