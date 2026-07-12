@@ -1,8 +1,9 @@
 import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, TouchableOpacity, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -13,6 +14,15 @@ import EmptyState from '@/components/EmptyState';
 import { formatCurrencyCompact, isSameMonth } from '@/utils/formatters';
 import { subscribeToActiveAnnouncements } from '@/services/announcementService';
 import type { Announcement } from '@/types';
+
+const APP_LOGO = require('@/assets/images/icon.png');
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
+const APP_FEATURES = [
+  'Instant Invoice Generation',
+  'Professional PDF Export',
+  'Cloud Backup & Sync',
+  '11 Transport Calculators',
+];
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -174,23 +184,26 @@ export default function DashboardScreen() {
   const name = profile.ownerName || profile.companyName;
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: colors.background }]}
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: topPad + 16, paddingBottom: insets.bottom + 90 },
-      ]}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Header */}
-      <View style={styles.headerRow}>
-        <View>
-          <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-            {getGreeting()}{name ? `, ${name.split(' ')[0]}` : ''}
-          </Text>
-          <Text style={[styles.appTitle, { color: colors.foreground }]}>FleetInvoice</Text>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Sticky Header — logo, app name, and quick-access buttons never scroll away */}
+      <View style={[styles.headerRow, { paddingTop: topPad + 16, backgroundColor: colors.background }]}>
+        <View style={styles.headerLeftRow}>
+          <Image source={APP_LOGO} style={styles.logoMark} resizeMode="cover" />
+          <View>
+            <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
+              {getGreeting()}{name ? `, ${name.split(' ')[0]}` : ''}
+            </Text>
+            <Text style={[styles.appTitle, { color: colors.foreground }]}>FleetInvoice</Text>
+          </View>
         </View>
         <View style={styles.headerRightRow}>
+          <Pressable
+            onPress={() => router.push('/premium' as never)}
+            style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            hitSlop={8}
+          >
+            <Feather name="star" size={18} color="#F59E0B" />
+          </Pressable>
           <Pressable
             onPress={() => router.push('/cloud-backup' as never)}
             style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -205,92 +218,137 @@ export default function DashboardScreen() {
           >
             <Feather name="folder" size={18} color={colors.primary} />
           </Pressable>
-          <View style={[styles.logoMark, { backgroundColor: colors.primary }]}>
-            <Feather name="truck" size={20} color="#fff" />
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: 16, paddingBottom: insets.bottom + 90 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* App Info block */}
+        <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.infoTagline, { color: colors.foreground }]}>
+            Professional Invoice &amp; Fleet Management
+          </Text>
+          <View style={styles.infoMetaRow}>
+            <View style={[styles.infoBadge, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.infoBadgeText, { color: colors.mutedForeground }]}>
+                Version {APP_VERSION}
+              </Text>
+            </View>
+            <View style={[styles.infoBadge, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.infoBadgeText, { color: colors.mutedForeground }]}>
+                {__DEV__ ? 'Development Build' : 'Release Build'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.infoFeatureList}>
+            {APP_FEATURES.map((f) => (
+              <View key={f} style={styles.infoFeatureRow}>
+                <Feather name="check-circle" size={13} color={colors.primary} />
+                <Text style={[styles.infoFeatureText, { color: colors.mutedForeground }]}>{f}</Text>
+              </View>
+            ))}
           </View>
         </View>
-      </View>
 
-      {/* Announcement Banners */}
-      {visibleAnnouncements.length > 0 && (
-        <View style={styles.announcementsSection}>
-          {visibleAnnouncements.map((a) => (
-            <AnnouncementBanner key={a.id} item={a} onDismiss={handleDismiss} />
-          ))}
+        {/* Announcement Banners */}
+        {visibleAnnouncements.length > 0 && (
+          <View style={styles.announcementsSection}>
+            {visibleAnnouncements.map((a) => (
+              <AnnouncementBanner key={a.id} item={a} onDismiss={handleDismiss} />
+            ))}
+          </View>
+        )}
+
+        {/* Stats Grid */}
+        <View style={styles.gridRow}>
+          <StatCard icon="file-text" label="Total Invoices" value={String(stats.total)} accent />
+          <StatCard icon="trending-up" label="Total Revenue" value={formatCurrencyCompact(stats.totalRevenue)} />
         </View>
-      )}
+        <View style={[styles.gridRow, { marginBottom: 20 }]}>
+          <StatCard icon="calendar" label="This Month" value={formatCurrencyCompact(stats.thisMonth)} />
+          <StatCard icon="clock" label="Pending" value={formatCurrencyCompact(stats.pending)} />
+        </View>
 
-      {/* Stats Grid */}
-      <View style={styles.gridRow}>
-        <StatCard icon="file-text" label="Total Invoices" value={String(stats.total)} accent />
-        <StatCard icon="trending-up" label="Total Revenue" value={formatCurrencyCompact(stats.totalRevenue)} />
-      </View>
-      <View style={[styles.gridRow, { marginBottom: 20 }]}>
-        <StatCard icon="calendar" label="This Month" value={formatCurrencyCompact(stats.thisMonth)} />
-        <StatCard icon="clock" label="Pending" value={formatCurrencyCompact(stats.pending)} />
-      </View>
+        {/* Create Button */}
+        <Pressable
+          onPress={() => router.push({ pathname: '/invoice/template-select', params: { fresh: '1' } } as never)}
+          style={({ pressed }) => [
+            styles.createBtn,
+            { backgroundColor: colors.accent, opacity: pressed ? 0.88 : 1 },
+          ]}
+        >
+          <Feather name="plus-circle" size={20} color="#fff" />
+          <Text style={styles.createBtnText}>Create New Invoice</Text>
+        </Pressable>
 
-      {/* Create Button */}
-      <Pressable
-        onPress={() => router.push({ pathname: '/invoice/template-select', params: { fresh: '1' } } as never)}
-        style={({ pressed }) => [
-          styles.createBtn,
-          { backgroundColor: colors.accent, opacity: pressed ? 0.88 : 1 },
-        ]}
-      >
-        <Feather name="plus-circle" size={20} color="#fff" />
-        <Text style={styles.createBtnText}>Create New Invoice</Text>
-      </Pressable>
-
-      {/* Recent */}
-      <SectionHeader
-        title="Recent Invoices"
-        action={recentInvoices.length > 0 ? 'View All' : undefined}
-        onAction={() => router.push('/(tabs)/invoices' as never)}
-      />
-      {recentInvoices.length === 0 ? (
-        <EmptyState
-          icon="file-text"
-          title="No invoices yet"
-          subtitle="Create your first invoice and it will appear here."
-          actionLabel="Create Invoice"
-          onAction={() => router.push({ pathname: '/invoice/template-select', params: { fresh: '1' } } as never)}
+        {/* Recent */}
+        <SectionHeader
+          title="Recent Invoices"
+          action={recentInvoices.length > 0 ? 'View All' : undefined}
+          onAction={() => router.push('/(tabs)/invoices' as never)}
         />
-      ) : (
-        recentInvoices.map((inv) => (
-          <InvoiceCard
-            key={inv.id}
-            invoice={inv}
-            onPress={() =>
-              router.push({ pathname: '/invoice/[id]', params: { id: inv.id } })
-            }
+        {recentInvoices.length === 0 ? (
+          <EmptyState
+            icon="file-text"
+            title="No invoices yet"
+            subtitle="Create your first invoice and it will appear here."
+            actionLabel="Create Invoice"
+            onAction={() => router.push({ pathname: '/invoice/template-select', params: { fresh: '1' } } as never)}
           />
-        ))
-      )}
-    </ScrollView>
+        ) : (
+          recentInvoices.map((inv) => (
+            <InvoiceCard
+              key={inv.id}
+              invoice={inv}
+              onPress={() =>
+                router.push({ pathname: '/invoice/[id]', params: { id: inv.id } })
+              }
+            />
+          ))
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scrollArea: { flex: 1 },
   content: { paddingHorizontal: 16 },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
   },
+  headerLeftRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 },
   greeting: { fontSize: 13, fontWeight: '500', marginBottom: 3 },
   appTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pdfHistoryBtn: {
-    width: 46, height: 46, borderRadius: 14, borderWidth: 1,
+    width: 44, height: 44, borderRadius: 14, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
   logoMark: {
     width: 46, height: 46, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
   },
+  infoCard: {
+    borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14,
+  },
+  infoTagline: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
+  infoMetaRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
+  infoBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  infoBadgeText: { fontSize: 11, fontWeight: '600' },
+  infoFeatureList: { gap: 6 },
+  infoFeatureRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  infoFeatureText: { fontSize: 12, fontWeight: '500' },
   announcementsSection: { marginBottom: 4 },
   gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   createBtn: {

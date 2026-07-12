@@ -448,43 +448,43 @@ export default function InvoiceDetailScreen() {
         </Pressable>
       </View>
 
+      {/* Total Hero — fixed below the header; only the sections beneath it scroll */}
+      <View style={[styles.heroCard, styles.heroCardFixed, { backgroundColor: colors.primary }]}>
+        {invoice.isFavorite && (
+          <Feather name="star" size={16} color="#FBBF24" style={styles.starIcon} />
+        )}
+        <Text style={styles.heroLabel}>
+          {invoice.settlementStatus === 'return'
+            ? 'Balance to Return'
+            : invoice.settlementStatus === 'receive'
+              ? 'Balance to Receive'
+              : 'Balance'}
+        </Text>
+        <Text style={styles.heroAmount}>
+          {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
+        </Text>
+        <View style={styles.heroTagsRow}>
+          <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+            <Text style={[styles.statusText, { color: statusStyle.text }]}>
+              {invoice.status.toUpperCase()}
+            </Text>
+          </View>
+          {invoice.isArchived && (
+            <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7' }]}>
+              <Text style={[styles.statusText, { color: '#92400E' }]}>ARCHIVED</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.heroMeta}>
+          <Text style={styles.heroMetaText}>{invoice.date}</Text>
+          {invoice.dueDate ? <Text style={styles.heroMetaText}>Due: {invoice.dueDate}</Text> : null}
+        </View>
+      </View>
+
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Total Hero */}
-        <View style={[styles.heroCard, { backgroundColor: colors.primary }]}>
-          {invoice.isFavorite && (
-            <Feather name="star" size={16} color="#FBBF24" style={styles.starIcon} />
-          )}
-          <Text style={styles.heroLabel}>
-            {invoice.settlementStatus === 'return'
-              ? 'Balance to Return'
-              : invoice.settlementStatus === 'receive'
-                ? 'Balance to Receive'
-                : 'Balance'}
-          </Text>
-          <Text style={styles.heroAmount}>
-            {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
-          </Text>
-          <View style={styles.heroTagsRow}>
-            <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
-              <Text style={[styles.statusText, { color: statusStyle.text }]}>
-                {invoice.status.toUpperCase()}
-              </Text>
-            </View>
-            {invoice.isArchived && (
-              <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7' }]}>
-                <Text style={[styles.statusText, { color: '#92400E' }]}>ARCHIVED</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.heroMeta}>
-            <Text style={styles.heroMetaText}>{invoice.date}</Text>
-            {invoice.dueDate ? <Text style={styles.heroMetaText}>Due: {invoice.dueDate}</Text> : null}
-          </View>
-        </View>
-
         {/* PDF Actions */}
         <Card>
           <STitle title="PDF &amp; Export" />
@@ -861,6 +861,7 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 11, marginTop: 1 },
   content: { padding: 16 },
   heroCard: { borderRadius: 18, padding: 22, marginBottom: 12 },
+  heroCardFixed: { marginHorizontal: 16, marginTop: 12 },
   starIcon: { position: 'absolute', top: 20, right: 20 },
   heroLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginBottom: 6 },
   heroAmount: { color: '#fff', fontSize: 32, fontWeight: '800', letterSpacing: -1, marginBottom: 12 },

@@ -55,7 +55,7 @@ function formatDMY(date: Date): string {
 
 /** Date picker field — shows styled box, opens native picker on press */
 function DateField({
-  label, value, onChange, placeholder, required, colors,
+  label, value, onChange, placeholder, required, colors, minimumDate, error,
 }: {
   label: string;
   value: string;
@@ -63,6 +63,8 @@ function DateField({
   placeholder?: string;
   required?: boolean;
   colors: ReturnType<typeof import('@/hooks/useColors').useColors>;
+  minimumDate?: Date;
+  error?: string;
 }) {
   const [show, setShow] = useState(false);
   const date = value ? parseDMY(value) : new Date();
@@ -120,6 +122,9 @@ function DateField({
         </Text>
         <Feather name="chevron-down" size={16} color={colors.mutedForeground} />
       </Pressable>
+      {!!error && (
+        <Text style={[fStyles.errorText, { color: colors.destructive }]}>{error}</Text>
+      )}
 
       {/* Android: native inline picker */}
       {Platform.OS === 'android' && show && (
@@ -129,7 +134,7 @@ function DateField({
           display="default"
           onChange={handleChange}
           maximumDate={new Date(2099, 11, 31)}
-          minimumDate={new Date(2000, 0, 1)}
+          minimumDate={minimumDate ?? new Date(2000, 0, 1)}
         />
       )}
 
@@ -153,7 +158,7 @@ function DateField({
                 display="spinner"
                 onChange={handleChange}
                 maximumDate={new Date(2099, 11, 31)}
-                minimumDate={new Date(2000, 0, 1)}
+                minimumDate={minimumDate ?? new Date(2000, 0, 1)}
                 style={{ height: 200 }}
               />
             </Pressable>
@@ -189,6 +194,7 @@ const fStyles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
   },
   dateText: { fontSize: 15, flex: 1 },
+  errorText: { fontSize: 11, fontWeight: '600', marginTop: 4 },
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end',
   },
@@ -293,6 +299,7 @@ export default function CreateInvoiceScreen() {
   const [initialized, setInitialized] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [dueDateError, setDueDateError] = useState('');
 
   const navigation = useNavigation();
 
@@ -587,6 +594,18 @@ export default function CreateInvoiceScreen() {
     if (advanceNum <= 0) { Alert.alert('Required', 'Advance amount must be greater than zero'); return; }
     if (expenses.some((i) => !i.name.trim())) { Alert.alert('Required', 'Fill all expense names'); return; }
     if (expenses.some((i) => i.amount <= 0)) { Alert.alert('Required', 'All expense amounts must be greater than zero'); return; }
+    // Due Date is optional, but if provided it may not be in the past
+    // (today and any future date are both allowed).
+    if (dueDate.trim()) {
+      const due = parseDMY(dueDate.trim());
+      const todayMidnight = new Date();
+      todayMidnight.setHours(0, 0, 0, 0);
+      if (due.getTime() < todayMidnight.getTime()) {
+        setDueDateError('Due date cannot be in the past');
+        Alert.alert('Invalid Due Date', 'Due date cannot be in the past. Leave it empty or choose today/a future date.');
+        return;
+      }
+    }
 
     console.log('[Save] Validation passed — writing to local SQLite');
     setIsSaving(true);
@@ -822,9 +841,11 @@ export default function CreateInvoiceScreen() {
           <DateField
             label="Due Date"
             value={dueDate}
-            onChange={setDueDate}
+            onChange={(v) => { setDueDate(v); setDueDateError(''); }}
             placeholder="Optional"
             colors={colors}
+            minimumDate={new Date(new Date().setHours(0, 0, 0, 0))}
+            error={dueDateError}
           />
         </Section>
 

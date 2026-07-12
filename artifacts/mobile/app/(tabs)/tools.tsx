@@ -347,93 +347,103 @@ function CftCalc() {
   );
 
   return (
-    <View>
-      {/* ── Customer Name ── */}
-      <Field label="Customer Name" value={customerName} onChange={setCustomerName} keyboard="default" placeholder="Enter customer name" />
+    <View style={{ flex: 1 }}>
+      {/* ── Fixed fields: Customer Name, Date, Truck Number, Unit, Length, Width,
+          Height never scroll away while using the calculator. ── */}
+      <View style={cft.fixedFields}>
+        <Field label="Customer Name" value={customerName} onChange={setCustomerName} keyboard="default" placeholder="Enter customer name" />
 
-      {/* ── Date ── */}
-      <Field label="Date" value={date} onChange={setDate} keyboard="default" placeholder="DD-MM-YYYY" />
+        <Field label="Date" value={date} onChange={setDate} keyboard="default" placeholder="DD-MM-YYYY" />
 
-      {/* ── Truck Number + Unit Selector ── */}
-      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
-        <View style={{ flex: 1 }}>
-          <Field label="Truck Number" value={truckNumber} onChange={setTruckNumber} keyboard="default" placeholder="e.g. MH12AB1234" />
+        {/* ── Truck Number + Unit Selector ── */}
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+          <View style={{ flex: 1 }}>
+            <Field label="Truck Number" value={truckNumber} onChange={setTruckNumber} keyboard="default" placeholder="e.g. MH12AB1234" />
+          </View>
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[fl.label, { marginBottom: 6 }]}>Unit</Text>
+            <TouchableOpacity
+              style={cft.unitSelector}
+              onPress={() => setShowUnitPicker((v) => !v)}
+              activeOpacity={0.8}
+            >
+              <Text style={cft.unitSelectorTxt}>{unit}</Text>
+              <Feather name={showUnitPicker ? 'chevron-up' : 'chevron-down'} size={14} color="#FF6B00" />
+            </TouchableOpacity>
+          </View>
         </View>
-        <View style={{ marginBottom: 12 }}>
-          <Text style={[fl.label, { marginBottom: 6 }]}>Unit</Text>
-          <TouchableOpacity
-            style={cft.unitSelector}
-            onPress={() => setShowUnitPicker((v) => !v)}
-            activeOpacity={0.8}
-          >
-            <Text style={cft.unitSelectorTxt}>{unit}</Text>
-            <Feather name={showUnitPicker ? 'chevron-up' : 'chevron-down'} size={14} color="#FF6B00" />
+
+        {/* ── Unit picker dropdown ── */}
+        {showUnitPicker && (
+          <View style={cft.unitDropdown}>
+            {(['Feet', 'Inches', 'Meters', 'Yards'] as CftUnit[]).map((u) => (
+              <TouchableOpacity
+                key={u}
+                style={[cft.unitOption, u === unit && cft.unitOptionActive]}
+                onPress={() => { setUnit(u); setShowUnitPicker(false); setResult(null); }}
+              >
+                <Text style={[cft.unitOptionTxt, u === unit && { color: '#fff', fontWeight: '800' }]}>{u}</Text>
+                {u === 'Feet' && <Text style={[cft.unitOptionHint, u === unit && { color: 'rgba(255,255,255,0.85)' }]}>Dual ft + in input</Text>}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* ── Dimensions ── */}
+        <View style={{ marginTop: 4 }}>
+          {renderDim('Length', Lft, setLft, Lin, setLin, Lval, setLval)}
+          {renderDim('Width',  Wft, setWft, Win, setWin, Wval, setWval)}
+          {renderDim('Height', Hft, setHft, Hin, setHin, Hval, setHval)}
+        </View>
+      </View>
+
+      {/* ── Scrollable: price, result, actions, and saved-records shortcut ── */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={cft.scrollBody}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Price per CFT ── */}
+        <Field label="Price per CFT (₹)" value={pricePerCft} onChange={(v) => { setPricePerCft(v); setResult(null); }} suffix="₹" placeholder="Optional" />
+
+        {/* ── Result box ── */}
+        {result !== null && (
+          <ResultBox>
+            <ResultRow label="Volume" value={`${fmt2(result.cft)} CFT`} accent />
+            {result.amount > 0 && <ResultRow label="Total Amount" value={`₹ ${fmt2(result.amount)}`} accent />}
+            <ResultRow label="Unit" value={unit} />
+          </ResultBox>
+        )}
+
+        {/* ── Action buttons ── */}
+        <View style={cft.btnRow}>
+          <TouchableOpacity style={[cft.btn, cft.calcBtn]} onPress={calcCft} activeOpacity={0.85}>
+            <Feather name="zap" size={15} color="#fff" />
+            <Text style={cft.btnTxt}>Calculate</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[cft.btn, cft.clearBtn]} onPress={clear} activeOpacity={0.85}>
+            <Feather name="refresh-ccw" size={15} color="#666666" />
+            <Text style={[cft.btnTxt, { color: '#666666' }]}>Clear</Text>
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* ── Unit picker dropdown ── */}
-      {showUnitPicker && (
-        <View style={cft.unitDropdown}>
-          {(['Feet', 'Inches', 'Meters', 'Yards'] as CftUnit[]).map((u) => (
-            <TouchableOpacity
-              key={u}
-              style={[cft.unitOption, u === unit && cft.unitOptionActive]}
-              onPress={() => { setUnit(u); setShowUnitPicker(false); setResult(null); }}
-            >
-              <Text style={[cft.unitOptionTxt, u === unit && { color: '#fff', fontWeight: '800' }]}>{u}</Text>
-              {u === 'Feet' && <Text style={[cft.unitOptionHint, u === unit && { color: 'rgba(255,255,255,0.85)' }]}>Dual ft + in input</Text>}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* ── Dimensions ── */}
-      <View style={{ marginTop: 4 }}>
-        {renderDim('Length', Lft, setLft, Lin, setLin, Lval, setLval)}
-        {renderDim('Width',  Wft, setWft, Win, setWin, Wval, setWval)}
-        {renderDim('Height', Hft, setHft, Hin, setHin, Hval, setHval)}
-      </View>
-
-      {/* ── Price per CFT ── */}
-      <Field label="Price per CFT (₹)" value={pricePerCft} onChange={(v) => { setPricePerCft(v); setResult(null); }} suffix="₹" placeholder="Optional" />
-
-      {/* ── Result box ── */}
-      {result !== null && (
-        <ResultBox>
-          <ResultRow label="Volume" value={`${fmt2(result.cft)} CFT`} accent />
-          {result.amount > 0 && <ResultRow label="Total Amount" value={`₹ ${fmt2(result.amount)}`} accent />}
-          <ResultRow label="Unit" value={unit} />
-        </ResultBox>
-      )}
-
-      {/* ── Action buttons ── */}
-      <View style={cft.btnRow}>
-        <TouchableOpacity style={[cft.btn, cft.calcBtn]} onPress={calcCft} activeOpacity={0.85}>
-          <Feather name="zap" size={15} color="#fff" />
-          <Text style={cft.btnTxt}>Calculate</Text>
+        <TouchableOpacity
+          style={[cft.btn, cft.saveBtn, { opacity: saving ? 0.7 : 1 }]}
+          onPress={saveRecord} disabled={saving} activeOpacity={0.85}
+        >
+          {saving
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <><Feather name="save" size={15} color="#fff" /><Text style={cft.btnTxt}>Save Record</Text></>
+          }
         </TouchableOpacity>
-        <TouchableOpacity style={[cft.btn, cft.clearBtn]} onPress={clear} activeOpacity={0.85}>
-          <Feather name="refresh-ccw" size={15} color="#666666" />
-          <Text style={[cft.btnTxt, { color: '#666666' }]}>Clear</Text>
-        </TouchableOpacity>
-      </View>
-      <TouchableOpacity
-        style={[cft.btn, cft.saveBtn, { opacity: saving ? 0.7 : 1 }]}
-        onPress={saveRecord} disabled={saving} activeOpacity={0.85}
-      >
-        {saving
-          ? <ActivityIndicator color="#fff" size="small" />
-          : <><Feather name="save" size={15} color="#fff" /><Text style={cft.btnTxt}>Save Record</Text></>
-        }
-      </TouchableOpacity>
 
-      {/* ── View saved records ── */}
-      <TouchableOpacity style={cft.recordsBtn} onPress={() => setShowRecords(true)} activeOpacity={0.85}>
-        <Feather name="list" size={15} color="#FF6B00" />
-        <Text style={cft.recordsBtnTxt}>View Saved Records ({records.length})</Text>
-        <Feather name="chevron-right" size={15} color="#FF6B00" />
-      </TouchableOpacity>
+        {/* ── View saved records — opens the Saved Records / History list ── */}
+        <TouchableOpacity style={cft.recordsBtn} onPress={() => setShowRecords(true)} activeOpacity={0.85}>
+          <Feather name="list" size={15} color="#FF6B00" />
+          <Text style={cft.recordsBtnTxt}>View Saved Records ({records.length})</Text>
+          <Feather name="chevron-right" size={15} color="#FF6B00" />
+        </TouchableOpacity>
+      </ScrollView>
 
       {/* ── Saved Records Modal ── */}
       <Modal visible={showRecords} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowRecords(false)}>
@@ -518,6 +528,8 @@ function CftCalc() {
 }
 
 const cft = StyleSheet.create({
+  fixedFields: { paddingHorizontal: 20, paddingTop: 12, backgroundColor: '#FFFFFF' },
+  scrollBody: { paddingHorizontal: 20, paddingBottom: 60 },
   btnRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
   btn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, borderRadius: 12 },
   calcBtn: { backgroundColor: '#FF6B00' },
@@ -1132,7 +1144,7 @@ export default function ToolsScreen() {
         onRequestClose={() => setActiveTool(null)}
       >
         <SafeAreaView style={modal.root}>
-          <View style={modal.header}>
+          <View style={[modal.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
             <View style={modal.headerLeft}>
               {activeTool && (
                 <View style={[modal.headerIcon, { backgroundColor: (TOOLS.find(t => t.id === activeTool)?.color ?? '#2563EB') + '18' }]}>
@@ -1156,13 +1168,19 @@ export default function ToolsScreen() {
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            <ScrollView
-              contentContainerStyle={modal.body}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {current?.component}
-            </ScrollView>
+            {activeTool === 'cft' ? (
+              // CFT Calculator manages its own fixed-fields + scrollable-history
+              // split internally, so it must not be wrapped in another ScrollView.
+              current?.component
+            ) : (
+              <ScrollView
+                contentContainerStyle={modal.body}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {current?.component}
+              </ScrollView>
+            )}
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
