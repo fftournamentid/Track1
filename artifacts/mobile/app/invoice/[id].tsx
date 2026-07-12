@@ -234,9 +234,9 @@ export default function InvoiceDetailScreen() {
         );
         try {
           await openPDF(localUri ?? invoice.pdfUrl);
-        } catch {
-          // openPDF already tries IntentLauncher → Sharing.shareAsync internally.
-          // Swallow here — never show an error or the template picker.
+        } catch (openErr) {
+          console.warn('[PDF] openPDF failed:', openErr);
+          showToast('Could not open PDF. Try "Share PDF" instead.', 'error');
         }
       } finally {
         setGenerating(false);

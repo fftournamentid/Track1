@@ -27,15 +27,17 @@ export default function PDFActionModal({ visible, uri, filename, onClose, onErro
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState<string | null>(null);
 
-  async function run(key: string, fn: () => Promise<void>) {
-    setLoading(key);
+  async function run(_key: string, fn: () => Promise<void>) {
+    // Dismiss the modal FIRST so Sharing.shareAsync / IntentLauncher attach
+    // to the main app window, not the Modal's isolated Android window.
+    // (StorageAccessFramework starts its own Activity so it was unaffected —
+    // that's why Save to Files worked while Open/Share/WhatsApp did not.)
+    onClose();
     try {
       await fn();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onError?.(msg || 'Action failed. Please try again.');
-    } finally {
-      setLoading(null);
     }
   }
 
