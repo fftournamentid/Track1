@@ -350,6 +350,7 @@ export async function openPDF(uri: string): Promise<void> {
   }
 
   if (Platform.OS === 'android') {
+    // 1. Try ACTION_VIEW with a content URI so any installed PDF viewer can open it.
     try {
       const IntentLauncher = await import('expo-intent-launcher');
       const contentUri = await FileSystem.getContentUriAsync(localUri);
@@ -359,9 +360,17 @@ export async function openPDF(uri: string): Promise<void> {
         type: 'application/pdf',
       });
       return;
-    } catch (intentErr) {
-      console.warn('[PDF][open] IntentLauncher failed, falling back to shareAsync:', intentErr);
+    } catch {
+      // No PDF viewer installed, or getContentUriAsync failed on this device.
+      // Fall through to the share sheet — do NOT surface an error to the user.
     }
+    // 2. Fallback: open the Android share sheet with the raw file:// URI.
+    //    expo-sharing handles the FileProvider conversion internally (same as savePDFToDownloads).
+    await Sharing.shareAsync(localUri, {
+      mimeType: 'application/pdf',
+      UTI: 'com.adobe.pdf',
+    });
+    return;
   }
 
   const canShare = await Sharing.isAvailableAsync();
@@ -404,16 +413,13 @@ export async function sharePDF(uri: string, title = 'Share Invoice PDF'): Promis
   if (!validHeader) throw new Error('Unable to share PDF. Please try again.');
 
   if (Platform.OS === 'android') {
-    let contentUri: string;
-    try {
-      contentUri = await FileSystem.getContentUriAsync(localUri);
-    } catch (contentUriErr) {
-      console.error('[PDF][share] getContentUriAsync threw:', contentUriErr);
-      throw new Error('Unable to share PDF on this device. Please try "Save to Downloads" instead.');
-    }
+    // Use Sharing.shareAsync with the raw file:// URI.
+    // expo-sharing handles the FileProvider conversion internally on Android,
+    // exactly like savePDFToDownloads does.  Calling getContentUriAsync first
+    // is unnecessary and fails on some devices.
     const canShare = await Sharing.isAvailableAsync();
     if (!canShare) throw new Error('Sharing is not available on this device.');
-    await Sharing.shareAsync(contentUri, {
+    await Sharing.shareAsync(localUri, {
       mimeType: 'application/pdf',
       dialogTitle: title,
       UTI: 'com.adobe.pdf',
@@ -462,6 +468,9 @@ export async function shareToWhatsApp(uri: string): Promise<void> {
   if (!info.exists) throw new Error('Unable to share PDF. Please try again.');
 
   if (Platform.OS === 'android') {
+    // 1. Try direct WhatsApp intent via ACTION_SEND + packageName.
+    //    Requires a content URI (getContentUriAsync).  If WhatsApp is not
+    //    installed, or if getContentUriAsync fails, fall through.
     try {
       const contentUri = await FileSystem.getContentUriAsync(localUri);
       const IntentLauncher = await import('expo-intent-launcher');
@@ -475,24 +484,17 @@ export async function shareToWhatsApp(uri: string): Promise<void> {
         packageName: 'com.whatsapp',
       });
       return;
-    } catch (whatsappErr) {
-      console.warn('[PDF][whatsapp] WhatsApp direct intent failed — falling back to share sheet:', whatsappErr);
-      // Fall through to generic share below
+    } catch {
+      // WhatsApp not installed or getContentUriAsync failed — fall through.
     }
-
-    // Generic Android share sheet fallback
-    try {
-      const contentUri = await FileSystem.getContentUriAsync(localUri);
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) throw new Error('Sharing is not available on this device.');
-      await Sharing.shareAsync(contentUri, {
-        mimeType: 'application/pdf',
-        dialogTitle: 'Share Invoice via WhatsApp',
-        UTI: 'com.adobe.pdf',
-      });
-    } catch (fallbackErr) {
-      throw new Error('Unable to share PDF. Please try again.');
-    }
+    // 2. Fallback: generic Android share sheet with the raw file:// URI.
+    //    expo-sharing handles FileProvider conversion internally (same pattern
+    //    as savePDFToDownloads which is confirmed working).
+    await Sharing.shareAsync(localUri, {
+      mimeType: 'application/pdf',
+      dialogTitle: 'Share Invoice via WhatsApp',
+      UTI: 'com.adobe.pdf',
+    });
     return;
   }
 
