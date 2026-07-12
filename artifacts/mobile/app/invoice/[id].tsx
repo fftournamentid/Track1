@@ -206,55 +206,51 @@ export default function InvoiceDetailScreen() {
   /**
    * Open existing PDF or trigger generation.
    *
-   * Rule: if ANY valid PDF URI is available (local file or stored cloud URL),
-   * show the PDFActionModal with that URI. The modal's own "Open PDF" button
-   * handles calling the system viewer — we must NEVER call openPDF() here,
-   * because a throw from openPDF() would otherwise fall through to the
-   * template picker and wrongly re-enter the generation flow.
+   * Decision tree:
+   *   local file exists  →  openPDF(localUri) directly — no modal, no generation.
+   *   only cloud URL     →  openPDF(pdfUrl) directly   — no modal, no generation.
+   *   openPDF() throws   →  error toast                 — no modal, no template picker.
+   *   no PDF at all      →  setTemplatePickerVisible    — triggers generation flow.
    *
-   * Template picker is shown ONLY when no PDF has ever been generated.
+   * setPdfModalVisible (the "PDF Ready" sheet) is ONLY called by handleTemplateSelected
+   * after a brand-new PDF is generated.  This function must never touch it.
    */
   const handleOpenOrGeneratePDF = useCallback(async () => {
     if (!invoice) return;
 
     setGenerating(true);
     let resolvedUri: string | null = null;
-    let resolvedFilename: string | null = null;
 
     try {
-      // 1. Local documentDirectory file — fastest, no network required.
-      //    getCachedLocalPDFUri checks existence + %PDF- magic header.
+      // 1. Check the local documentDirectory cache first (no network, instant).
+      //    getCachedLocalPDFUri validates existence and the %PDF- magic header.
       const localUri = await getCachedLocalPDFUri(
         invoice.invoiceNumber,
         invoice.templateId ?? 'classic',
       );
-
       if (localUri) {
         resolvedUri = localUri;
-        // Reconstruct the filename (same formula as pdfService generateAndSaveInvoicePDF)
-        const safe = (s: string) => s.replace(/[^a-zA-Z0-9-]/g, '_');
-        resolvedFilename = `Invoice_${safe(invoice.invoiceNumber)}_${safe(invoice.templateId ?? 'classic')}.pdf`;
       } else if (invoice.pdfUrl) {
-        // 2. Stored cloud / Supabase URL — openPDF inside the modal will
-        //    download it to cache and open it; we just surface the modal here.
+        // 2. Fall back to stored Supabase / cloud URL.
         resolvedUri = invoice.pdfUrl;
-        resolvedFilename = invoice.pdfName ?? `Invoice_${invoice.invoiceNumber}.pdf`;
       }
     } finally {
       setGenerating(false);
     }
 
     if (resolvedUri) {
-      // A PDF is available — show the action sheet (Open / Share / WhatsApp / Save).
-      // Never call openPDF() directly here: a failure there must not re-open the
-      // template picker.  The modal handles open/share internally.
-      setPdfUri(resolvedUri);
-      setPdfFilename(resolvedFilename ?? 'invoice.pdf');
-      setPdfModalVisible(true);
+      // PDF exists — open it directly in the system PDF viewer.
+      // A failure here (no viewer installed, intent error, etc.) gets a toast.
+      // We must not fall through to the template picker or show the PDF Ready sheet.
+      try {
+        await openPDF(resolvedUri);
+      } catch {
+        showToast('Could not open PDF viewer. Try "Share PDF" instead.', 'error');
+      }
       return;
     }
 
-    // 3. No PDF has ever been generated for this invoice — trigger generation.
+    // 3. No PDF has ever been generated — show template picker to generate one.
     setTemplatePickerVisible(true);
   }, [invoice]);
 
