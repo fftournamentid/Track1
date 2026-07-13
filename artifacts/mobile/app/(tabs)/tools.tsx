@@ -1145,7 +1145,7 @@ export default function ToolsScreen() {
         onRequestClose={() => setActiveTool(null)}
       >
         <SafeAreaView style={modal.root}>
-          <View style={[modal.header, { paddingTop: insets.top + 20 }]}>
+          <View style={[modal.header, { paddingTop: insets.top + 32 }]}>
             <View style={modal.headerLeft}>
               {activeTool && (
                 <View style={[modal.headerIcon, { backgroundColor: (TOOLS.find(t => t.id === activeTool)?.color ?? '#2563EB') + '18' }]}>

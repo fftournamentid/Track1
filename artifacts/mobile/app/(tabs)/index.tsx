@@ -108,6 +108,7 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { invoices, refreshInvoices } = useInvoices();
   const { profile } = useProfile();
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Refresh from SQLite every time this tab comes into focus so a newly-saved
   // invoice shows up instantly in Recent Invoices without needing a hard reload.
@@ -181,7 +182,9 @@ export default function DashboardScreen() {
       {/* Sticky Header — logo, app name, and quick-access buttons never scroll away */}
       <View style={[styles.headerRow, { paddingTop: topPad + 16, backgroundColor: colors.background }]}>
         <View style={styles.headerLeftRow}>
-          <Image source={APP_LOGO} style={styles.logoMark} resizeMode="cover" />
+          <Pressable onPress={() => setShowInfoModal(true)} hitSlop={8}>
+            <Image source={APP_LOGO} style={styles.logoMark} resizeMode="cover" />
+          </Pressable>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
               {getGreeting()}{name ? `, ${name.split(' ')[0]}` : ''}
@@ -222,9 +225,6 @@ export default function DashboardScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* App Info block — logo/name + About App / How To Use / Terms tabs */}
-        <AppInfoCard colors={colors} />
-
         {/* Announcement Banners */}
         {visibleAnnouncements.length > 0 && (
           <View style={styles.announcementsSection}>
@@ -282,6 +282,9 @@ export default function DashboardScreen() {
           ))
         )}
       </ScrollView>
+
+      {/* About App / How To Use / Terms & Conditions — opened from the header logo */}
+      <AppInfoCard colors={colors} visible={showInfoModal} onClose={() => setShowInfoModal(false)} />
     </View>
   );
 }
