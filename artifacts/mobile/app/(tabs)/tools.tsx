@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Modal,
-  TextInput, Image, ActivityIndicator, Alert, Platform, Share,
+  TextInput, Image, ActivityIndicator, Alert, Platform,
   KeyboardAvoidingView, SafeAreaView, FlatList, Animated, Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -191,7 +191,7 @@ function Chips({ options, value, onChange, accent }: { options: string[]; value:
 
 type CftUnit = 'Feet' | 'Inches' | 'Meters' | 'Yards';
 
-function CftCalc() {
+function CftCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: boolean; onHistoryClose?: () => void }) {
   const { user } = useAuth();
   const [customerName, setCustomerName] = useState('');
   const [date, setDate] = useState(todayStr());
@@ -211,7 +211,6 @@ function CftCalc() {
   const [pricePerCft, setPricePerCft] = useState('');
   const [result, setResult] = useState<{ cft: number; amount: number } | null>(null);
   const [records, setRecords] = useState<CftRecord[]>([]);
-  const [showRecords, setShowRecords] = useState(false);
   const [recordSearch, setRecordSearch] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -268,7 +267,7 @@ function CftCalc() {
     }
     setPricePerCft(r.pricePerCft);
     setResult({ cft: r.cft, amount: r.amount });
-    setShowRecords(false);
+    onHistoryClose?.();
   };
 
   const saveRecord = async () => {
@@ -364,38 +363,8 @@ function CftCalc() {
     </View>
   );
 
-  const handleCftShare = async () => {
-    if (!result) { Alert.alert('No Result', 'Calculate CFT first before sharing.'); return; }
-    const dimLabel = unit === 'Feet'
-      ? `${Lft}'${Lin}" × ${Wft}'${Win}" × ${Hft}'${Hin}"`
-      : `${Lval} × ${Wval} × ${Hval} ${unit}`;
-    const lines = [
-      '📦 CFT Summary',
-      '─────────────────────',
-      customerName ? `Customer: ${customerName}` : '',
-      truckNumber  ? `Truck:    ${truckNumber}` : '',
-      `Date:     ${date}`,
-      `Dims:     ${dimLabel}`,
-      `Volume:   ${fmt2(result.cft)} CFT`,
-      result.amount > 0 ? `Amount:   ₹${fmt2(result.amount)}` : '',
-    ].filter(Boolean).join('\n');
-    try { await Share.share({ message: lines }); } catch {}
-  };
-
   return (
     <View style={{ flex: 1 }}>
-      {/* ── Fixed header: action bar ── */}
-      <View style={fh.actionBar}>
-        <TouchableOpacity style={fh.actionBtn} onPress={() => setShowRecords(true)}>
-          <Feather name="clock" size={14} color="#FF6B00" />
-          <Text style={fh.actionTxt}>History</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={fh.actionBtn} onPress={handleCftShare}>
-          <Feather name="share-2" size={14} color="#FF6B00" />
-          <Text style={fh.actionTxt}>Share</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* ── Fixed fields: 2-column grid ── */}
       <View style={cft.fixedFields}>
         {/* Row 1: Customer Name | Date */}
@@ -491,20 +460,14 @@ function CftCalc() {
           }
         </TouchableOpacity>
 
-        {/* ── View saved records — opens the Saved Records / History list ── */}
-        <TouchableOpacity style={cft.recordsBtn} onPress={() => setShowRecords(true)} activeOpacity={0.85}>
-          <Feather name="list" size={15} color="#FF6B00" />
-          <Text style={cft.recordsBtnTxt}>View Saved Records ({records.length})</Text>
-          <Feather name="chevron-right" size={15} color="#FF6B00" />
-        </TouchableOpacity>
       </ScrollView>
 
       {/* ── Saved Records Modal ── */}
-      <Modal visible={showRecords} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowRecords(false)}>
+      <Modal visible={historyOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onHistoryClose}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
           <View style={cft.recHeader}>
             <Text style={cft.recTitle}>Saved CFT Records</Text>
-            <TouchableOpacity onPress={() => setShowRecords(false)} hitSlop={12} style={cft.recClose}>
+            <TouchableOpacity onPress={onHistoryClose} hitSlop={12} style={cft.recClose}>
               <Feather name="x" size={20} color="#666666" />
             </TouchableOpacity>
           </View>
@@ -648,7 +611,7 @@ const cft = StyleSheet.create({
   recAmount: { fontSize: 15, fontWeight: '800', color: '#FF6B00', marginTop: 6, textAlign: 'right' },
 });
 
-function FreightCalc() {
+function FreightCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: boolean; onHistoryClose?: () => void }) {
   const { user } = useAuth();
   const [weight, setWeight] = useState('');
   const [wUnit, setWUnit] = useState('kg');
@@ -656,7 +619,6 @@ function FreightCalc() {
   const [rUnit, setRUnit] = useState('per kg');
   const [result, setResult] = useState<{ weightKg: number; weightTon: number; total: number } | null>(null);
   const [records, setRecords] = useState<FreightRecord[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const freightKey = user?.uid ? freightRecordsKey(user.uid) : '@FleetInvoice:freight_records:anonymous';
@@ -702,32 +664,8 @@ function FreightCalc() {
     setSaving(false);
   };
 
-  const handleShare = async () => {
-    if (!result) { Alert.alert('No Result', 'Calculate freight before sharing.'); return; }
-    const text = [
-      '🚛 Freight Summary',
-      '─────────────────────',
-      `Weight: ${weight} ${wUnit}  (${fmt2(result.weightKg)} kg / ${fmt2(result.weightTon)} ton)`,
-      `Rate:   ₹${rate} ${rUnit}`,
-      `Total Freight: ₹${fmt2(result.total)}`,
-    ].join('\n');
-    try { await Share.share({ message: text }); } catch {}
-  };
-
   return (
     <View style={{ flex: 1 }}>
-      {/* ── Header action bar ── */}
-      <View style={fh.actionBar}>
-        <TouchableOpacity style={fh.actionBtn} onPress={() => setShowHistory(true)}>
-          <Feather name="clock" size={14} color="#FF6B00" />
-          <Text style={fh.actionTxt}>History</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={fh.actionBtn} onPress={handleShare}>
-          <Feather name="share-2" size={14} color="#FF6B00" />
-          <Text style={fh.actionTxt}>Share</Text>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 100 }}
         keyboardShouldPersistTaps="handled"
@@ -767,45 +705,36 @@ function FreightCalc() {
           </TouchableOpacity>
         </View>
 
+        {/* Save Record — directly below Calculate/Clear */}
+        {result !== null && (
+          <TouchableOpacity
+            style={[fh.bigBtn, { backgroundColor: '#FF6B00', marginTop: 10 }]}
+            onPress={saveRecord}
+            disabled={saving}
+          >
+            {saving
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <><Feather name="save" size={15} color="#fff" /><Text style={fh.bigBtnTxt}>Save Record</Text></>
+            }
+          </TouchableOpacity>
+        )}
+
         {/* Result */}
         {result !== null && (
-          <>
-            <ResultBox>
-              <ResultRow label="Weight" value={`${fmt2(result.weightKg)} kg  /  ${fmt2(result.weightTon)} ton`} />
-              <ResultRow label="Rate" value={`₹ ${num(rate) > 0 ? fmt2(num(rate)) : '0.00'} ${rUnit}`} />
-              <ResultRow label="Total Freight" value={`₹ ${fmt2(result.total)}`} accent />
-            </ResultBox>
-
-            <TouchableOpacity
-              style={[fh.bigBtn, { backgroundColor: '#FF6B00', marginTop: 12 }]}
-              onPress={saveRecord}
-              disabled={saving}
-            >
-              {saving
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <><Feather name="save" size={15} color="#fff" /><Text style={fh.bigBtnTxt}>Save Record</Text></>
-              }
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 13, marginTop: 6 }}
-              onPress={() => setShowHistory(true)}
-            >
-              <Feather name="clock" size={14} color="#FF6B00" />
-              <Text style={{ color: '#FF6B00', fontWeight: '700', fontSize: 13 }}>
-                View History ({records.length})
-              </Text>
-            </TouchableOpacity>
-          </>
+          <ResultBox>
+            <ResultRow label="Weight" value={`${fmt2(result.weightKg)} kg  /  ${fmt2(result.weightTon)} ton`} />
+            <ResultRow label="Rate" value={`₹ ${num(rate) > 0 ? fmt2(num(rate)) : '0.00'} ${rUnit}`} />
+            <ResultRow label="Total Freight" value={`₹ ${fmt2(result.total)}`} accent />
+          </ResultBox>
         )}
       </ScrollView>
 
       {/* History Modal */}
-      <Modal visible={showHistory} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowHistory(false)}>
+      <Modal visible={historyOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={onHistoryClose}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
           <View style={cft.recHeader}>
             <Text style={cft.recTitle}>Freight History</Text>
-            <TouchableOpacity onPress={() => setShowHistory(false)} style={cft.recClose}>
+            <TouchableOpacity onPress={onHistoryClose} style={cft.recClose}>
               <Feather name="x" size={20} color="#666666" />
             </TouchableOpacity>
           </View>
@@ -1179,18 +1108,18 @@ function QrPayment() {
   );
 }
 
-const TOOL_CONTENT: Partial<Record<ToolId, { title: string; component: React.ReactNode }>> = {
-  cft:      { title: 'CFT Calculator',    component: <CftCalc /> },
-  freight:  { title: 'Freight Calculator', component: <FreightCalc /> },
-  gst:      { title: 'GST Calculator',    component: <GstCalc /> },
-  fuel:     { title: 'Fuel Cost',         component: <FuelCalc /> },
-  distance: { title: 'Distance Calc',     component: <DistanceCalc /> },
-  profit:   { title: 'Profit Calculator', component: <ProfitCalc /> },
-  weight:   { title: 'Weight Converter',  component: <WeightConv /> },
-  unit:     { title: 'Unit Converter',    component: <UnitConv /> },
-  tyre:     { title: 'Tyre Cost',         component: <TyreCalc /> },
-  emi:      { title: 'EMI Calculator',    component: <EmiCalc /> },
-  qr:       { title: 'QR Payment',        component: <QrPayment /> },
+const TOOL_CONTENT: Partial<Record<ToolId, { title: string; Component: React.FC<any> }>> = {
+  cft:      { title: 'CFT Calculator',    Component: CftCalc },
+  freight:  { title: 'Freight Calculator', Component: FreightCalc },
+  gst:      { title: 'GST Calculator',    Component: GstCalc },
+  fuel:     { title: 'Fuel Cost',         Component: FuelCalc },
+  distance: { title: 'Distance Calc',     Component: DistanceCalc },
+  profit:   { title: 'Profit Calculator', Component: ProfitCalc },
+  weight:   { title: 'Weight Converter',  Component: WeightConv },
+  unit:     { title: 'Unit Converter',    Component: UnitConv },
+  tyre:     { title: 'Tyre Cost',         Component: TyreCalc },
+  emi:      { title: 'EMI Calculator',    Component: EmiCalc },
+  qr:       { title: 'QR Payment',        Component: QrPayment },
 };
 
 // ─── Premium Animated Tool Card ───────────────────────────────────────────────
@@ -1304,8 +1233,12 @@ export default function ToolsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
+  const [showToolHistory, setShowToolHistory] = useState(false);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const current = activeTool ? TOOL_CONTENT[activeTool] : null;
+  const CurrentComponent = current?.Component;
+
+  useEffect(() => { setShowToolHistory(false); }, [activeTool]);
 
   return (
     <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
@@ -1389,6 +1322,11 @@ export default function ToolsScreen() {
                 <Text style={modal.subtitle}>FleetInvoice Calculator</Text>
               </View>
             </View>
+            {(activeTool === 'cft' || activeTool === 'freight') && (
+              <TouchableOpacity style={modal.historyIconBtn} onPress={() => setShowToolHistory(true)} hitSlop={12}>
+                <Feather name="clock" size={17} color="#FF6B00" />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={() => setActiveTool(null)} style={modal.closeBtn} hitSlop={12}>
               <Feather name="x" size={20} color="#666666" />
             </TouchableOpacity>
@@ -1397,19 +1335,14 @@ export default function ToolsScreen() {
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           >
-            {(activeTool === 'cft' || activeTool === 'freight') ? (
-              // CFT and Freight Calculators manage their own layout internally
-              // (fixed header actions + their own ScrollView) so must not be
-              // wrapped in another ScrollView here.
-              current?.component
-            ) : (
-              <ScrollView
-                contentContainerStyle={modal.body}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                {current?.component}
-              </ScrollView>
+            {CurrentComponent && (
+              activeTool === 'cft' || activeTool === 'freight'
+                ? <CurrentComponent historyOpen={showToolHistory} onHistoryClose={() => setShowToolHistory(false)} />
+                : (
+                  <ScrollView contentContainerStyle={modal.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                    <CurrentComponent />
+                  </ScrollView>
+                )
             )}
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -1558,6 +1491,15 @@ const modal = StyleSheet.create({
   },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
   subtitle: { fontSize: 11, color: '#666666', marginTop: 1 },
+  historyIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FFF3E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 4,
+  },
   closeBtn: {
     width: 36,
     height: 36,

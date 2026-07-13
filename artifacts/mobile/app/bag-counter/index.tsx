@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView,
-  ActivityIndicator, Platform, Alert, Modal, Pressable, FlatList, Share,
+  ActivityIndicator, Platform, Alert, Modal, Pressable, FlatList,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -212,22 +212,6 @@ export default function BagCounterScreen() {
     }
   }, [user?.uid, scanResult, productName, truckNumber, customerName, notes, rowsNum, bagsPerRow, finalTotal]);
 
-  const handleShare = useCallback(async () => {
-    if (!scanResult) { Alert.alert('No Scan', 'Scan an image before sharing.'); return; }
-    const lines = [
-      '📦 Bag Count Summary',
-      '─────────────────────',
-      customerName ? `Customer:     ${customerName}` : '',
-      truckNumber  ? `Truck:        ${truckNumber}` : '',
-      productName  ? `Product:      ${productName}` : '',
-      `Bags Per Row: ${bagsPerRow}`,
-      `Rows:         ${rowsNum}`,
-      `Total Bags:   ${finalTotal}`,
-      `Confidence:   ${scanResult.confidence}%`,
-    ].filter(Boolean).join('\n');
-    try { await Share.share({ message: lines }); } catch {}
-  }, [scanResult, customerName, truckNumber, productName, bagsPerRow, rowsNum, finalTotal]);
-
   const startNewSession = () => {
     setScanResult(null);
     setRows('1');
@@ -247,9 +231,6 @@ export default function BagCounterScreen() {
           <Text style={[s.title, { color: colors.foreground }]}>AI Bag Counter</Text>
           <Text style={[s.subtitle, { color: colors.mutedForeground }]}>Powered by Gemini AI</Text>
         </View>
-        <TouchableOpacity style={[s.iconBtn, { backgroundColor: colors.secondary }]} onPress={handleShare} hitSlop={8}>
-          <Feather name="share-2" size={17} color={colors.primary} />
-        </TouchableOpacity>
         <TouchableOpacity style={[s.iconBtn, { backgroundColor: colors.secondary }]} onPress={openHistory} hitSlop={8}>
           <Feather name="clock" size={17} color={colors.primary} />
         </TouchableOpacity>
