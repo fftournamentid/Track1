@@ -106,6 +106,7 @@ function RootLayoutNav() {
       <Stack.Screen name="invoice/preview" options={{ headerShown: false }} />
       <Stack.Screen name="pdf-history" options={{ headerShown: false }} />
       <Stack.Screen name="cloud-backup" options={{ headerShown: false }} />
+      <Stack.Screen name="bag-counter/index" options={{ headerShown: false }} />
     </Stack>
   );
 }

@@ -224,6 +224,35 @@ export interface LocaleStrings {
   translations: Record<string, string>;
 }
 
+export type BagScanSide = 'front' | 'back';
+
+export interface BagScan {
+  id: string;
+  sessionId: string;
+  userId: string;
+  side: BagScanSide;
+  aiCount: number;
+  confidence: number;
+  scanTimeMs: number;
+  createdAt: string;
+}
+
+export interface BagSession {
+  id: string;
+  userId: string;
+  productName?: string;
+  truckNumber?: string;
+  customerName?: string;
+  notes?: string;
+  totalBags: number;
+  manualAdjustment: number;
+  finalTotal: number;
+  totalImages: number;
+  averageConfidence: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Announcement {
   id: string;
   title: string;

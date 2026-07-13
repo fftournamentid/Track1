@@ -49,6 +49,7 @@ interface ProfitExpense {
 }
 
 type ToolId =
+  | 'bagcounter'
   | 'cft' | 'freight' | 'gst' | 'fuel' | 'distance'
   | 'profit' | 'weight' | 'unit' | 'tyre' | 'emi' | 'qr';
 
@@ -61,6 +62,7 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
+  { id: 'bagcounter', icon: 'camera',    title: 'AI Bag Counter',    desc: 'Count stacked bags via AI',  color: '#FF6B00' },
   { id: 'cft',      icon: 'box',         title: 'CFT Calculator',    desc: 'Cubic feet for cargo',       color: '#FF6B00' },
   { id: 'freight',  icon: 'truck',       title: 'Freight Calculator', desc: 'Weight × rate pricing',     color: '#FF6B00' },
   { id: 'gst',      icon: 'percent',     title: 'GST Calculator',    desc: 'Tax inclusive/exclusive',    color: '#FF6B00' },
@@ -1092,7 +1094,7 @@ export default function ToolsScreen() {
         <View>
           <Text style={styles.headerBadge}>TRANSPORT TOOLS</Text>
           <Text style={styles.headerTitle}>Calculators</Text>
-          <Text style={styles.headerSub}>11 offline tools for transport professionals</Text>
+          <Text style={styles.headerSub}>12 tools for transport professionals</Text>
         </View>
         <View style={styles.headerIconWrap}>
           <Feather name="tool" size={20} color="#FF6B00" />
@@ -1109,7 +1111,13 @@ export default function ToolsScreen() {
             <ToolCard
               key={tool.id}
               tool={tool}
-              onPress={() => setActiveTool(tool.id)}
+              onPress={() => {
+                if (tool.id === 'bagcounter') {
+                  router.push('/bag-counter' as never);
+                  return;
+                }
+                setActiveTool(tool.id);
+              }}
             />
           ))}
         </View>

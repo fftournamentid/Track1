@@ -26,8 +26,10 @@ app.use(
   }),
 );
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Bag Counter image uploads are base64-encoded JPEGs (compressed client-side)
+// and can exceed Express's 100kb default body limit.
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 app.use("/api", router);
 
