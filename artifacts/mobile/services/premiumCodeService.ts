@@ -49,7 +49,7 @@ export interface PremiumUser {
 
 // ─── Paths (logged for every operation) ──────────────────────────────────────
 
-const CODES_COL  = 'premiumCodes';   // premiumCodes/{code}  (production path)
+const CODES_COL  = 'premium_codes';  // premium_codes/{code}  (matches firestore.rules)
 const PUSERS_COL = 'premium_users';  // premium_users/{uid}
 const USERS_COL  = 'users';          // users/{uid}
 

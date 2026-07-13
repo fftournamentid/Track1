@@ -166,6 +166,60 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || isBootstrapAdmin();
     }
 
+    // ─── bagSessions / bagScans / bagHistory ─────────────────────────────────
+    //
+    // AI Bag Counter feature. Random-ID documents tagged with a `userId` field
+    // (no image data is ever stored — only counts/confidence, see
+    // bagCounterService.ts). Owner can create/read/update/delete their own
+    // records; admins can access everything.
+    //
+    match /bagSessions/{sessionId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+
+    match /bagScans/{scanId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+
+    match /bagHistory/{historyId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+
+    // ─── aiSettings/{userId} ──────────────────────────────────────────────────
+    //
+    // Per-user AI Bag Counter preferences (last product/truck/customer name).
+    // Document ID IS the user's UID.
+    //
+    match /aiSettings/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin() || isBootstrapAdmin();
+    }
+
+    // ─── aiUsage/{usageId} ────────────────────────────────────────────────────
+    //
+    // Monthly AI usage counters. Document ID is `${userId}_${monthKey}`, so
+    // ownership is checked via the `userId` field rather than the doc ID.
+    //
+    match /aiUsage/{usageId} {
+      allow read: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ─── appSettings/{docId} ──────────────────────────────────────────────────
+    //
+    // Internal admin-panel settings/connectivity-test collection. Admin-only —
+    // regular users never read or write this.
+    //
+    match /appSettings/{docId} {
+      allow read, write: if isAdmin() || isBootstrapAdmin();
+    }
+
     // ─── app_config/{docId} ───────────────────────────────────────────────────
     //
     // Remote app settings (maintenance mode, force-update version, etc).

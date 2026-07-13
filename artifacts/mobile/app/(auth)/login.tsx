@@ -5,7 +5,9 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { fetchSignInMethodsForEmail } from 'firebase/auth';
 import { signIn, getAuthErrorMessage, validateEmail, validatePassword } from '@/services/firebase/auth.service';
+import { auth } from '@/services/firebase/config';
 
 const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
@@ -26,16 +28,41 @@ export default function LoginScreen() {
     if (passErr) { setError(passErr); return; }
 
     setLoading(true);
+    const normalizedEmail = email.trim().toLowerCase();
     console.log('[BOOT] Login: calling signIn()…');
     const t0 = Date.now();
     try {
-      await signIn(email.trim().toLowerCase(), password);
+      await signIn(normalizedEmail, password);
       console.log(`[BOOT] Login: signIn() resolved in ${Date.now() - t0}ms — waiting for AuthContext/_layout to redirect`);
       // Let _layout.tsx handle routing based on role (admin vs normal user)
       // Do NOT redirect here; wait for userDoc to load so admin gets /admin
     } catch (err: unknown) {
       console.warn(`[BOOT] Login: signIn() FAILED after ${Date.now() - t0}ms:`, err);
       const code = (err as { code?: string }).code ?? '';
+
+      // "auth/user-not-found" is the direct signal. Some Firebase projects have
+      // email-enumeration protection enabled, which makes Firebase return the
+      // ambiguous "auth/invalid-credential" for both wrong-password and
+      // no-such-account. Disambiguate that case with fetchSignInMethodsForEmail.
+      let accountMissing = code === 'auth/user-not-found';
+      if (!accountMissing && code === 'auth/invalid-credential') {
+        try {
+          const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+          accountMissing = methods.length === 0;
+        } catch {
+          // Ignore — fall back to generic error message below.
+        }
+      }
+
+      if (accountMissing) {
+        setLoading(false);
+        router.push({
+          pathname: '/(auth)/signup' as never,
+          params: { email: normalizedEmail, reason: 'no-account' },
+        } as never);
+        return;
+      }
+
       setError(getAuthErrorMessage(code));
       setLoading(false);
     }

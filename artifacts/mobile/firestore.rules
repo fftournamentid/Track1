@@ -90,10 +90,10 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin() || isBootstrapAdmin();
     }
 
-    // ─── premiumCodes/{codeId} ────────────────────────────────────────────────
+    // ─── premium_codes/{codeId} ───────────────────────────────────────────────
     //
     // Access codes managed by admins. The document ID IS the code string
-    // (e.g. "PREMIUM2026") so users can validate a code with a single-doc GET
+    // (e.g. "TRUCK2024") so users can validate a code with a single-doc GET
     // instead of a collection query (which would require list permission).
     //
     // Security:
@@ -101,13 +101,6 @@ service cloud.firestore {
     //   • Authenticated users may NOT list all codes (prevents enumeration).
     //   • Only admins may create, update, or delete codes.
     //
-    match /premiumCodes/{codeId} {
-      allow get:                   if request.auth != null;
-      allow list:                  if isAdmin() || isBootstrapAdmin();
-      allow create, update, delete: if isAdmin() || isBootstrapAdmin();
-    }
-
-    // ─── premium_codes/{codeId} (legacy — kept for read compatibility) ────────
     match /premium_codes/{codeId} {
       allow get:                   if request.auth != null;
       allow list:                  if isAdmin() || isBootstrapAdmin();
@@ -173,41 +166,69 @@ service cloud.firestore {
       allow update, delete: if isAdmin() || isBootstrapAdmin();
     }
 
+    // ─── bagSessions / bagScans / bagHistory ─────────────────────────────────
+    //
+    // AI Bag Counter feature. Random-ID documents tagged with a `userId` field
+    // (no image data is ever stored — only counts/confidence, see
+    // bagCounterService.ts). Owner can create/read/update/delete their own
+    // records; admins can access everything.
+    //
+    match /bagSessions/{sessionId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+
+    match /bagScans/{scanId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+
+    match /bagHistory/{historyId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+
+    // ─── aiSettings/{userId} ──────────────────────────────────────────────────
+    //
+    // Per-user AI Bag Counter preferences (last product/truck/customer name).
+    // Document ID IS the user's UID.
+    //
+    match /aiSettings/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin() || isBootstrapAdmin();
+    }
+
+    // ─── aiUsage/{usageId} ────────────────────────────────────────────────────
+    //
+    // Monthly AI usage counters. Document ID is `${userId}_${monthKey}`, so
+    // ownership is checked via the `userId` field rather than the doc ID.
+    //
+    match /aiUsage/{usageId} {
+      allow read: if isAdmin() || isBootstrapAdmin() ||
+        (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ─── appSettings/{docId} ──────────────────────────────────────────────────
+    //
+    // Internal admin-panel settings/connectivity-test collection. Admin-only —
+    // regular users never read or write this.
+    //
+    match /appSettings/{docId} {
+      allow read, write: if isAdmin() || isBootstrapAdmin();
+    }
+
     // ─── app_config/{docId} ───────────────────────────────────────────────────
     //
-    // Legacy path — kept for read compatibility with any existing references.
-    // New code uses appSettings instead.
+    // Remote app settings (maintenance mode, force-update version, etc).
+    // Readable by everyone (even signed-out, so a maintenance banner can show
+    // before login); only admins can write.
     //
     match /app_config/{docId} {
       allow read:                   if true;
       allow create, update, delete: if isAdmin() || isBootstrapAdmin();
-    }
-
-    // ─── appSettings/{docId} ─────────────────────────────────────────────────
-    //
-    // Active remote app settings collection (maintenance mode, version gates,
-    // contact info, URLs). Readable by everyone (maintenance banner can show
-    // before login); only admins can write.
-    //
-    match /appSettings/{docId} {
-      allow read:                   if true;
-      allow create, update, delete: if isAdmin() || isBootstrapAdmin();
-    }
-
-    // ─── invoices/{invoiceId} ────────────────────────────────────────────────
-    //
-    // Root-level invoices collection. Admins can list and delete all invoices.
-    // Users can only read their own invoices (matched by userId field).
-    // Note: the per-user subcollection (users/{uid}/invoices) is governed by
-    // the nested match above; this rule covers the root collection.
-    //
-    match /invoices/{invoiceId} {
-      allow read:   if isAdmin() || isBootstrapAdmin() ||
-                       (request.auth != null && resource.data.userId == request.auth.uid);
-      allow create: if request.auth != null;
-      allow update: if isAdmin() || isBootstrapAdmin() ||
-                       (request.auth != null && resource.data.userId == request.auth.uid);
-      allow delete: if isAdmin() || isBootstrapAdmin();
     }
   }
 }

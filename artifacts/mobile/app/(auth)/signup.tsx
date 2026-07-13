@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   signUp, getAuthErrorMessage, validateEmail,
@@ -13,10 +13,13 @@ import {
 const NAVY = '#FF6B00';
 const ORANGE = '#F57C00';
 const ERROR = '#DC2626';
+const INFO = '#1D4ED8';
 
 export default function SignupScreen() {
+  const params = useLocalSearchParams<{ email?: string; reason?: string }>();
+  const noAccountNotice = params.reason === 'no-account';
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(params.email ?? '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -77,6 +80,13 @@ export default function SignupScreen() {
 
         {/* Card */}
         <View style={styles.card}>
+          {noAccountNotice ? (
+            <View style={styles.noticeBox}>
+              <Ionicons name="information-circle" size={16} color={INFO} />
+              <Text style={styles.noticeText}>No account found. Please create a new account.</Text>
+            </View>
+          ) : null}
+
           {error ? (
             <View style={styles.errorBox}>
               <Ionicons name="alert-circle" size={16} color={ERROR} />
@@ -221,6 +231,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#FECACA',
   },
   errorText: { fontSize: 14, color: ERROR, flex: 1 },
+  noticeBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#EFF6FF', borderRadius: 10, padding: 12, marginBottom: 16,
+    borderWidth: 1, borderColor: '#BFDBFE',
+  },
+  noticeText: { fontSize: 14, color: INFO, flex: 1 },
   label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center',
