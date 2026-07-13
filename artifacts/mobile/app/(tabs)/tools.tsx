@@ -348,8 +348,8 @@ function CftCalc() {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* ── Fixed fields: Customer Name, Date, Truck Number, Unit, Length, Width,
-          Height never scroll away while using the calculator. ── */}
+      {/* ── Fixed fields: Customer Name, Date, Truck Number, Unit never scroll
+          away while using the calculator. ── */}
       <View style={cft.fixedFields}>
         <Field label="Customer Name" value={customerName} onChange={setCustomerName} keyboard="default" placeholder="Enter customer name" />
 
@@ -388,22 +388,23 @@ function CftCalc() {
             ))}
           </View>
         )}
-
-        {/* ── Dimensions ── */}
-        <View style={{ marginTop: 4 }}>
-          {renderDim('Length', Lft, setLft, Lin, setLin, Lval, setLval)}
-          {renderDim('Width',  Wft, setWft, Win, setWin, Wval, setWval)}
-          {renderDim('Height', Hft, setHft, Hin, setHin, Hval, setHval)}
-        </View>
       </View>
 
-      {/* ── Scrollable: price, result, actions, and saved-records shortcut ── */}
+      {/* ── Scrollable: Length, Width, Height, price, result, actions, and
+          saved-records shortcut. ── */}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={cft.scrollBody}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* ── Dimensions ── */}
+        <View>
+          {renderDim('Length', Lft, setLft, Lin, setLin, Lval, setLval)}
+          {renderDim('Width',  Wft, setWft, Win, setWin, Wval, setWval)}
+          {renderDim('Height', Hft, setHft, Hin, setHin, Hval, setHval)}
+        </View>
+
         {/* ── Price per CFT ── */}
         <Field label="Price per CFT (₹)" value={pricePerCft} onChange={(v) => { setPricePerCft(v); setResult(null); }} suffix="₹" placeholder="Optional" />
 
@@ -1144,7 +1145,7 @@ export default function ToolsScreen() {
         onRequestClose={() => setActiveTool(null)}
       >
         <SafeAreaView style={modal.root}>
-          <View style={[modal.header, Platform.OS === 'android' && { paddingTop: insets.top + 14 }]}>
+          <View style={[modal.header, { paddingTop: insets.top + 20 }]}>
             <View style={modal.headerLeft}>
               {activeTool && (
                 <View style={[modal.headerIcon, { backgroundColor: (TOOLS.find(t => t.id === activeTool)?.color ?? '#2563EB') + '18' }]}>

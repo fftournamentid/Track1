@@ -3,7 +3,6 @@ import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, Touchab
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -13,16 +12,10 @@ import InvoiceCard from '@/components/InvoiceCard';
 import EmptyState from '@/components/EmptyState';
 import { formatCurrencyCompact, isSameMonth } from '@/utils/formatters';
 import { subscribeToActiveAnnouncements } from '@/services/announcementService';
+import AppInfoCard from '@/components/AppInfoCard';
 import type { Announcement } from '@/types';
 
 const APP_LOGO = require('@/assets/images/icon.png');
-const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
-const APP_FEATURES = [
-  'Instant Invoice Generation',
-  'Professional PDF Export',
-  'Cloud Backup & Sync',
-  '11 Transport Calculators',
-];
 
 function getGreeting(): string {
   const h = new Date().getHours();
@@ -229,32 +222,8 @@ export default function DashboardScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* App Info block */}
-        <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.infoTagline, { color: colors.foreground }]}>
-            Professional Invoice &amp; Fleet Management
-          </Text>
-          <View style={styles.infoMetaRow}>
-            <View style={[styles.infoBadge, { backgroundColor: colors.secondary }]}>
-              <Text style={[styles.infoBadgeText, { color: colors.mutedForeground }]}>
-                Version {APP_VERSION}
-              </Text>
-            </View>
-            <View style={[styles.infoBadge, { backgroundColor: colors.secondary }]}>
-              <Text style={[styles.infoBadgeText, { color: colors.mutedForeground }]}>
-                {__DEV__ ? 'Development Build' : 'Release Build'}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.infoFeatureList}>
-            {APP_FEATURES.map((f) => (
-              <View key={f} style={styles.infoFeatureRow}>
-                <Feather name="check-circle" size={13} color={colors.primary} />
-                <Text style={[styles.infoFeatureText, { color: colors.mutedForeground }]}>{f}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
+        {/* App Info block — logo/name + About App / How To Use / Terms tabs */}
+        <AppInfoCard colors={colors} />
 
         {/* Announcement Banners */}
         {visibleAnnouncements.length > 0 && (
@@ -339,16 +308,6 @@ const styles = StyleSheet.create({
   logoMark: {
     width: 46, height: 46, borderRadius: 14,
   },
-  infoCard: {
-    borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14,
-  },
-  infoTagline: { fontSize: 13, fontWeight: '700', marginBottom: 10 },
-  infoMetaRow: { flexDirection: 'row', gap: 8, marginBottom: 10, flexWrap: 'wrap' },
-  infoBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  infoBadgeText: { fontSize: 11, fontWeight: '600' },
-  infoFeatureList: { gap: 6 },
-  infoFeatureRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  infoFeatureText: { fontSize: 12, fontWeight: '500' },
   announcementsSection: { marginBottom: 4 },
   gridRow: { flexDirection: 'row', gap: 10, marginBottom: 10 },
   createBtn: {
