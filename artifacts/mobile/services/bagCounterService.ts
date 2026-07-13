@@ -1,6 +1,6 @@
 import {
   collection, doc, addDoc, writeBatch, getDoc, setDoc,
-  serverTimestamp, increment,
+  serverTimestamp, increment, query, where, orderBy, limit, getDocs,
 } from 'firebase/firestore';
 import { db } from '@/services/firebase/config';
 import type { BagScan, BagScanSide } from '@/types';
@@ -15,8 +15,6 @@ const SETTINGS_COL = 'aiSettings';
 function apiBaseUrl(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (domain) return `https://${domain}/api`;
-  // Web preview inside the same Replit iframe — relative path works because
-  // the dev proxy serves both the app and /api from the same origin.
   return '/api';
 }
 
@@ -100,7 +98,6 @@ export async function recordAiUsage(userId: string): Promise<void> {
       { merge: true }
     );
   } catch (err) {
-    // Usage tracking must never block the actual scan flow.
     console.warn('[bagCounterService] recordAiUsage failed:', err);
   }
 }
@@ -113,6 +110,8 @@ export interface SessionInput {
   notes?: string;
   scans: Array<{ side: BagScanSide; aiCount: number; confidence: number; scanTimeMs: number }>;
   manualAdjustment: number;
+  rows?: number;
+  bagsPerRow?: number;
 }
 
 export interface SavedSession {
@@ -130,7 +129,11 @@ export async function saveBagSession(input: SessionInput): Promise<SavedSession>
   const averageConfidence = totalImages > 0
     ? Math.round(input.scans.reduce((sum, s) => sum + s.confidence, 0) / totalImages)
     : 0;
-  const finalTotal = Math.max(0, totalBags + input.manualAdjustment);
+
+  // If rows/bagsPerRow are provided, use row-multiplication for finalTotal
+  const finalTotal = (input.rows != null && input.bagsPerRow != null)
+    ? Math.max(0, input.bagsPerRow * input.rows)
+    : Math.max(0, totalBags + input.manualAdjustment);
 
   const sessionRef = doc(collection(db, SESSIONS_COL));
   const batch = writeBatch(db);
@@ -146,6 +149,8 @@ export async function saveBagSession(input: SessionInput): Promise<SavedSession>
     finalTotal,
     totalImages,
     averageConfidence,
+    rows: input.rows ?? null,
+    bagsPerRow: input.bagsPerRow ?? null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -201,5 +206,44 @@ export async function saveAiSettings(userId: string, data: AiSettingsData): Prom
     await setDoc(doc(db, SETTINGS_COL, userId), { userId, ...data, updatedAt: serverTimestamp() }, { merge: true });
   } catch (err) {
     console.warn('[bagCounterService] saveAiSettings failed:', err);
+  }
+}
+
+export interface BagHistoryRecord {
+  id: string;
+  customerName: string;
+  truckNumber: string;
+  productName: string;
+  rows: number | null;
+  bagsPerRow: number | null;
+  finalTotal: number;
+  averageConfidence: number;
+  createdAt: any;
+}
+
+/** Fetches the user's last 50 bag counter sessions from Firestore, newest first. */
+export async function getBagHistory(userId: string): Promise<BagHistoryRecord[]> {
+  try {
+    const q = query(
+      collection(db, SESSIONS_COL),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({
+      id: d.id,
+      customerName: d.data().customerName || '',
+      truckNumber: d.data().truckNumber || '',
+      productName: d.data().productName || '',
+      rows: d.data().rows ?? null,
+      bagsPerRow: d.data().bagsPerRow ?? null,
+      finalTotal: d.data().finalTotal || 0,
+      averageConfidence: d.data().averageConfidence || 0,
+      createdAt: d.data().createdAt,
+    }));
+  } catch (err) {
+    console.warn('[bagCounterService] getBagHistory failed:', err);
+    return [];
   }
 }
