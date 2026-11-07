@@ -99,6 +99,8 @@ export interface Invoice {
    *   holds excess money or the invoice is fully settled).
    */
   showQrCode?: boolean;
+  /** True when the invoice was generated offline with a provisional draft number. */
+  numberProvisional?: boolean;
 }
 
 export interface AppSettings {

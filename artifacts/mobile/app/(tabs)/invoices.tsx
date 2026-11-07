@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, StyleSheet, Pressable,
   ScrollView, Modal, Alert, Platform, ActivityIndicator,
@@ -13,11 +13,9 @@ import InvoiceCard from '@/components/InvoiceCard';
 import EmptyState from '@/components/EmptyState';
 import SearchBar from '@/components/SearchBar';
 import type { FilterStatus, SortField, SortOrder } from '@/types';
-import {
-  uploadInvoiceToCloud,
-  getMonthlyUploadCount,
-  MONTHLY_UPLOAD_LIMIT,
-} from '@/services/cloudUploadService';
+import { uploadInvoiceToCloud } from '@/services/cloudUploadService';
+import { getCloudQuota } from '@/services/entitlementService';
+import { log } from '@/utils/logger';
 import type { Invoice } from '@/types';
 
 const FILTERS: { key: FilterStatus; label: string; icon?: string }[] = [
@@ -27,7 +25,7 @@ const FILTERS: { key: FilterStatus; label: string; icon?: string }[] = [
   { key: 'pending', label: 'Pending' },
   { key: 'favorites', label: 'Favorites' },
   { key: 'archived', label: 'Archived' },
-  { key: 'synced', label: 'Synced', icon: 'cloud' },
+  { key: 'synced', label: 'Saved online', icon: 'cloud' },
 ];
 
 export default function InvoicesScreen() {
@@ -37,47 +35,64 @@ export default function InvoicesScreen() {
   const { invoices, isOffline, refreshInvoices } = useInvoices();
   const { user } = useAuth();
 
-  // Refresh from SQLite every time this tab comes into focus so a newly-saved
-  // invoice appears immediately without a hard app reload.
-  useFocusEffect(
-    useCallback(() => {
-      console.log('[Invoices] tab focused → refreshInvoices() [PIPELINE: Focus→SQLite→State→UI]');
-      refreshInvoices().catch(() => {});
-    }, [refreshInvoices]),
-  );
-
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [sortVisible, setSortVisible] = useState(false);
 
-  // ── Cloud upload state ─────────────────────────────────────────────────────
-  // "Uploaded" is persisted on the invoice record itself (cloudUploaded, set
-  // by cloudUploadService via sqliteService.markInvoiceUploaded) so it survives
-  // app restarts — no separate in-memory Set needed.
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const [monthlyUsed, setMonthlyUsed] = useState<number>(0);
+  const [quota, setQuota] = useState<{ used: number; limit: number; remaining: number }>({
+    used: 0,
+    limit: 7,
+    remaining: 7,
+  });
 
-  // Load monthly usage on mount
-  React.useEffect(() => {
+  const loadQuota = useCallback(async () => {
     if (!user) return;
-    getMonthlyUploadCount(user.uid)
-      .then(setMonthlyUsed)
-      .catch(() => {});
+    try {
+      const q = await getCloudQuota(user.uid);
+      setQuota(q);
+    } catch {
+      // non-fatal
+    }
   }, [user]);
 
+  // Refresh from SQLite every time this tab comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      log.debug('[Invoices] tab focused → refreshInvoices()');
+      refreshInvoices().catch(() => {});
+      loadQuota();
+
+      // Reset to 'all' if 'saved online' is selected but empty
+      if (filter === 'synced') {
+        const hasSynced = invoices.some((i) => i.pendingSync === false);
+        if (!hasSynced) {
+          setFilter('all');
+        }
+      }
+    }, [refreshInvoices, loadQuota, filter, invoices]),
+  );
+
+  useEffect(() => {
+    loadQuota();
+  }, [loadQuota]);
+
   const handleUpload = useCallback(async (invoice: Invoice) => {
-    if (!user) return;
-    if (uploadingId) return; // prevent concurrent uploads
+    if (!user) {
+      Alert.alert('Sign In', 'Please sign in to back up invoices to the cloud.');
+      return;
+    }
+    if (uploadingId) return;
 
     setUploadingId(invoice.id);
     try {
       const result = await uploadInvoiceToCloud(invoice, user.uid);
 
       if (result.status === 'success') {
-        setMonthlyUsed((n) => n + 1);
         await refreshInvoices();
+        await loadQuota();
         Alert.alert(
           '✓ Uploaded',
           `Invoice ${invoice.invoiceNumber} has been backed up to the cloud.`,
@@ -86,13 +101,7 @@ export default function InvoicesScreen() {
       } else if (result.status === 'quota_exceeded') {
         Alert.alert(
           'Monthly Limit Reached',
-          `You've used ${result.used} of ${result.limit} free cloud uploads this month.\n\nYour quota resets at the start of next month.`,
-          [{ text: 'OK' }],
-        );
-      } else if (result.status === 'ad_not_watched') {
-        Alert.alert(
-          'Watch an Ad to Upload',
-          'Please watch the full ad to earn your cloud upload. Tap the Upload button again to try.',
+          `You've used ${result.used} of ${result.limit} cloud uploads this month.\n\n${result.message}`,
           [{ text: 'OK' }],
         );
       } else if (result.status === 'not_configured') {
@@ -105,12 +114,12 @@ export default function InvoicesScreen() {
         Alert.alert('Upload Failed', 'Could not upload to cloud. Please check your connection and try again.', [{ text: 'OK' }]);
       }
     } catch (err) {
-      console.error('[Invoices] Upload error:', err);
+      log.error(`[Invoices] Upload error: ${err}`);
       Alert.alert('Upload Failed', 'An unexpected error occurred. Please try again.', [{ text: 'OK' }]);
     } finally {
       setUploadingId(null);
     }
-  }, [user, uploadingId, refreshInvoices]);
+  }, [user, uploadingId, refreshInvoices, loadQuota]);
 
   const filtered = useMemo(() => {
     let list = [...invoices];
@@ -122,7 +131,6 @@ export default function InvoicesScreen() {
       list = list.filter((i) => (i.status === 'pending' || i.status === 'draft') && !i.isArchived);
     else if (filter === 'favorites') list = list.filter((i) => i.isFavorite);
     else if (filter === 'archived') list = list.filter((i) => i.isArchived);
-    // pendingSync === false means Firestore confirmed sync; undefined/true means not yet synced.
     else if (filter === 'synced') list = list.filter((i) => i.pendingSync === false);
 
     if (search.trim()) {
@@ -150,7 +158,6 @@ export default function InvoicesScreen() {
   }, [invoices, filter, search, sortField, sortOrder]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
-  const remainingUploads = Math.max(0, MONTHLY_UPLOAD_LIMIT - monthlyUsed);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -162,26 +169,35 @@ export default function InvoicesScreen() {
             onPress={() => router.push('/pdf-history' as never)}
             style={[styles.iconOnlyBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
             hitSlop={8}
+            accessibilityLabel="PDF History"
+            accessibilityRole="button"
           >
             <Feather name="folder" size={16} color={colors.primary} />
           </Pressable>
           <Pressable
             onPress={() => setFilter((f) => f === 'synced' ? 'all' : 'synced')}
             style={[
-              styles.iconOnlyBtn,
+              styles.savedOnlineBtn,
               {
                 borderColor: filter === 'synced' ? colors.primary : colors.border,
                 backgroundColor: filter === 'synced' ? colors.primary : colors.card,
               },
             ]}
             hitSlop={8}
+            accessibilityLabel="Saved online"
+            accessibilityRole="button"
           >
-            <Feather name="cloud" size={16} color={filter === 'synced' ? '#fff' : colors.primary} />
+            <Feather name="cloud" size={14} color={filter === 'synced' ? '#fff' : colors.primary} />
+            <Text style={[styles.savedOnlineBtnText, { color: filter === 'synced' ? '#fff' : colors.primary }]}>
+              Saved online
+            </Text>
           </Pressable>
           <Pressable
             onPress={() => setSortVisible(true)}
             style={[styles.sortBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
             hitSlop={8}
+            accessibilityLabel="Sort invoices"
+            accessibilityRole="button"
           >
             <Feather name="sliders" size={15} color={colors.primary} />
             <Text style={[styles.sortBtnText, { color: colors.primary }]}>Sort</Text>
@@ -199,31 +215,34 @@ export default function InvoicesScreen() {
           style={styles.chipScroll}
           contentContainerStyle={styles.chipContent}
         >
-          {FILTERS.map((f) => (
-            <Pressable
-              key={f.key}
-              onPress={() => setFilter(f.key)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: filter === f.key ? colors.primary : colors.card,
-                  borderColor: filter === f.key ? colors.primary : colors.border,
-                },
-              ]}
-            >
-              {f.icon && (
-                <Feather
-                  name={f.icon as any}
-                  size={11}
-                  color={filter === f.key ? '#fff' : colors.mutedForeground}
-                  style={{ marginRight: 4 }}
-                />
-              )}
-              <Text style={[styles.chipText, { color: filter === f.key ? '#fff' : colors.mutedForeground }]}>
-                {f.label}
-              </Text>
-            </Pressable>
-          ))}
+          {FILTERS.map((f) => {
+            const active = filter === f.key;
+            return (
+              <Pressable
+                key={f.key}
+                onPress={() => setFilter(f.key)}
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: active ? colors.primary : colors.card,
+                    borderColor: active ? colors.primary : colors.border,
+                  },
+                ]}
+              >
+                {f.icon && (
+                  <Feather
+                    name={f.icon as any}
+                    size={11}
+                    color={active ? '#fff' : colors.mutedForeground}
+                    style={{ marginRight: 4 }}
+                  />
+                )}
+                <Text style={[styles.chipText, { color: active ? '#fff' : colors.mutedForeground }]}>
+                  {f.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </ScrollView>
 
         {/* Offline banner */}
@@ -231,7 +250,7 @@ export default function InvoicesScreen() {
           <View style={[styles.offlineBanner, { backgroundColor: '#FFF3E8', borderColor: '#FF6B00' }]}>
             <Feather name="wifi-off" size={13} color="#FF6B00" />
             <Text style={[styles.offlineText, { color: '#FF6B00' }]}>
-              Showing locally saved invoices — changes sync when back online.
+              Offline mode — showing locally saved invoices. New invoices will sync automatically when back online.
             </Text>
           </View>
         )}
@@ -244,7 +263,7 @@ export default function InvoicesScreen() {
           <View style={[styles.quotaPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <Feather name="cloud" size={11} color={colors.mutedForeground} />
             <Text style={[styles.quotaText, { color: colors.mutedForeground }]}>
-              {remainingUploads}/{MONTHLY_UPLOAD_LIMIT} uploads left
+              {quota.remaining}/{quota.limit} uploads left
             </Text>
           </View>
         </View>
@@ -292,7 +311,7 @@ export default function InvoicesScreen() {
                 </Pressable>
               )}
               <Text style={[styles.uploadHint, { color: colors.mutedForeground }]}>
-                Watch an ad · {remainingUploads} free left
+                {quota.remaining}/{quota.limit} uploads left
               </Text>
             </View>
           </View>
@@ -304,10 +323,30 @@ export default function InvoicesScreen() {
         ]}
         ListEmptyComponent={
           <EmptyState
-            icon="file-text"
-            title={search ? 'No results found' : 'No invoices here'}
-            subtitle={search ? 'Try a different search term.' : 'Create your first invoice to get started.'}
-            actionLabel={!search ? 'Create Invoice' : undefined}
+            icon={filter === 'synced' ? 'cloud-off' : filter === 'favorites' ? 'star' : filter === 'archived' ? 'archive' : 'file-text'}
+            title={
+              search
+                ? 'No results found'
+                : filter === 'synced'
+                  ? 'No online invoices'
+                  : filter === 'favorites'
+                    ? 'No favorite invoices'
+                    : filter === 'archived'
+                      ? 'No archived invoices'
+                      : 'No invoices here'
+            }
+            subtitle={
+              search
+                ? 'Try a different search term.'
+                : filter === 'synced'
+                  ? 'Invoices backed up to your account will appear here.'
+                  : filter === 'favorites'
+                    ? 'Star invoices you want to access quickly.'
+                    : filter === 'archived'
+                      ? 'Invoices you archive will be kept safe here.'
+                      : 'Create your first invoice to get started.'
+            }
+            actionLabel={!search && filter === 'all' ? 'Create Invoice' : undefined}
             onAction={() => router.push('/invoice/create')}
           />
         }
@@ -383,6 +422,11 @@ const styles = StyleSheet.create({
     width: 34, height: 34, borderRadius: 10, borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
+  savedOnlineBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, borderWidth: 1,
+  },
+  savedOnlineBtnText: { fontSize: 12, fontWeight: '700' },
   sortBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, borderWidth: 1,
@@ -391,7 +435,10 @@ const styles = StyleSheet.create({
   inner: { paddingHorizontal: 16 },
   chipScroll: { marginBottom: 8 },
   chipContent: { gap: 8, paddingRight: 4 },
-  chip: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1,
+  },
   chipText: { fontSize: 13, fontWeight: '600' },
   quotaRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -407,7 +454,6 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 16 },
   listEmpty: { flex: 1 },
 
-  // ── Per-invoice card wrapper with upload button ────────────────────────────
   cardWrapper: { marginBottom: 4 },
   uploadRow: {
     flexDirection: 'row', alignItems: 'center',

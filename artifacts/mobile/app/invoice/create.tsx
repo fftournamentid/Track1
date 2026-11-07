@@ -18,6 +18,7 @@ import type { Invoice, ExpenseItem, SettlementStatus } from '@/types';
 import { generateId, todayFormatted, formatCurrency } from '@/utils/formatters';
 import { INVOICE_TEMPLATES } from '@/services/invoiceTemplates';
 import { saveDraft, loadDraft, clearDraft, savePreviewData } from '@/services/draftService';
+import { isProvisionalNumber } from '@/utils/invoiceNumbering';
 import Toast from '@/components/Toast';
 
 function computeSettlementStatus(balance: number): SettlementStatus {
@@ -630,8 +631,15 @@ export default function CreateInvoiceScreen() {
     };
 
     try {
+      let resolvedInvoiceNumber = invoiceNumber.trim();
+      if (!resolvedInvoiceNumber) {
+        resolvedInvoiceNumber = await generateNextInvoiceNumber();
+      }
+      const numberProvisional = isProvisionalNumber(resolvedInvoiceNumber);
+
       const data = {
-        invoiceNumber: invoiceNumber.trim() || `INV-${Date.now()}`,
+        invoiceNumber: resolvedInvoiceNumber,
+        numberProvisional,
         date: date.trim() || todayFormatted(),
         dueDate: dueDate.trim() || undefined,
         status: 'pending' as const,

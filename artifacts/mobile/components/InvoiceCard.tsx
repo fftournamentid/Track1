@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import type { Invoice } from '@/types';
-import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatDate } from '@/utils/formatters';
+import { formatCardBalance } from '@/utils/invoiceStats';
 import { getTemplateById, shouldShowQrCode } from '@/services/invoiceTemplates';
 
 // Tiny visual mimic of the actual invoice paper — colored header band with
@@ -23,11 +24,6 @@ function MiniPreview({ invoice, accentColor }: { invoice: Invoice; accentColor: 
         <View style={styles.miniLineDark} />
         <View style={[styles.miniLineDark, { width: '65%', marginTop: 3 }]} />
         <View style={styles.miniBodyBottom}>
-          <View style={[styles.miniAmountChip, { backgroundColor: accentColor + '22' }]}>
-            <Text style={[styles.miniAmountText, { color: accentColor }]} numberOfLines={1}>
-              {formatCurrency(Math.abs(invoice.balance), invoice.currency).replace(/\.00$/, '')}
-            </Text>
-          </View>
           {showQr && (
             <View style={styles.miniQrDot}>
               <Feather name="grid" size={7} color="#fff" />
@@ -45,12 +41,12 @@ interface Props {
 }
 
 // Local-first lifecycle badge — distinct from the payment-oriented status
-// badge above. Draft = not finalized yet; Uploaded = backed up to the cloud;
-// Completed = finalized locally but not yet backed up.
+// badge. Draft = not finalized yet; Uploaded = backed up to cloud;
+// Not Backed Up = finalized locally but not yet backed up.
 function lifecycleOf(invoice: Invoice): { label: string; bg: string; text: string } | null {
   if (invoice.status === 'draft') return { label: 'DRAFT', bg: '#FEF3C7', text: '#92400E' };
   if (invoice.cloudUploaded) return { label: 'UPLOADED', bg: '#DBEAFE', text: '#1D4ED8' };
-  return { label: 'COMPLETED', bg: '#F1F5F9', text: '#475569' };
+  return { label: 'NOT BACKED UP', bg: '#F1F5F9', text: '#475569' };
 }
 
 function statusColor(status: Invoice['status'], colors: ReturnType<typeof useColors>) {
@@ -66,11 +62,10 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
   const colors = useColors();
   const sc = statusColor(invoice.status, colors);
   const displayName = invoice.customName || invoice.invoiceNumber;
-  // Pull the invoice's own template accent color so the card mimics a real
-  // mini invoice preview (colored header strip) instead of a generic list row.
   const template = getTemplateById(invoice.templateId || 'standard');
   const accentColor = template.primary;
   const lifecycle = lifecycleOf(invoice);
+  const balanceText = formatCardBalance(invoice);
 
   return (
     <Pressable
@@ -98,8 +93,20 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
             </Text>
           </View>
           <View style={styles.rightTop}>
-            <Text style={[styles.amount, { color: colors.foreground }]}>
-              {formatCurrency(Math.abs(invoice.balance), invoice.currency)}
+            <Text
+              style={[
+                styles.amount,
+                {
+                  color: invoice.settlementStatus === 'receive'
+                    ? '#DC2626'
+                    : invoice.settlementStatus === 'return'
+                      ? '#16A34A'
+                      : colors.foreground,
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {balanceText}
             </Text>
             <View style={styles.badgeRow}>
               <View style={[styles.badge, { backgroundColor: sc.bg }]}>
@@ -120,7 +127,7 @@ export default function InvoiceCard({ invoice, onPress }: Props) {
           <View style={styles.routeRow}>
             <Feather name="map-pin" size={12} color={colors.mutedForeground} />
             <Text style={[styles.route, { color: colors.mutedForeground }]} numberOfLines={1}>
-              {invoice.fromLocation} → {invoice.toLocation}
+              {invoice.fromLocation || '—'} → {invoice.toLocation || '—'}
             </Text>
           </View>
           <View style={styles.metaRow}>
@@ -168,29 +175,27 @@ const styles = StyleSheet.create({
   miniLineLight: { height: 2.5, width: '80%', borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.85)' },
   miniBody: { flex: 1, padding: 5, justifyContent: 'space-between' },
   miniLineDark: { height: 2.5, width: '85%', borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.14)' },
-  miniBodyBottom: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  miniAmountChip: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4, maxWidth: 32 },
-  miniAmountText: { fontSize: 6.5, fontWeight: '800' },
+  miniBodyBottom: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'flex-end' },
   miniQrDot: {
     width: 12, height: 12, borderRadius: 3, backgroundColor: '#0F172A',
     alignItems: 'center', justifyContent: 'center',
   },
-  leftTop: { flex: 1, marginRight: 12 },
-  rightTop: { alignItems: 'flex-end' },
+  leftTop: { flex: 1, marginRight: 8 },
+  rightTop: { alignItems: 'flex-end', flexShrink: 0 },
   invNumber: { fontSize: 12, fontWeight: '700', marginBottom: 3 },
   client: { fontSize: 15, fontWeight: '600' },
-  amount: { fontSize: 16, fontWeight: '800', marginBottom: 5 },
-  badgeRow: { flexDirection: 'row', gap: 4 },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20 },
-  badgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  amount: { fontSize: 14, fontWeight: '800', marginBottom: 5 },
+  badgeRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  badge: { paddingHorizontal: 7, paddingVertical: 2.5, borderRadius: 20 },
+  badgeText: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4 },
   divider: { height: StyleSheet.hairlineWidth, marginVertical: 10, marginLeft: 56 },
   bottomRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingLeft: 56,
   },
-  routeRow: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  routeRow: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
   route: { fontSize: 12, marginLeft: 4, flex: 1 },
-  metaRow: { flexDirection: 'row', alignItems: 'center' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 0 },
   date: { fontSize: 12 },
   favIcon: { marginLeft: 6 },
 });

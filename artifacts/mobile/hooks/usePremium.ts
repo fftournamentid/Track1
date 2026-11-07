@@ -1,4 +1,4 @@
-import { useAuth } from '@/contexts/AuthContext';
+import { useEntitlement } from '@/services/entitlementService';
 
 export interface PremiumStatus {
   isPremium: boolean;
@@ -7,15 +7,13 @@ export interface PremiumStatus {
 }
 
 /**
- * Returns the user's real premium status from their Firestore user document.
- * Premium is granted when the user redeems a valid access code via the
- * Premium screen. Admins can also manually set isPremium=true in the Users tab.
+ * Returns the user's real premium status as a thin wrapper over useEntitlement().
  */
 export function usePremium(): PremiumStatus {
-  const { userDoc, isLoading } = useAuth();
+  const { plan, isPremium, isLoading } = useEntitlement();
   return {
-    isPremium: userDoc?.isPremium ?? false,
+    isPremium,
     isLoading,
-    planId: userDoc?.premiumPlanId ?? null,
+    planId: plan === 'free' ? null : plan,
   };
 }

@@ -75,8 +75,6 @@ export default function CloudBackupScreen() {
           await load();
         } else if (result.status === 'quota_exceeded') {
           Alert.alert('Monthly Limit Reached', `Used ${result.used}/${result.limit} uploads this month.`);
-        } else if (result.status === 'ad_not_watched') {
-          Alert.alert('Watch an Ad to Upload', 'Please watch the ad fully, then retry.');
         } else {
           Alert.alert('Retry Failed', 'Could not upload this invoice. Please try again later.');
         }

@@ -66,71 +66,10 @@ const USERS_COL  = 'users';          // users/{uid}
  *   UPD  premium_codes/{code}     — admin-only; attempted best-effort, failure is non-fatal
  */
 export async function verifyAndRedeemCode(
-  rawCode: string,
-  uid: string,
+  _rawCode: string,
+  _uid: string,
 ): Promise<{ success: boolean; message: string }> {
-  const code = rawCode.trim().toUpperCase();
-  if (!code) return { success: false, message: 'Please enter an access code.' };
-
-  try {
-    // ── 1. Look up code by its ID (single-doc GET — allowed for auth users) ──
-    const codePath = `${CODES_COL}/${code}`;
-    console.log('[PremiumCode] GET', codePath);
-    const codeSnap = await getDoc(doc(db, CODES_COL, code));
-
-    if (!codeSnap.exists()) {
-      console.log('[PremiumCode] Code not found at path:', codePath);
-      return { success: false, message: 'Invalid access code. Please try again.' };
-    }
-
-    const codeData = codeSnap.data() as Omit<PremiumCode, 'id'>;
-    console.log('[PremiumCode] Code found:', { active: codeData.active, maxUses: codeData.maxUses, usedCount: codeData.usedCount });
-
-    if (!codeData.active) {
-      return { success: false, message: 'This access code has been deactivated.' };
-    }
-    if (codeData.maxUses > 0 && codeData.usedCount >= codeData.maxUses) {
-      return { success: false, message: 'This access code has reached its usage limit.' };
-    }
-    if (codeData.expiryDate && new Date(codeData.expiryDate) < new Date()) {
-      return { success: false, message: 'This access code has expired.' };
-    }
-
-    // ── 2. Check if user is already premium ──────────────────────────────────
-    const userPath = `${USERS_COL}/${uid}`;
-    console.log('[PremiumCode] GET', userPath);
-    const userSnap = await getDoc(doc(db, USERS_COL, uid));
-    if (userSnap.exists() && userSnap.data().isPremium) {
-      return { success: true, message: 'You already have Premium access!' };
-    }
-
-    // ── 3. Grant premium: update user doc ────────────────────────────────────
-    const userPayload = {
-      isPremium: true,
-      premiumPlanId: `code:${code}`,
-      updatedAt: serverTimestamp(),
-    };
-    console.log('[PremiumCode] UPD', userPath, '→ fields:', Object.keys(userPayload));
-    await updateDoc(doc(db, USERS_COL, uid), userPayload);
-
-    // ── 4. Record redemption: SET premium_users/{uid} ─────────────────────────
-    //    Rule: allow create if request.auth.uid == docId
-    //    docId = uid → satisfies the rule.
-    const puserPath = `${PUSERS_COL}/${uid}`;
-    const puserPayload = { uid, codeId: code, code, redeemedAt: serverTimestamp() };
-    console.log('[PremiumCode] SET', puserPath, '→ fields:', Object.keys(puserPayload));
-    await setDoc(doc(db, PUSERS_COL, uid), puserPayload);
-
-    // NOTE: usedCount increment on premium_codes requires admin privileges.
-    // Regular users cannot update premium_codes per Firestore rules.
-    // usedCount is managed by the admin panel only.
-    console.log('[PremiumCode] ✓ Redemption complete. usedCount tracked by admin.');
-
-    return { success: true, message: '🎉 Premium unlocked! Enjoy all features.' };
-  } catch (err) {
-    console.error('[PremiumCode] verifyAndRedeemCode error:', err);
-    return { success: false, message: 'Something went wrong. Please try again.' };
-  }
+  return { success: false, message: 'Premium codes are coming back soon' };
 }
 
 // ─── Admin-facing ─────────────────────────────────────────────────────────────

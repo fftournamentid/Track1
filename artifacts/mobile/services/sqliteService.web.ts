@@ -227,6 +227,14 @@ export async function deleteLocalInvoice(id: string): Promise<void> {
   }
 }
 
+export async function deleteLocalInvoicesForUser(userUid: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(`${NS}:invoices:${userUid}`);
+  } catch (err) {
+    console.warn('[SQLite.web] deleteLocalInvoicesForUser failed:', err);
+  }
+}
+
 export async function getPendingSyncInvoices(userUid: string): Promise<Invoice[]> {
   const list = await _readInvoices(userUid);
   return list.filter((i) => i.pendingSync);

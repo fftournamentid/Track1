@@ -86,7 +86,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { profile, isLoading: profileLoading, updateProfile } = useProfile();
   const { settings, updateSettings } = useSettings();
-  const { user, userDoc } = useAuth();
+  const { user, userDoc, logout } = useAuth();
   const { refreshInvoices } = useInvoices();
 
   const [form, setForm] = useState<BusinessInfo>(profile);
@@ -352,42 +352,18 @@ export default function ProfileScreen() {
     );
   };
 
-  const handleSignOut = () => {
-    const doSignOut = async () => {
-      setIsSigningOut(true);
-      // Safety fallback: if navigation doesn't complete in 5s, re-enable the button
-      const fallback = setTimeout(() => setIsSigningOut(false), 5000);
-      try {
-        await signOut();
-        clearTimeout(fallback);
-        router.replace('/(auth)/login' as never);
-        // Don't reset isSigningOut — component unmounts on successful redirect
-      } catch {
-        clearTimeout(fallback);
-        setIsSigningOut(false);
-        if (Platform.OS === 'web') {
-          window.alert('Failed to logout. Please try again.');
-        } else {
-          Alert.alert('Error', 'Failed to logout. Please try again.');
-        }
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to logout?')) {
-        doSignOut();
-      }
-      return;
+  const handleSignOut = async () => {
+    setIsSigningOut(true);
+    const fallback = setTimeout(() => setIsSigningOut(false), 5000);
+    try {
+      await logout();
+      clearTimeout(fallback);
+      router.replace('/(auth)/login' as never);
+    } catch {
+      clearTimeout(fallback);
+      setIsSigningOut(false);
+      Alert.alert('Error', 'Failed to logout. Please try again.');
     }
-
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: doSignOut },
-      ]
-    );
   };
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;

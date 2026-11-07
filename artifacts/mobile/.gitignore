@@ -13,6 +13,8 @@ expo-env.d.ts
 ios/
 android/
 *.orig.*
+google-service-account.json
+*.keystore
 *.jks
 *.p8
 *.p12

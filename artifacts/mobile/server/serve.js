@@ -14,6 +14,7 @@ const fs = require("fs");
 const path = require("path");
 
 const STATIC_ROOT = path.resolve(__dirname, "..", "static-build");
+const DIST_ROOT = path.resolve(__dirname, "..", "dist");
 const TEMPLATE_PATH = path.resolve(__dirname, "templates", "landing-page.html");
 const basePath = (process.env.BASE_PATH || "/").replace(/\/+$/, "");
 
@@ -145,25 +146,32 @@ function serveLandingPage(req, res, landingPageTemplate, appName) {
 
 function serveStaticFile(urlPath, res) {
   const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, "");
-  const filePath = path.join(STATIC_ROOT, safePath);
 
-  if (!filePath.startsWith(STATIC_ROOT)) {
-    res.writeHead(403);
-    res.end("Forbidden");
-    return;
-  }
-
+  let filePath = path.join(DIST_ROOT, safePath);
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    res.writeHead(404);
-    res.end("Not Found");
+    filePath = path.join(STATIC_ROOT, safePath);
+  }
+
+  if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+    const content = fs.readFileSync(filePath);
+    res.writeHead(200, { "content-type": contentType });
+    res.end(content);
     return;
   }
 
-  const ext = path.extname(filePath).toLowerCase();
-  const contentType = MIME_TYPES[ext] || "application/octet-stream";
-  const content = fs.readFileSync(filePath);
-  res.writeHead(200, { "content-type": contentType });
-  res.end(content);
+  // SPA fallback for client-side routing
+  const indexPath = path.join(DIST_ROOT, "index.html");
+  if (!path.extname(urlPath) && fs.existsSync(indexPath)) {
+    const content = fs.readFileSync(indexPath);
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(content);
+    return;
+  }
+
+  res.writeHead(404);
+  res.end("Not Found");
 }
 
 const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, "utf-8");
@@ -183,6 +191,18 @@ const server = http.createServer((req, res) => {
       return serveManifest(platform, res);
     }
 
+    if (url.searchParams.get("qr") === "1") {
+      return serveLandingPage(req, res, landingPageTemplate, appName);
+    }
+
+    const distIndex = path.join(DIST_ROOT, "index.html");
+    if (fs.existsSync(distIndex)) {
+      const content = fs.readFileSync(distIndex);
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(content);
+      return;
+    }
+
     if (pathname === "/") {
       return serveLandingPage(req, res, landingPageTemplate, appName);
     }
@@ -191,7 +211,7 @@ const server = http.createServer((req, res) => {
   serveStaticFile(pathname, res);
 });
 
-const port = parseInt(process.env.PORT || "3000", 10);
+const port = parseInt(process.env.DEV_SERVER_PORT || "3000", 10);
 server.listen(port, "0.0.0.0", () => {
   console.log(`Serving static Expo build on port ${port}`);
 });

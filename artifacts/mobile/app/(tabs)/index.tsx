@@ -1,18 +1,21 @@
 import React, { useMemo, useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, TouchableOpacity, Image } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, Platform, Modal, TouchableOpacity, Image, Alert } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { useInvoices } from '@/contexts/InvoiceContext';
 import { useProfile } from '@/contexts/ProfileContext';
+import { useAuth } from '@/contexts/AuthContext';
 import StatCard from '@/components/StatCard';
 import SectionHeader from '@/components/SectionHeader';
 import InvoiceCard from '@/components/InvoiceCard';
 import EmptyState from '@/components/EmptyState';
-import { formatCurrencyCompact, isSameMonth } from '@/utils/formatters';
+import { formatCurrencyCompact } from '@/utils/formatters';
+import { summarize } from '@/utils/invoiceStats';
 import { subscribeToActiveAnnouncements } from '@/services/announcementService';
 import AppInfoCard from '@/components/AppInfoCard';
+import { log } from '@/utils/logger';
 import type { Announcement } from '@/types';
 
 const APP_LOGO = require('@/assets/images/icon.png');
@@ -108,13 +111,14 @@ export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { invoices, refreshInvoices } = useInvoices();
   const { profile } = useProfile();
+  const { user } = useAuth();
   const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Refresh from SQLite every time this tab comes into focus so a newly-saved
   // invoice shows up instantly in Recent Invoices without needing a hard reload.
   useFocusEffect(
     useCallback(() => {
-      console.log('[Home] tab focused → refreshInvoices() [PIPELINE: Focus→SQLite→State→UI]');
+      log.debug('[Home] tab focused → refreshInvoices() [PIPELINE: Focus→SQLite→State→UI]');
       refreshInvoices().catch(() => {});
     }, [refreshInvoices]),
   );
@@ -154,19 +158,7 @@ export default function DashboardScreen() {
   );
 
   const stats = useMemo(() => {
-    const now = new Date().toISOString();
-    const active = invoices.filter((i) => !i.isArchived);
-    const paid = invoices.filter((i) => i.status === 'paid');
-    const pending = invoices.filter(
-      (i) => (i.status === 'pending' || i.status === 'draft') && !i.isArchived
-    );
-    const thisMonthPaid = paid.filter((i) => isSameMonth(i.createdAt, now));
-    return {
-      total: active.length,
-      totalRevenue: paid.reduce((s, i) => s + i.advanceAmount, 0),
-      thisMonth: thisMonthPaid.reduce((s, i) => s + i.advanceAmount, 0),
-      pending: pending.reduce((s, i) => s + i.advanceAmount, 0),
-    };
+    return summarize(invoices, new Date().toISOString());
   }, [invoices]);
 
   const recentInvoices = useMemo(
@@ -175,7 +167,8 @@ export default function DashboardScreen() {
   );
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
-  const name = profile.ownerName || profile.companyName;
+  const greetingName = user?.displayName?.trim() || profile.ownerName?.trim();
+  const greetingText = greetingName ? `${getGreeting()}, ${greetingName.split(' ')[0]}` : 'Hello';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -187,28 +180,37 @@ export default function DashboardScreen() {
           </Pressable>
           <View>
             <Text style={[styles.greeting, { color: colors.mutedForeground }]}>
-              {getGreeting()}{name ? `, ${name.split(' ')[0]}` : ''}
+              {greetingText}
             </Text>
             <Text style={[styles.appTitle, { color: colors.foreground }]}>FleetInvoice</Text>
           </View>
         </View>
         <View style={styles.headerRightRow}>
           <Pressable
+            accessibilityLabel="Favorites"
+            accessibilityRole="button"
             onPress={() => router.push('/premium' as never)}
+            onLongPress={() => Alert.alert('Favorites', 'Quick access to starred invoices and premium plans.')}
             style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
             hitSlop={8}
           >
             <Feather name="star" size={18} color="#F59E0B" />
           </Pressable>
           <Pressable
+            accessibilityLabel="Backups"
+            accessibilityRole="button"
             onPress={() => router.push('/cloud-backup' as never)}
+            onLongPress={() => Alert.alert('Backups', 'Manage your cloud backups and sync status.')}
             style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
             hitSlop={8}
           >
             <Feather name="cloud" size={18} color={colors.primary} />
           </Pressable>
           <Pressable
+            accessibilityLabel="Archived"
+            accessibilityRole="button"
             onPress={() => router.push('/pdf-history' as never)}
+            onLongPress={() => Alert.alert('Archived', 'View generated PDFs and invoice history.')}
             style={[styles.pdfHistoryBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
             hitSlop={8}
           >

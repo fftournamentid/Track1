@@ -3,6 +3,7 @@ import {
   setDoc,
   getDoc,
   updateDoc,
+  increment,
   serverTimestamp,
   onSnapshot,
   type Unsubscribe,
@@ -10,6 +11,7 @@ import {
 import type { User } from 'firebase/auth';
 import { db } from '../config';
 import type { BusinessInfo, AppSettings } from '@/types';
+import { log } from '@/utils/logger';
 
 export interface UserDocument {
   uid: string;
@@ -17,12 +19,17 @@ export interface UserDocument {
   emailVerified: boolean;
   displayName: string;
   role?: string;
+  plan?: 'free' | 'share' | 'paid';
+  planExpiresAt?: string | null;
+  referralCode?: string;
+  referredBy?: string | null;
+  shareUnlockCount?: number;
   createdAt: unknown;
   updatedAt: unknown;
   lastLoginAt: unknown;
   isActive: boolean;
-  isPremium: boolean;
-  premiumPlanId: string | null;
+  isPremium?: boolean;
+  premiumPlanId?: string | null;
   invoiceCount: number;
   totalRevenue: number;
   pendingAmount: number;
@@ -58,13 +65,13 @@ export async function createUserDocument(
   user: User,
   displayName: string
 ): Promise<void> {
-  const path = `users/${user.uid}`;
   const ref = doc(db, 'users', user.uid);
   const snap = await getDoc(ref);
   if (snap.exists()) {
-    console.log('[UserRepo] createUserDocument — doc already exists at', path, '— skipping');
+    log.info('[UserRepo] createUserDocument — doc already exists');
     return;
   }
+  // Client writes NEVER write isPremium, premiumPlanId, or plan
   const payload = {
     uid: user.uid,
     email: user.email ?? '',
@@ -74,24 +81,19 @@ export async function createUserDocument(
     updatedAt: serverTimestamp(),
     lastLoginAt: serverTimestamp(),
     isActive: true,
-    isPremium: false,
-    premiumPlanId: null,
     invoiceCount: 0,
     totalRevenue: 0,
     pendingAmount: 0,
     profile: { ...DEFAULT_PROFILE, ownerName: displayName },
     settings: DEFAULT_SETTINGS,
   };
-  console.log('[UserRepo] setDoc', path, '→ fields:', Object.keys(payload));
   await setDoc(ref, payload);
-  console.log('[UserRepo] ✓ User document created at', path);
+  log.info('[UserRepo] User document created');
 }
 
 export async function getUserDocument(uid: string): Promise<UserDocument | null> {
-  const path = `users/${uid}`;
-  console.log('[UserRepo] getDoc', path);
   const snap = await getDoc(doc(db, 'users', uid));
-  if (!snap.exists()) { console.log('[UserRepo] ✗ No document at', path); return null; }
+  if (!snap.exists()) return null;
   return snap.data() as UserDocument;
 }
 
@@ -108,41 +110,29 @@ export async function updateUserProfile(
   uid: string,
   profile: BusinessInfo
 ): Promise<void> {
-  const path = `users/${uid}`;
-  console.log('[UserRepo] updateDoc', path, '→ fields: profile, updatedAt');
   await updateDoc(doc(db, 'users', uid), { profile, updatedAt: serverTimestamp() });
-  console.log('[UserRepo] ✓ Profile updated at', path);
 }
 
 export async function updateUserSettings(
   uid: string,
   settings: AppSettings
 ): Promise<void> {
-  const path = `users/${uid}`;
-  console.log('[UserRepo] updateDoc', path, '→ fields: settings (defaultTemplateId:', settings.defaultTemplateId, '), updatedAt');
   await updateDoc(doc(db, 'users', uid), { settings, updatedAt: serverTimestamp() });
-  console.log('[UserRepo] ✓ Settings updated at', path);
 }
 
 export async function setAdminVerified(uid: string, verified: boolean): Promise<void> {
-  const path = `users/${uid}`;
-  console.log('[UserRepo] updateDoc', path, '→ fields: emailVerified:', verified);
   await updateDoc(doc(db, 'users', uid), { emailVerified: verified, updatedAt: serverTimestamp() });
 }
 
 export async function setUserRole(uid: string, role: string): Promise<void> {
-  const path = `users/${uid}`;
-  console.log('[UserRepo] updateDoc', path, '→ fields: role:', role);
   await updateDoc(doc(db, 'users', uid), { role, updatedAt: serverTimestamp() }).catch((e) => {
-    console.warn('[UserRepo] setUserRole failed (non-fatal):', e.message);
+    log.warn('[UserRepo] setUserRole failed (non-fatal):', e.message);
   });
 }
 
 export async function updateLastLogin(uid: string): Promise<void> {
-  const path = `users/${uid}`;
-  console.log('[UserRepo] updateDoc', path, '→ fields: lastLoginAt');
   await updateDoc(doc(db, 'users', uid), { lastLoginAt: serverTimestamp() }).catch((e) => {
-    console.warn('[UserRepo] updateLastLogin failed (non-fatal):', e.message);
+    log.warn('[UserRepo] updateLastLogin failed (non-fatal):', e.message);
   });
 }
 
@@ -152,21 +142,13 @@ export async function incrementInvoiceCount(
   deltaRevenue: number,
   deltaPending: number
 ): Promise<void> {
-  const path = `users/${uid}`;
   const ref = doc(db, 'users', uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    console.warn('[UserRepo] incrementInvoiceCount — no document at', path);
-    return;
-  }
-  const d = snap.data() as UserDocument;
-  const payload = {
-    invoiceCount: Math.max(0, (d.invoiceCount ?? 0) + deltaCount),
-    totalRevenue: Math.max(0, (d.totalRevenue ?? 0) + deltaRevenue),
-    pendingAmount: Math.max(0, (d.pendingAmount ?? 0) + deltaPending),
+  // Uses Firestore increment() transforms, not read-then-write
+  await updateDoc(ref, {
+    invoiceCount: increment(deltaCount),
+    totalRevenue: increment(deltaRevenue),
+    pendingAmount: increment(deltaPending),
     updatedAt: serverTimestamp(),
-  };
-  console.log('[UserRepo] updateDoc', path, '→ fields: invoiceCount, totalRevenue, pendingAmount, updatedAt');
-  await updateDoc(ref, payload);
-  console.log('[UserRepo] ✓ Invoice counts updated at', path);
+  });
+  log.info('[UserRepo] Invoice counts incremented via transform');
 }

@@ -1,0 +1,7 @@
+{
+  "name": "FleetInvoice",
+  "description": "Transport billing, freight management, CFT calculation and GST invoicing for logistics and fleet operators.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

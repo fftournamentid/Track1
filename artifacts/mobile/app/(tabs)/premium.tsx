@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Platform,
   TextInput, TouchableOpacity, ActivityIndicator, Alert,
@@ -8,7 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { usePremium } from '@/hooks/usePremium';
 import { useAuth } from '@/contexts/AuthContext';
-import { verifyAndRedeemCode } from '@/services/premiumCodeService';
+import {
+  getReferralProgress,
+  shareReferralInvite,
+  redeemReferralCode,
+  type ReferralProgress,
+} from '@/services/shareUnlockService';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const DARK_BG   = '#0F172A';
@@ -19,15 +24,14 @@ const GOLD      = '#F59E0B';
 const WHITE     = '#FFFFFF';
 const MUTED     = 'rgba(255,255,255,0.55)';
 
-// ─── Benefits list (shared) ───────────────────────────────────────────────────
+// ─── Clean benefits list (scrubbed of all forbidden lifetime/caps copy) ────────
 const BENEFITS: { icon: keyof typeof Feather.glyphMap; title: string; desc: string }[] = [
-  { icon: 'cloud',     title: 'Unlimited Cloud Upload', desc: 'Back up every invoice with no monthly caps.' },
-  { icon: 'layout',    title: 'Unlimited Templates',    desc: 'Every invoice template unlocked, always.' },
-  { icon: 'zap',       title: 'Ad-Free Experience',     desc: 'No interruptions — just your invoices.' },
-  { icon: 'shield',    title: '100% Full Access',       desc: 'Every feature, unlocked for good.' },
+  { icon: 'cloud',  title: 'Cloud Backup',           desc: 'Back up your invoices and access them anywhere.' },
+  { icon: 'layout', title: 'Professional Templates', desc: 'Access to all 8 tailored invoice layouts.' },
+  { icon: 'zap',    title: 'Ad-Free Experience',     desc: 'Fast, smooth invoicing without interruptions.' },
+  { icon: 'shield', title: 'Priority Support',       desc: 'Quick assistance whenever you need help.' },
 ];
 
-// ─── Glowing background orbs ──────────────────────────────────────────────────
 function PremiumBg() {
   return (
     <>
@@ -55,7 +59,6 @@ const bg = StyleSheet.create({
   },
 });
 
-// ─── 3D layered hero icon with pulse ring ────────────────────────────────────
 function Hero3DIcon({ emoji, glowColor }: { emoji: string; glowColor: string }) {
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -67,7 +70,6 @@ function Hero3DIcon({ emoji, glowColor }: { emoji: string; glowColor: string }) 
       ])
     );
     loop.start();
-    // Stop the loop when the component unmounts to prevent animation leaks
     return () => {
       loop.stop();
       pulse.stopAnimation();
@@ -79,7 +81,6 @@ function Hero3DIcon({ emoji, glowColor }: { emoji: string; glowColor: string }) 
 
   return (
     <View style={icon3d.container}>
-      {/* Animated glow ring */}
       <Animated.View
         style={[
           icon3d.ring,
@@ -90,44 +91,30 @@ function Hero3DIcon({ emoji, glowColor }: { emoji: string; glowColor: string }) 
           },
         ]}
       />
-      {/* Depth shadow layers (back → front) */}
       <View style={[icon3d.depth3, { backgroundColor: glowColor + '25' }]} />
       <View style={[icon3d.depth2, { backgroundColor: glowColor + '55' }]} />
-      {/* Main icon */}
-      <View style={[icon3d.main, {
-        backgroundColor: glowColor,
-        shadowColor: glowColor,
-      }]}>
+      <View style={[icon3d.main, { backgroundColor: glowColor, shadowColor: glowColor }]}>
         <Text style={icon3d.emoji}>{emoji}</Text>
       </View>
     </View>
   );
 }
 const icon3d = StyleSheet.create({
-  container: { width: 120, height: 120, alignItems: 'center', justifyContent: 'center' },
-  ring: {
-    position: 'absolute', width: 120, height: 120, borderRadius: 60,
-  },
-  depth3: {
-    position: 'absolute', top: 14, left: 14,
-    width: 92, height: 92, borderRadius: 26,
-  },
-  depth2: {
-    position: 'absolute', top: 7, left: 7,
-    width: 106, height: 106, borderRadius: 30,
-  },
+  container: { width: 110, height: 110, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute', width: 110, height: 110, borderRadius: 55 },
+  depth3: { position: 'absolute', top: 12, left: 12, width: 86, height: 86, borderRadius: 24 },
+  depth2: { position: 'absolute', top: 6, left: 6, width: 98, height: 98, borderRadius: 28 },
   main: {
-    width: 94, height: 94, borderRadius: 28,
+    width: 86, height: 86, borderRadius: 24,
     alignItems: 'center', justifyContent: 'center',
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.55,
-    shadowRadius: 20,
-    elevation: 18,
+    shadowRadius: 18,
+    elevation: 16,
   },
-  emoji: { fontSize: 44 },
+  emoji: { fontSize: 40 },
 });
 
-// ─── Benefit row ──────────────────────────────────────────────────────────────
 function BenefitRow({ icon, title, desc, isLast }: { icon: keyof typeof Feather.glyphMap; title: string; desc: string; isLast?: boolean }) {
   return (
     <View style={[br.row, isLast && { borderBottomWidth: 0 }]}>
@@ -157,30 +144,72 @@ const br = StyleSheet.create({
   desc:  { fontSize: 11.5, color: MUTED, lineHeight: 16 },
 });
 
-// ─── Code entry screen (non-premium) ─────────────────────────────────────────
-function CodeEntryScreen() {
+export default function PremiumScreen() {
+  const { isPremium, planId, isLoading: premiumLoading } = usePremium();
   const { user } = useAuth();
-  const insets   = useSafeAreaInsets();
-  const topPad   = (Platform.OS as string) === 'web' ? 67 : insets.top;
+  const insets = useSafeAreaInsets();
+  const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  const [code,    setCode]    = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
-  const [focused, setFocused] = useState(false);
+  const [progress, setProgress] = useState<ReferralProgress | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(false);
+  const [enterCode, setEnterCode] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
+  const [redeemMsg, setRedeemMsg] = useState<{ text: string; error: boolean } | null>(null);
 
-  const handleRedeem = async () => {
-    if (!user) { Alert.alert('Not Signed In', 'Please log in to redeem a code.'); return; }
-    if (!code.trim()) { setError('Please enter an access code.'); return; }
-    setLoading(true);
-    setError('');
-    const result = await verifyAndRedeemCode(code.trim(), user.uid);
-    setLoading(false);
-    if (result.success) {
-      Alert.alert('🎉 Premium Unlocked!', result.message);
-    } else {
-      setError(result.message);
+  const loadProgress = useCallback(async () => {
+    if (!user) return;
+    setLoadingProgress(true);
+    try {
+      const p = await getReferralProgress(user.uid);
+      setProgress(p);
+    } catch {
+      // non-fatal
+    } finally {
+      setLoadingProgress(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadProgress();
+  }, [loadProgress]);
+
+  const handleShare = async () => {
+    if (!progress?.referralCode) return;
+    await shareReferralInvite(progress.referralCode);
+  };
+
+  const handleApplyReferral = async () => {
+    if (!user) {
+      Alert.alert('Sign In', 'Please sign in to redeem a referral code.');
+      return;
+    }
+    if (!enterCode.trim()) return;
+    setRedeeming(true);
+    setRedeemMsg(null);
+    try {
+      const res = await redeemReferralCode(user.uid, enterCode.trim());
+      setRedeemMsg({ text: res.message, error: !res.success });
+      if (res.success) {
+        setEnterCode('');
+        loadProgress();
+      }
+    } catch {
+      setRedeemMsg({ text: 'Unable to apply code. Please try again.', error: true });
+    } finally {
+      setRedeeming(false);
     }
   };
+
+  if (premiumLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: DARK_BG }}>
+        <ActivityIndicator color={BLUE} size="large" />
+      </View>
+    );
+  }
+
+  const friendsJoined = progress ? progress.totalReferrals % 5 : 0;
+  const progressPercent = Math.min(100, Math.max(0, (friendsJoined / 5) * 100));
 
   return (
     <KeyboardAvoidingView
@@ -189,70 +218,166 @@ function CodeEntryScreen() {
     >
       <PremiumBg />
       <ScrollView
-        contentContainerStyle={[cs.scroll, { paddingTop: topPad + 24, paddingBottom: insets.bottom + 48 }]}
+        contentContainerStyle={[ps.scroll, { paddingTop: topPad + 18, paddingBottom: insets.bottom + 48 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero */}
-        <View style={cs.heroWrap}>
-          <Hero3DIcon emoji="💎" glowColor={BLUE} />
-          <Text style={cs.heroBadge}>FLEETINVOICE PREMIUM</Text>
-          <Text style={cs.heroTitle}>Unlock Full Access</Text>
-          <Text style={cs.heroSub}>
-            Enter your access code to activate all premium features instantly.
+        {/* Header Hero */}
+        <View style={ps.heroWrap}>
+          <Hero3DIcon emoji={isPremium ? '🏆' : '💎'} glowColor={isPremium ? GOLD : BLUE} />
+          <Text style={ps.heroBadge}>FLEETINVOICE PLANS</Text>
+          <Text style={ps.heroTitle}>{isPremium ? 'Premium Active' : 'Upgrade Your Fleet'}</Text>
+          <Text style={ps.heroSub}>
+            {isPremium
+              ? `Your plan (${planId ?? 'Pro'}) is active. Enjoy all features.`
+              : 'Choose the plan that fits your business needs.'}
           </Text>
         </View>
 
-        {/* Code entry card */}
-        <View style={cs.card}>
-          <View style={cs.cardHeader}>
-            <Feather name="key" size={16} color={BLUE} />
-            <Text style={cs.cardTitle}>Access Code</Text>
+        {/* ── CARD 1: ₹99 Plan — Referral Unlock (Free) ── */}
+        <View style={[ps.card, ps.cardAccent]}>
+          <View style={ps.planHeader}>
+            <View>
+              <View style={ps.badgeFree}>
+                <Text style={ps.badgeFreeText}>FREE WITH REFERRALS</Text>
+              </View>
+              <Text style={ps.planName}>₹99 Plan</Text>
+              <Text style={ps.planPriceSubtitle}>5 friends join · Get 1 week premium</Text>
+            </View>
+            <View style={ps.priceTag}>
+              <Text style={ps.priceNum}>₹0</Text>
+              <Text style={ps.priceStrikethrough}>₹99</Text>
+            </View>
           </View>
 
-          <TextInput
-            value={code}
-            onChangeText={(v) => { setCode(v.toUpperCase()); setError(''); }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="e.g. TRUCK2024"
-            placeholderTextColor="rgba(255,255,255,0.22)"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            style={[cs.input, focused && cs.inputFocused]}
-          />
+          <View style={ps.divider} />
 
-          {!!error && (
-            <View style={cs.errorRow}>
-              <Feather name="alert-circle" size={14} color="#F87171" />
-              <Text style={cs.errorTxt}>{error}</Text>
+          {/* Referral Code & Progress */}
+          {user ? (
+            <View style={ps.referralBox}>
+              <View style={ps.refRow}>
+                <Text style={ps.refLabel}>Your Referral Code</Text>
+                <Text style={ps.refCode}>{progress?.referralCode || '...'}</Text>
+              </View>
+
+              <View style={ps.progressBarWrap}>
+                <View style={[ps.progressBarFill, { width: `${progressPercent}%` }]} />
+              </View>
+
+              <View style={ps.progressMeta}>
+                <Text style={ps.progressText}>
+                  {loadingProgress ? 'Loading...' : `${friendsJoined} / 5 friends joined`}
+                </Text>
+                {progress?.shareUnlockCount ? (
+                  <Text style={ps.unlockCountText}>Unlocks: {progress.shareUnlockCount}/3</Text>
+                ) : null}
+              </View>
+
+              {progress?.maxUnlocksReached ? (
+                <View style={ps.limitReachedBox}>
+                  <Feather name="info" size={14} color="#FBBF24" />
+                  <Text style={ps.limitReachedText}>
+                    Max 3 referral unlocks reached. Upgrade to ₹199 plan.
+                  </Text>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={ps.shareBtn}
+                  onPress={handleShare}
+                  activeOpacity={0.85}
+                >
+                  <Feather name="share-2" size={16} color="#fff" />
+                  <Text style={ps.shareBtnText}>Share Invite Link</Text>
+                </TouchableOpacity>
+              )}
             </View>
+          ) : (
+            <Text style={ps.loginHint}>Log in to generate your referral invite link.</Text>
           )}
 
-          <TouchableOpacity
-            style={[cs.redeemBtn, { opacity: loading || !code.trim() ? 0.6 : 1 }]}
-            onPress={handleRedeem}
-            disabled={loading || !code.trim()}
-            activeOpacity={0.85}
-          >
-            {loading
-              ? <ActivityIndicator color="#fff" size="small" />
-              : <>
-                  <Feather name="unlock" size={16} color="#fff" />
-                  <Text style={cs.redeemBtnTxt}>Activate Premium</Text>
-                </>
-            }
-          </TouchableOpacity>
-
-          <Text style={cs.cardNote}>
-            Codes are distributed by the admin. Contact support if your code doesn't work.
-          </Text>
+          {/* Enter Friend's Referral Code */}
+          <View style={ps.redeemSection}>
+            <Text style={ps.redeemTitle}>Have a friend&apos;s referral code?</Text>
+            <View style={ps.redeemInputRow}>
+              <TextInput
+                value={enterCode}
+                onChangeText={(v) => { setEnterCode(v.toUpperCase()); setRedeemMsg(null); }}
+                placeholder="Enter 6-char code"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                autoCapitalize="characters"
+                style={ps.redeemInput}
+              />
+              <TouchableOpacity
+                style={[ps.applyBtn, (!enterCode.trim() || redeeming) && { opacity: 0.5 }]}
+                onPress={handleApplyReferral}
+                disabled={!enterCode.trim() || redeeming}
+              >
+                {redeeming ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={ps.applyBtnText}>Apply</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+            {redeemMsg && (
+              <Text style={[ps.msgText, redeemMsg.error ? ps.msgError : ps.msgSuccess]}>
+                {redeemMsg.text}
+              </Text>
+            )}
+          </View>
         </View>
 
-        {/* Benefits */}
-        <View style={cs.benefitsCard}>
-          <Text style={cs.benefitsTitle}>What you'll unlock</Text>
-          {BENEFITS.map((b) => (
-            <BenefitRow key={b.title} {...b} />
+        {/* ── CARD 2: ₹199 Plan — Full Access (Coming Soon) ── */}
+        <View style={ps.card}>
+          <View style={ps.planHeader}>
+            <View>
+              <View style={ps.badgePro}>
+                <Text style={ps.badgeProText}>PRO PLAN</Text>
+              </View>
+              <Text style={ps.planName}>₹199 Plan</Text>
+              <Text style={ps.planPriceSubtitle}>Full access · 35 cloud uploads a month</Text>
+            </View>
+            <View style={ps.priceTag}>
+              <Text style={ps.priceNum}>₹199</Text>
+              <Text style={ps.pricePeriod}>/month</Text>
+            </View>
+          </View>
+
+          <View style={ps.divider} />
+
+          <View style={ps.featuresList}>
+            <View style={ps.featureRow}>
+              <Feather name="check" size={15} color="#22C55E" />
+              <Text style={ps.featureText}>35 cloud uploads each month</Text>
+            </View>
+            <View style={ps.featureRow}>
+              <Feather name="check" size={15} color="#22C55E" />
+              <Text style={ps.featureText}>All 8 invoice template styles</Text>
+            </View>
+            <View style={ps.featureRow}>
+              <Feather name="check" size={15} color="#22C55E" />
+              <Text style={ps.featureText}>Full access to all transport tools</Text>
+            </View>
+            <View style={ps.featureRow}>
+              <Feather name="check" size={15} color="#22C55E" />
+              <Text style={ps.featureText}>Priority customer support</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[ps.disabledBtn]}
+            disabled={true}
+            activeOpacity={1}
+          >
+            <Feather name="clock" size={16} color="rgba(255,255,255,0.4)" />
+            <Text style={ps.disabledBtnText}>Coming Soon</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Features Checklist */}
+        <View style={ps.benefitsCard}>
+          <Text style={ps.benefitsTitle}>Included with Premium</Text>
+          {BENEFITS.map((b, i) => (
+            <BenefitRow key={b.title} {...b} isLast={i === BENEFITS.length - 1} />
           ))}
         </View>
       </ScrollView>
@@ -260,184 +385,107 @@ function CodeEntryScreen() {
   );
 }
 
-const cs = StyleSheet.create({
-  scroll: { paddingHorizontal: 20 },
-  heroWrap: { alignItems: 'center', marginBottom: 36 },
+const ps = StyleSheet.create({
+  scroll: { paddingHorizontal: 18 },
+  heroWrap: { alignItems: 'center', marginBottom: 24 },
   heroBadge: {
     fontSize: 10, fontWeight: '900', color: BLUE,
-    letterSpacing: 2.5, marginTop: 24, marginBottom: 10,
+    letterSpacing: 2.5, marginTop: 16, marginBottom: 8,
   },
   heroTitle: {
-    fontSize: 30, fontWeight: '900', color: WHITE,
-    textAlign: 'center', letterSpacing: -0.8, marginBottom: 10,
+    fontSize: 28, fontWeight: '900', color: WHITE,
+    textAlign: 'center', letterSpacing: -0.6, marginBottom: 8,
   },
   heroSub: {
-    fontSize: 13.5, color: MUTED, textAlign: 'center',
-    lineHeight: 21, paddingHorizontal: 10,
+    fontSize: 13, color: MUTED, textAlign: 'center',
+    lineHeight: 19, paddingHorizontal: 12,
   },
   card: {
-    backgroundColor: CARD_BG, borderRadius: 24,
+    backgroundColor: CARD_BG, borderRadius: 20,
     borderWidth: 1, borderColor: CARD_EDGE,
-    padding: 24, marginBottom: 16,
-    shadowColor: '#000', shadowOpacity: 0.5,
-    shadowRadius: 24, shadowOffset: { width: 0, height: 12 },
-    elevation: 14,
+    padding: 20, marginBottom: 16,
   },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 },
-  cardTitle:  { fontSize: 17, fontWeight: '800', color: WHITE },
-  input: {
-    backgroundColor: 'rgba(15,23,42,0.85)',
-    borderRadius: 14, borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.14)',
-    paddingHorizontal: 20, paddingVertical: 16,
-    fontSize: 22, fontWeight: '800', color: WHITE,
-    letterSpacing: 4, textAlign: 'center', marginBottom: 14,
+  cardAccent: {
+    borderColor: 'rgba(37,99,235,0.35)',
+    backgroundColor: 'rgba(37,99,235,0.08)',
   },
-  inputFocused: { borderColor: BLUE },
-  errorRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
-  errorTxt:  { fontSize: 13, color: '#F87171', flex: 1 },
-  redeemBtn: {
-    backgroundColor: BLUE, borderRadius: 14, paddingVertical: 16,
+  planHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+  },
+  badgeFree: {
+    backgroundColor: 'rgba(34,197,94,0.18)',
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    alignSelf: 'flex-start', marginBottom: 6,
+  },
+  badgeFreeText: { color: '#22C55E', fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
+  badgePro: {
+    backgroundColor: 'rgba(245,158,11,0.18)',
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+    alignSelf: 'flex-start', marginBottom: 6,
+  },
+  badgeProText: { color: GOLD, fontSize: 9.5, fontWeight: '900', letterSpacing: 0.5 },
+  planName: { fontSize: 20, fontWeight: '900', color: WHITE },
+  planPriceSubtitle: { fontSize: 12, color: MUTED, marginTop: 2 },
+  priceTag: { alignItems: 'flex-end' },
+  priceNum: { fontSize: 26, fontWeight: '900', color: WHITE },
+  priceStrikethrough: { fontSize: 13, color: MUTED, textDecorationLine: 'line-through' },
+  pricePeriod: { fontSize: 11, color: MUTED },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginVertical: 14 },
+  referralBox: {
+    backgroundColor: 'rgba(15,23,42,0.6)',
+    borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  refRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  refLabel: { fontSize: 12, color: MUTED, fontWeight: '600' },
+  refCode: { fontSize: 18, fontWeight: '900', color: GOLD, letterSpacing: 2 },
+  progressBarWrap: {
+    height: 8, backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 4, overflow: 'hidden', marginBottom: 8,
+  },
+  progressBarFill: { height: '100%', backgroundColor: BLUE, borderRadius: 4 },
+  progressMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  progressText: { fontSize: 12, color: WHITE, fontWeight: '700' },
+  unlockCountText: { fontSize: 11.5, color: MUTED },
+  shareBtn: {
+    backgroundColor: BLUE, borderRadius: 12, paddingVertical: 12,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    shadowColor: BLUE, shadowOpacity: 0.65,
-    shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
-    elevation: 12,
   },
-  redeemBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  cardNote: {
-    fontSize: 11, color: 'rgba(255,255,255,0.32)',
-    textAlign: 'center', marginTop: 14, lineHeight: 17,
+  shareBtnText: { color: WHITE, fontSize: 14, fontWeight: '800' },
+  limitReachedBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(245,158,11,0.12)', padding: 10, borderRadius: 10,
   },
+  limitReachedText: { color: '#FDE68A', fontSize: 12, fontWeight: '600', flex: 1 },
+  loginHint: { fontSize: 12, color: MUTED, textAlign: 'center', paddingVertical: 8 },
+  redeemSection: { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)' },
+  redeemTitle: { fontSize: 12, color: MUTED, marginBottom: 8, fontWeight: '600' },
+  redeemInputRow: { flexDirection: 'row', gap: 8 },
+  redeemInput: {
+    flex: 1, backgroundColor: 'rgba(15,23,42,0.85)',
+    borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 12, paddingVertical: 8, fontSize: 13,
+    fontWeight: '700', color: WHITE, letterSpacing: 1,
+  },
+  applyBtn: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 10, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center',
+  },
+  applyBtnText: { color: WHITE, fontSize: 13, fontWeight: '700' },
+  msgText: { fontSize: 11.5, marginTop: 6, fontWeight: '600' },
+  msgError: { color: '#F87171' },
+  msgSuccess: { color: '#4ADE80' },
+  featuresList: { gap: 8, marginBottom: 16 },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  featureText: { color: 'rgba(255,255,255,0.8)', fontSize: 13 },
+  disabledBtn: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  disabledBtnText: { color: 'rgba(255,255,255,0.4)', fontSize: 14, fontWeight: '700' },
   benefitsCard: {
     backgroundColor: CARD_BG, borderRadius: 20,
     borderWidth: 1, borderColor: CARD_EDGE, padding: 20,
   },
   benefitsTitle: { fontSize: 14, fontWeight: '800', color: WHITE, marginBottom: 12 },
 });
-
-// ─── Premium active screen ────────────────────────────────────────────────────
-function PremiumActiveScreen() {
-  const insets = useSafeAreaInsets();
-  const topPad = (Platform.OS as string) === 'web' ? 67 : insets.top;
-  const { planId } = usePremium();
-
-  return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: DARK_BG }}
-      contentContainerStyle={[
-        as.scroll,
-        { paddingTop: topPad + 24, paddingBottom: insets.bottom + 48 },
-      ]}
-      showsVerticalScrollIndicator={false}
-    >
-      <PremiumBg />
-
-      {/* Hero */}
-      <View style={as.heroWrap}>
-        <Hero3DIcon emoji="🏆" glowColor="#D97706" />
-
-        <View style={as.memberBadge}>
-          <Feather name="award" size={11} color={GOLD} />
-          <Text style={as.memberText}>PREMIUM MEMBER</Text>
-        </View>
-
-        <Text style={as.heroTitle}>You're Premium!</Text>
-        <Text style={as.heroSub}>
-          All features are unlocked. Enjoy the full FleetInvoice experience.
-        </Text>
-
-        {/* Active pill */}
-        <View style={as.activePill}>
-          <View style={as.activeDot} />
-          <Text style={as.activePillText}>Active — Lifetime Access</Text>
-        </View>
-
-        {!!planId && (
-          <Text style={as.planId}>Plan: {planId}</Text>
-        )}
-      </View>
-
-      {/* Benefits card */}
-      <View style={as.card}>
-        <View style={as.cardHeader}>
-          <Feather name="gift" size={16} color={GOLD} />
-          <Text style={as.cardTitle}>Your Premium Benefits</Text>
-        </View>
-        {BENEFITS.map((b, i) => (
-          <BenefitRow key={b.title} {...b} isLast={i === BENEFITS.length - 1} />
-        ))}
-      </View>
-
-      {/* Trust row */}
-      <View style={as.trustRow}>
-        {[
-          { icon: 'shield'  as const, text: 'Verified' },
-          { icon: 'zap'     as const, text: 'All Features' },
-          { icon: 'lock'    as const, text: 'Never Expires' },
-        ].map((t) => (
-          <View key={t.text} style={as.trustItem}>
-            <Feather name={t.icon} size={12} color={GOLD} />
-            <Text style={as.trustText}>{t.text}</Text>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
-  );
-}
-
-const as = StyleSheet.create({
-  scroll: { paddingHorizontal: 20 },
-  heroWrap: { alignItems: 'center', marginBottom: 32 },
-  memberBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(245,158,11,0.14)',
-    borderRadius: 20, borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.3)',
-    paddingHorizontal: 14, paddingVertical: 6,
-    marginTop: 22, marginBottom: 14,
-  },
-  memberText: { fontSize: 10, fontWeight: '900', color: GOLD, letterSpacing: 2 },
-  heroTitle: {
-    fontSize: 30, fontWeight: '900', color: WHITE,
-    textAlign: 'center', letterSpacing: -0.8, marginBottom: 10,
-  },
-  heroSub: {
-    fontSize: 13, color: MUTED, textAlign: 'center',
-    lineHeight: 20, marginBottom: 18, paddingHorizontal: 10,
-  },
-  activePill: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: 'rgba(34,197,94,0.13)',
-    borderRadius: 20, borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.3)',
-    paddingHorizontal: 18, paddingVertical: 11,
-  },
-  activeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E' },
-  activePillText: { fontSize: 14, fontWeight: '700', color: '#22C55E' },
-  planId: { fontSize: 11, color: 'rgba(255,255,255,0.28)', marginTop: 10 },
-  card: {
-    backgroundColor: CARD_BG, borderRadius: 20,
-    borderWidth: 1, borderColor: CARD_EDGE,
-    padding: 20, marginBottom: 16,
-  },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  cardTitle:  { fontSize: 15, fontWeight: '800', color: WHITE },
-  trustRow:   { flexDirection: 'row', justifyContent: 'center', gap: 24, paddingVertical: 8 },
-  trustItem:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  trustText:  { fontSize: 12, color: MUTED, fontWeight: '600' },
-});
-
-// ─── Root export ──────────────────────────────────────────────────────────────
-export default function PremiumScreen() {
-  const { isPremium, isLoading } = usePremium();
-
-  if (isLoading) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: DARK_BG }}>
-        <ActivityIndicator color={BLUE} size="large" />
-      </View>
-    );
-  }
-
-  return isPremium ? <PremiumActiveScreen /> : <CodeEntryScreen />;
-}

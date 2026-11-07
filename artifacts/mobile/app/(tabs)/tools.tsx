@@ -11,6 +11,9 @@ import { useColors } from '@/hooks/useColors';
 import { useProfile } from '@/contexts/ProfileContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
+import { computeCft, CftUnit } from '@/utils/cftMath';
+import { computeFreight } from '@/utils/freightMath';
 
 function cftRecordsKey(uid: string): string {
   return `@FleetInvoice:cft_records:${uid}`;
@@ -189,8 +192,6 @@ function Chips({ options, value, onChange, accent }: { options: string[]; value:
   );
 }
 
-type CftUnit = 'Feet' | 'Inches' | 'Meters' | 'Yards';
-
 function CftCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: boolean; onHistoryClose?: () => void }) {
   const { user } = useAuth();
   const [customerName, setCustomerName] = useState('');
@@ -229,21 +230,18 @@ function CftCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: boolea
   }, [cftStorageKey]);
 
   const calcCft = useCallback((): { cft: number; amount: number } => {
-    let cft = 0;
-    if (unit === 'Feet') {
-      const l = num(Lft) + num(Lin) / 12;
-      const w = num(Wft) + num(Win) / 12;
-      const h = num(Hft) + num(Hin) / 12;
-      cft = l * w * h;
-    } else if (unit === 'Inches') {
-      cft = (num(Lval) * num(Wval) * num(Hval)) / 1728;
-    } else if (unit === 'Meters') {
-      cft = num(Lval) * num(Wval) * num(Hval) * 35.3147;
-    } else {
-      cft = num(Lval) * num(Wval) * num(Hval) * 27;
-    }
-    const amount = cft * num(pricePerCft);
-    const res = { cft, amount };
+    const res = computeCft(unit, {
+      lengthFt: Lft,
+      lengthIn: Lin,
+      widthFt: Wft,
+      widthIn: Win,
+      heightFt: Hft,
+      heightIn: Hin,
+      length: Lval,
+      width: Wval,
+      height: Hval,
+      pricePerCft,
+    });
     setResult(res);
     return res;
   }, [unit, Lft, Lin, Wft, Win, Hft, Hin, Lval, Wval, Hval, pricePerCft]);
@@ -271,9 +269,20 @@ function CftCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: boolea
   };
 
   const saveRecord = async () => {
-    // No sign-in check: saves always go to local AsyncStorage.
-    // Scoped key keeps signed-in records separate from anonymous ones.
-    const calc = result ?? calcCft();
+    // Always recompute from current inputs before saving to prevent stale data
+    const calc = computeCft(unit, {
+      lengthFt: Lft,
+      lengthIn: Lin,
+      widthFt: Wft,
+      widthIn: Win,
+      heightFt: Hft,
+      heightIn: Hin,
+      length: Lval,
+      width: Wval,
+      height: Hval,
+      pricePerCft,
+    });
+    setResult(calc);
     if (calc.cft <= 0) { Alert.alert('No Dimensions', 'Enter dimensions before saving.'); return; }
     setSaving(true);
     try {
@@ -631,19 +640,30 @@ function FreightCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: bo
     });
   }, [freightKey]);
 
-  const wKg = wUnit === 'kg' ? num(weight) : wUnit === 'ton' ? num(weight) * 1000 : num(weight) * 100;
-  const wTon = wKg / 1000;
-  const total = rUnit === 'per kg' ? wKg * num(rate) : wTon * num(rate);
-
   const calculate = useCallback(() => {
-    setResult({ weightKg: wKg, weightTon: wTon, total });
-  }, [wKg, wTon, total]);
+    const res = computeFreight({
+      weight,
+      weightUnit: wUnit,
+      rate,
+      rateUnit: rUnit,
+    });
+    setResult(res);
+    return res;
+  }, [weight, wUnit, rate, rUnit]);
 
   const clear = () => { setWeight(''); setRate(''); setResult(null); };
 
   const saveRecord = async () => {
-    if (!result || result.total <= 0) {
-      Alert.alert('No Result', 'Calculate freight first before saving.');
+    // Always recompute from current inputs before saving to prevent stale data
+    const computed = computeFreight({
+      weight,
+      weightUnit: wUnit,
+      rate,
+      rateUnit: rUnit,
+    });
+    setResult(computed);
+    if (computed.total <= 0) {
+      Alert.alert('No Result', 'Enter valid weight and rate before saving.');
       return;
     }
     setSaving(true);
@@ -651,7 +671,7 @@ function FreightCalc({ historyOpen = false, onHistoryClose }: { historyOpen?: bo
       const newRec: FreightRecord = {
         id: Date.now().toString(),
         weight, wUnit, rate, rUnit,
-        weightKg: result.weightKg, weightTon: result.weightTon, total: result.total,
+        weightKg: computed.weightKg, weightTon: computed.weightTon, total: computed.total,
         savedAt: new Date().toISOString(),
       };
       const updated = [newRec, ...records];
@@ -1255,7 +1275,7 @@ export default function ToolsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 96 }]}
+        contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 160 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Tool Cards Grid */}
@@ -1280,8 +1300,12 @@ export default function ToolsScreen() {
           style={({ pressed }) => [styles.premiumCard, { opacity: pressed ? 0.92 : 1 }]}
           onPress={() => router.push('/premium' as never)}
         >
-          <View style={styles.premiumGradientTop} />
-          <View style={styles.premiumContent}>
+          <LinearGradient
+            colors={['#FF7A1A', '#FF6B00', '#E55A00']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.premiumContent}
+          >
             <View style={styles.premiumIconWrap}>
               <Feather name="star" size={20} color="#F59E0B" />
             </View>
@@ -1294,7 +1318,7 @@ export default function ToolsScreen() {
             <View style={styles.premiumArrow}>
               <Feather name="arrow-right" size={16} color="#fff" />
             </View>
-          </View>
+          </LinearGradient>
         </Pressable>
       </ScrollView>
 

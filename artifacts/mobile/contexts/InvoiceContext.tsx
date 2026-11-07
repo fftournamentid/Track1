@@ -36,7 +36,10 @@ import React, {
 } from 'react';
 import type { Invoice } from '@/types';
 import { useAuth } from './AuthContext';
-import { auth } from '@/services/firebase/config';
+import { auth, db } from '@/services/firebase/config';
+import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { DEFAULT_SETTINGS, type UserDocument } from '@/services/firebase/repositories/user.repository';
+import { log } from '@/utils/logger';
 import {
   subscribeToInvoices,
   setInvoiceDoc,
@@ -203,7 +206,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
         pendingSync: true,
       };
 
-      console.log('[InvoiceContext] Creating invoice locally —', data.invoiceNumber);
+      log.debug('[InvoiceContext] Creating invoice locally');
 
       // 1. SQLite write FIRST — this always succeeds regardless of network or
       //    Firestore auth state. The invoice is durably saved on-device before
@@ -211,7 +214,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       try {
         await upsertLocalInvoice(result, uidLocal);
       } catch (err) {
-        console.error('[InvoiceContext] SQLite save failed:', err);
+        log.error('SQLite save failed');
         throw new Error('Failed to save invoice on this device. Please try again.');
       }
 
@@ -220,7 +223,7 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       //    SQLite fast-path never set it false for an empty list on first run).
       setInvoices((prev) => [result, ...prev]);
       setIsLoading(false);
-      console.log('[InvoiceContext] ✓ Optimistic state update applied [PIPELINE: State→UI]');
+      log.debug('[InvoiceContext] Optimistic state update applied');
 
       // 3. Background cloud sync — only attempted when there is a live
       //    authenticated session. Any failure (offline, permission-denied,
@@ -237,11 +240,11 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
             setIsOffline(false);
           })
           .catch((err) => {
-            console.warn('[InvoiceContext] Background cloud sync failed — invoice kept locally, will retry:', err);
+            log.warn('[InvoiceContext] Background cloud sync failed — invoice kept locally, will retry');
             addToPendingSync(result, uidLocal, /* isNew */ true).catch(() => {});
           });
       } else {
-        console.log('[InvoiceContext] No active session — invoice queued locally for later sync');
+        log.debug('[InvoiceContext] No active session — invoice queued locally for later sync');
         addToPendingSync(result, uidLocal, /* isNew */ true).catch(() => {});
       }
 
@@ -380,16 +383,47 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
       }
 
       for (const item of pending) {
-        const inv = item.invoice;
+        let inv = item.invoice;
         try {
+          if (inv.numberProvisional) {
+            try {
+              const userRef = doc(db, 'users', uidLocal);
+              const realNum = await runTransaction(db, async (tx) => {
+                const snap = await tx.get(userRef);
+                const currentSettings = snap.exists() ? ((snap.data() as UserDocument).settings ?? DEFAULT_SETTINGS) : DEFAULT_SETTINGS;
+                const numStr = String(currentSettings.nextInvoiceNumber).padStart(4, '0');
+                const assigned = `${currentSettings.invoicePrefix}-${numStr}`;
+                tx.update(userRef, {
+                  'settings.nextInvoiceNumber': currentSettings.nextInvoiceNumber + 1,
+                  updatedAt: serverTimestamp(),
+                });
+                return assigned;
+              });
+              const newPdfName = inv.pdfName ? `Invoice-${realNum}.pdf` : undefined;
+              inv = {
+                ...inv,
+                invoiceNumber: realNum,
+                numberProvisional: false,
+                ...(newPdfName ? { pdfName: newPdfName } : {}),
+              };
+            } catch (txErr) {
+              log.warn('Could not assign permanent invoice number during sync transaction:', txErr);
+            }
+          }
+
           await setInvoiceDoc(uidLocal, inv.id, inv, item.isNew);
           setInvoices((prev) =>
-            prev.map((i) => (i.id === inv.id ? { ...i, pendingSync: false } : i)),
+            prev.map((i) => (i.id === inv.id ? { ...inv, pendingSync: false } : i)),
           );
-          await updateLocalInvoice(inv.id, { pendingSync: false });
+          await updateLocalInvoice(inv.id, {
+            invoiceNumber: inv.invoiceNumber,
+            numberProvisional: false,
+            pdfName: inv.pdfName,
+            pendingSync: false,
+          });
           await removeFromPendingSync(inv.id, uidLocal);
         } catch (err) {
-          console.warn('[InvoiceContext] Flush failed for invoice', inv.id, '— will retry later:', err);
+          log.warn('Flush failed for invoice ' + inv.id + ' — will retry later');
         }
       }
     } finally {
@@ -456,13 +490,13 @@ export function InvoiceProvider({ children }: { children: ReactNode }) {
   const refreshInvoices = useCallback(async (): Promise<void> => {
     if (!user) return;
     try {
-      console.log('[InvoiceContext] refreshInvoices() called [PIPELINE: SQLite→State→UI]');
+      log.debug('[InvoiceContext] refreshInvoices() called');
       const local = await getLocalInvoices(user.uid);
       setInvoices(local);
       setIsLoading(false);
-      console.log('[InvoiceContext] ✓ Refreshed from SQLite —', local.length, 'invoice(s) now in state');
+      log.debug('[InvoiceContext] Refreshed from SQLite —', local.length, 'invoices now in state');
     } catch (err) {
-      console.warn('[InvoiceContext] refreshInvoices failed:', err);
+      log.warn('[InvoiceContext] refreshInvoices failed');
     }
   }, [user]);
 

@@ -291,6 +291,12 @@ export async function deleteLocalInvoice(id: string): Promise<void> {
   await db.runAsync('DELETE FROM invoices WHERE id = ?', [id]);
 }
 
+/** Delete all local invoices for a given user. */
+export async function deleteLocalInvoicesForUser(userUid: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM invoices WHERE user_uid = ?', [userUid]);
+}
+
 /** Return all invoices that haven't been synced to the cloud yet. */
 export async function getPendingSyncInvoices(userUid: string): Promise<Invoice[]> {
   const db = await getDb();

@@ -24,6 +24,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import type { Invoice } from '@/types';
 import { APP_NAME, APP_LOGO_DATA_URI } from '@/constants/appBranding';
+import { escapeHtml, sanitizeImageUrl } from '@/utils/html';
 
 // ─── Template descriptor ──────────────────────────────────────────────────────
 
@@ -484,15 +485,15 @@ function itemsTable(invoice: Invoice, t: TemplateStyle, bg = '#FFFFFF'): string 
   const rows = invoice.expenses.map((item, i) => `
     <tr style="border-bottom:1px solid ${t.borderColor};background:${i % 2 === 1 ? t.rowAlt : bg};">
       <td style="padding:10px 12px;font-size:11px;color:${t.metaText};width:34px;text-align:center;">${i + 1}</td>
-      <td style="padding:10px 14px;font-size:13px;color:${t.bodyText};text-align:left;">${item.name}</td>
-      <td style="padding:10px 14px;font-size:13px;font-weight:800;color:${t.amountColor};text-align:right;white-space:nowrap;">${invoice.currency}&nbsp;${fmt(item.amount)}</td>
+      <td style="padding:10px 14px;font-size:13px;color:${t.bodyText};text-align:left;">${escapeHtml(item.name)}</td>
+      <td style="padding:10px 14px;font-size:13px;font-weight:800;color:${t.amountColor};text-align:right;white-space:nowrap;">${escapeHtml(invoice.currency)}&nbsp;${fmt(item.amount)}</td>
     </tr>`).join('');
   return `<table style="width:100%;border-collapse:collapse;margin-bottom:16px;">
     <thead>
       <tr style="background:${t.tableHeadBg};">
         <th style="padding:10px 12px;font-size:10px;color:${t.tableHeadText};text-align:center;width:34px;text-transform:uppercase;letter-spacing:0.5px;">#</th>
         <th style="padding:10px 14px;font-size:10px;color:${t.tableHeadText};text-align:left;text-transform:uppercase;letter-spacing:0.5px;">Service Description</th>
-        <th style="padding:10px 14px;font-size:10px;color:${t.tableHeadText};text-align:right;text-transform:uppercase;letter-spacing:0.5px;">Amount (${invoice.currency})</th>
+        <th style="padding:10px 14px;font-size:10px;color:${t.tableHeadText};text-align:right;text-transform:uppercase;letter-spacing:0.5px;">Amount (${escapeHtml(invoice.currency)})</th>
       </tr>
     </thead>
     <tbody>${rows}</tbody>
@@ -508,7 +509,7 @@ function gstItemsTable(invoice: Invoice, t: TemplateStyle): string {
     const total = item.amount + cgst + sgst;
     return `<tr style="border-bottom:1px solid ${t.borderColor};background:${i % 2 === 1 ? t.rowAlt : '#fff'};">
       <td style="padding:8px 8px;font-size:11px;color:${t.metaText};text-align:center;">${i + 1}</td>
-      <td style="padding:8px 10px;font-size:12px;color:${t.bodyText};text-align:left;">${item.name}</td>
+      <td style="padding:8px 10px;font-size:12px;color:${t.bodyText};text-align:left;">${escapeHtml(item.name)}</td>
       <td style="padding:8px 8px;font-size:11px;color:${t.metaText};text-align:center;">9965</td>
       <td style="padding:8px 10px;font-size:12px;font-weight:600;text-align:right;">${fmt(item.amount)}</td>
       <td style="padding:8px 8px;font-size:11px;text-align:center;">9%</td>
@@ -542,13 +543,13 @@ function totalsBox(invoice: Invoice, t: TemplateStyle, width = '280px', darkMode
   const border = darkMode ? t.borderColor : t.borderColor;
   return `<div style="width:${width};margin-left:auto;border:1.5px solid ${border};border-radius:10px;overflow:hidden;">
     <div style="padding:9px 14px;border-bottom:1px solid ${border};display:flex;justify-content:space-between;font-size:12px;color:${t.metaText};background:${bg};">
-      <span>Advance Received</span><span style="font-weight:700;">${invoice.currency} ${fmt(invoice.advanceAmount)}</span>
+      <span>Advance Received</span><span style="font-weight:700;">${escapeHtml(invoice.currency)} ${fmt(invoice.advanceAmount)}</span>
     </div>
     <div style="padding:9px 14px;border-bottom:1px solid ${border};display:flex;justify-content:space-between;font-size:12px;color:${t.metaText};background:${bg};">
-      <span>Total Expenses</span><span style="font-weight:700;">${invoice.currency} ${fmt(invoice.totalExpenses)}</span>
+      <span>Total Expenses</span><span style="font-weight:700;">${escapeHtml(invoice.currency)} ${fmt(invoice.totalExpenses)}</span>
     </div>
     <div style="padding:13px 14px;display:flex;justify-content:space-between;font-size:15px;font-weight:900;background:${t.grandRowBg};color:${t.grandRowText};">
-      <span>BALANCE DUE</span><span>${invoice.currency} ${fmt(Math.abs(invoice.balance))}</span>
+      <span>BALANCE DUE</span><span>${escapeHtml(invoice.currency)} ${fmt(Math.abs(invoice.balance))}</span>
     </div>
   </div>`;
 }
@@ -557,14 +558,14 @@ function totalsBox(invoice: Invoice, t: TemplateStyle, width = '280px', darkMode
 function paymentBanner(invoice: Invoice, t: TemplateStyle): string {
   const biz = invoice.businessSnapshot;
   if (!biz.upiId && !biz.bankName) return '';
-  const qr = biz.upiId ? `<img src="${qrUrl(biz.upiId, Math.abs(invoice.balance), invoice.currency, 100)}" style="width:100px;height:100px;border-radius:6px;border:2px solid rgba(255,255,255,0.3);display:block;" />` : '';
+  const qr = biz.upiId ? `<img src="${sanitizeImageUrl(qrUrl(biz.upiId, Math.abs(invoice.balance), invoice.currency, 100))}" style="width:100px;height:100px;border-radius:6px;border:2px solid rgba(255,255,255,0.3);display:block;" />` : '';
   return `<div style="background:${t.primary};border-radius:10px;padding:18px 20px;margin-bottom:18px;display:flex;gap:20px;align-items:flex-start;">
     <div style="flex:1;">
       <div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:rgba(255,255,255,0.55);font-weight:700;margin-bottom:10px;">💳 Payment Details</div>
-      ${biz.upiId ? `<div style="font-size:12.5px;color:#fff;margin-bottom:5px;"><span style="color:rgba(255,255,255,0.6);">UPI ID: </span><strong style="color:${t.accent};">${biz.upiId}</strong></div>` : ''}
-      ${biz.bankName ? `<div style="font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:3px;">${biz.bankName}</div>` : ''}
-      ${biz.accountNumber ? `<div style="font-size:11.5px;color:rgba(255,255,255,0.65);">A/C: ${biz.accountNumber}${biz.ifscCode ? ' · IFSC: ' + biz.ifscCode : ''}</div>` : ''}
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.15);font-size:14px;font-weight:800;color:${t.accent};">Balance: ${invoice.currency} ${fmt(Math.abs(invoice.balance))}</div>
+      ${biz.upiId ? `<div style="font-size:12.5px;color:#fff;margin-bottom:5px;"><span style="color:rgba(255,255,255,0.6);">UPI ID: </span><strong style="color:${t.accent};">${escapeHtml(biz.upiId)}</strong></div>` : ''}
+      ${biz.bankName ? `<div style="font-size:12px;color:rgba(255,255,255,0.85);margin-bottom:3px;">${escapeHtml(biz.bankName)}</div>` : ''}
+      ${biz.accountNumber ? `<div style="font-size:11.5px;color:rgba(255,255,255,0.65);">A/C: ${escapeHtml(biz.accountNumber)}${biz.ifscCode ? ' · IFSC: ' + escapeHtml(biz.ifscCode) : ''}</div>` : ''}
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.15);font-size:14px;font-weight:800;color:${t.accent};">Balance: ${escapeHtml(invoice.currency)} ${fmt(Math.abs(invoice.balance))}</div>
     </div>
     ${qr ? `<div style="text-align:center;flex-shrink:0;">
       ${qr}
@@ -577,9 +578,9 @@ function paymentBanner(invoice: Invoice, t: TemplateStyle): string {
 function notesBlock(invoice: Invoice, t: TemplateStyle): string {
   if (!invoice.notes && !invoice.paymentTerms) return '';
   return `<div style="background:${t.notesBg};border-left:3px solid ${t.notesAccent};border-radius:0 8px 8px 0;padding:11px 14px;margin-bottom:14px;font-size:11.5px;color:${t.metaText};line-height:1.8;">
-    ${invoice.notes ? `<strong style="color:${t.notesAccent};">Notes:</strong> ${invoice.notes}` : ''}
+    ${invoice.notes ? `<strong style="color:${t.notesAccent};">Notes:</strong> ${escapeHtml(invoice.notes)}` : ''}
     ${invoice.notes && invoice.paymentTerms ? '<br>' : ''}
-    ${invoice.paymentTerms ? `<strong style="color:${t.notesAccent};">Terms:</strong> ${invoice.paymentTerms}` : ''}
+    ${invoice.paymentTerms ? `<strong style="color:${t.notesAccent};">Terms:</strong> ${escapeHtml(invoice.paymentTerms)}` : ''}
   </div>`;
 }
 
@@ -630,14 +631,40 @@ function renderA5Invoice(
   const headerBg = isDark ? t.headerBg : t.primary;
   const bodyBg   = isDark ? t.bodyBg   : '#ffffff';
 
+  const safeComp = escapeHtml(biz.companyName || biz.ownerName || 'Company');
+  const safeOwner = escapeHtml(biz.ownerName || biz.companyName || '—');
+  const safeClient = escapeHtml(invoice.clientName);
+  const safeFrom = escapeHtml(invoice.fromLocation || '—');
+  const safeTo = escapeHtml(invoice.toLocation || '—');
+  const safeTruck = escapeHtml(invoice.truckNumber || '—');
+  const safeDriver = escapeHtml(invoice.driverName || '—');
+  const safeInvoiceNo = escapeHtml(invoice.invoiceNumber);
+  const safeDate = escapeHtml(invoice.date);
+  const safeDueDate = invoice.dueDate ? escapeHtml(invoice.dueDate) : '';
+  const safeAddress = escapeHtml(biz.address);
+  const safeMobile = escapeHtml(biz.mobile);
+  const safeGst = escapeHtml(biz.gstNumber);
+  const safeClientPhone = escapeHtml(invoice.clientPhone);
+  const safeClientAddress = escapeHtml(invoice.clientAddress);
+  const safeClientGST = escapeHtml(invoice.clientGST);
+  const safeNotes = invoice.notes ? escapeHtml(invoice.notes) : '';
+  const safeTerms = invoice.paymentTerms ? escapeHtml(invoice.paymentTerms) : '';
+  const safeFooter = escapeHtml(biz.footerNotes || 'Thank you for your business.');
+  const safeUpiId = escapeHtml(biz.upiId);
+  const safeBankName = escapeHtml(biz.bankName);
+  const safeAccountNo = escapeHtml(biz.accountNumber);
+  const safeIfsc = escapeHtml(biz.ifscCode);
+
   // ── Logo ──────────────────────────────────────────────────────────────────
-  const logoHtml = logo
-    ? `<img src="${logo}" style="height:40px;max-width:110px;object-fit:contain;display:block;margin-bottom:4px;border-radius:3px;" />`
+  const safeLogo = sanitizeImageUrl(logo);
+  const logoHtml = safeLogo
+    ? `<img src="${safeLogo}" style="height:40px;max-width:110px;object-fit:contain;display:block;margin-bottom:4px;border-radius:3px;" />`
     : '';
 
   // ── Signature ─────────────────────────────────────────────────────────────
-  const sigHtml = sig
-    ? `<img src="${sig}" style="height:28px;max-width:85px;object-fit:contain;display:block;margin:0 0 3px auto;" />`
+  const safeSig = sanitizeImageUrl(sig);
+  const sigHtml = safeSig
+    ? `<img src="${safeSig}" style="height:28px;max-width:85px;object-fit:contain;display:block;margin:0 0 3px auto;" />`
     : `<div style="height:24px;"></div>`;
 
   // ── Expense rows ──────────────────────────────────────────────────────────
@@ -646,14 +673,14 @@ function renderA5Invoice(
     : (invoice.expenses ?? []).map((item, i) => `
     <tr style="background:${i % 2 === 1 ? t.rowAlt : bodyBg};border-bottom:1px solid ${t.borderColor};">
       <td style="padding:7px 10px;font-size:10px;color:${t.metaText};text-align:center;width:26px;">${i + 1}</td>
-      <td style="padding:7px 10px;font-size:11.5px;color:${t.bodyText};">${item.name}</td>
-      <td style="padding:7px 10px;font-size:11.5px;font-weight:800;color:${t.amountColor};text-align:right;white-space:nowrap;">${cur}&nbsp;${fmt(item.amount)}</td>
+      <td style="padding:7px 10px;font-size:11.5px;color:${t.bodyText};">${escapeHtml(item.name)}</td>
+      <td style="padding:7px 10px;font-size:11.5px;font-weight:800;color:${t.amountColor};text-align:right;white-space:nowrap;">${escapeHtml(cur)}&nbsp;${fmt(item.amount)}</td>
     </tr>`).join('');
 
   // ── QR payment section (only when UPI ID exists AND QR is visible) ────────
   const qrSection = (biz.upiId && shouldShowQrCode(invoice)) ? (() => {
     const upiLink = `upi://pay?pa=${encodeURIComponent(biz.upiId)}&pn=${encodeURIComponent((biz.ownerName || biz.companyName || 'Business').replace(/[&=?]/g, ''))}&am=${Math.abs(invoice.balance).toFixed(2)}&cu=${cur}`;
-    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=88x88&bgcolor=ffffff&color=000000&qzone=1&data=${encodeURIComponent(upiLink)}`;
+    const qrSrc = sanitizeImageUrl(`https://api.qrserver.com/v1/create-qr-code/?size=88x88&bgcolor=ffffff&color=000000&qzone=1&data=${encodeURIComponent(upiLink)}`);
     return `
     <div style="border:1px solid ${t.borderColor};border-radius:8px;padding:10px 13px;margin-bottom:10px;display:flex;align-items:center;gap:13px;background:${isDark ? t.rowAlt : '#fafafa'};">
       <div style="flex-shrink:0;text-align:center;">
@@ -662,10 +689,10 @@ function renderA5Invoice(
       </div>
       <div style="flex:1;">
         <div style="font-size:7.5px;text-transform:uppercase;letter-spacing:1px;color:${t.labelColor};font-weight:800;margin-bottom:5px;">📱 UPI Payment</div>
-        <div style="font-size:11px;color:${t.bodyText};margin-bottom:3px;"><strong>UPI ID:</strong> <span style="color:${t.amountColor};font-weight:700;">${biz.upiId}</span></div>
-        ${biz.ownerName || biz.companyName ? `<div style="font-size:9.5px;color:${t.metaText};margin-bottom:2px;"><strong>Name:</strong> ${biz.ownerName || biz.companyName}</div>` : ''}
-        ${biz.bankName ? `<div style="font-size:9.5px;color:${t.metaText};margin-bottom:2px;"><strong>Bank:</strong> ${biz.bankName}</div>` : ''}
-        ${biz.accountNumber ? `<div style="font-size:9px;color:${t.metaText};"><strong>A/C:</strong> ${biz.accountNumber}${biz.ifscCode ? `&nbsp;&nbsp;<strong>IFSC:</strong> ${biz.ifscCode}` : ''}</div>` : ''}
+        <div style="font-size:11px;color:${t.bodyText};margin-bottom:3px;"><strong>UPI ID:</strong> <span style="color:${t.amountColor};font-weight:700;">${safeUpiId}</span></div>
+        ${safeComp ? `<div style="font-size:9.5px;color:${t.metaText};margin-bottom:2px;"><strong>Name:</strong> ${safeComp}</div>` : ''}
+        ${safeBankName ? `<div style="font-size:9.5px;color:${t.metaText};margin-bottom:2px;"><strong>Bank:</strong> ${safeBankName}</div>` : ''}
+        ${safeAccountNo ? `<div style="font-size:9px;color:${t.metaText};"><strong>A/C:</strong> ${safeAccountNo}${safeIfsc ? `&nbsp;&nbsp;<strong>IFSC:</strong> ${safeIfsc}` : ''}</div>` : ''}
       </div>
     </div>`;
   })() : '';
@@ -703,16 +730,16 @@ function renderA5Invoice(
   <div style="background:${headerBg};padding:13px 17px;display:flex;justify-content:space-between;align-items:flex-start;">
     <div style="flex:1;padding-right:12px;">
       ${logoHtml}
-      <div style="font-size:14px;font-weight:900;color:#fff;letter-spacing:-0.2px;line-height:1.2;">${biz.companyName || biz.ownerName || 'Company'}</div>
+      <div style="font-size:14px;font-weight:900;color:#fff;letter-spacing:-0.2px;line-height:1.2;">${safeComp}</div>
       <div style="font-size:8.5px;color:rgba(255,255,255,0.68);line-height:1.7;margin-top:2px;">
-        ${[biz.address, biz.mobile ? `Tel: ${biz.mobile}` : '', biz.gstNumber ? `GSTIN: ${biz.gstNumber}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')}
+        ${[safeAddress, safeMobile ? `Tel: ${safeMobile}` : '', safeGst ? `GSTIN: ${safeGst}` : ''].filter(Boolean).join(' &nbsp;·&nbsp; ')}
       </div>
     </div>
     <div style="text-align:right;flex-shrink:0;">
       <div style="font-size:22px;font-weight:900;color:rgba(255,255,255,0.9);letter-spacing:-1.5px;line-height:1;">INVOICE</div>
-      <div style="font-size:12px;font-weight:800;color:${t.accent};margin-top:2px;">#${invoice.invoiceNumber}</div>
+      <div style="font-size:12px;font-weight:800;color:${t.accent};margin-top:2px;">#${safeInvoiceNo}</div>
       <div style="font-size:8px;color:rgba(255,255,255,0.65);margin-top:4px;line-height:1.7;">
-        Date:&nbsp;<strong style="color:#fff;">${invoice.date}</strong>${invoice.dueDate ? `<br>Due:&nbsp;<strong style="color:#fff;">${invoice.dueDate}</strong>` : ''}
+        Date:&nbsp;<strong style="color:#fff;">${safeDate}</strong>${safeDueDate ? `<br>Due:&nbsp;<strong style="color:#fff;">${safeDueDate}</strong>` : ''}
       </div>
       <div style="margin-top:5px;">${statusBadge(invoice.status, 'rgba(255,255,255,0.18)', '#fff')}</div>
     </div>
@@ -725,17 +752,17 @@ function renderA5Invoice(
     <div style="display:flex;margin-bottom:10px;border:1px solid ${t.borderColor};border-radius:6px;overflow:hidden;">
       <div style="flex:1;padding:9px 12px;background:${isDark ? t.rowAlt : '#fff'};">
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:1.2px;color:${t.labelColor};font-weight:800;margin-bottom:3px;">Bill From</div>
-        <div style="font-size:12px;font-weight:800;color:${isDark ? '#fff' : t.primary};">${biz.ownerName || biz.companyName || '—'}</div>
+        <div style="font-size:12px;font-weight:800;color:${isDark ? '#fff' : t.primary};">${safeOwner}</div>
         <div style="font-size:9px;color:${t.metaText};line-height:1.6;margin-top:1px;">
-          ${[biz.mobile, biz.gstNumber ? `GSTIN: ${biz.gstNumber}` : ''].filter(Boolean).join(' · ')}
+          ${[safeMobile, safeGst ? `GSTIN: ${safeGst}` : ''].filter(Boolean).join(' · ')}
         </div>
       </div>
       <div style="width:1px;background:${t.borderColor};"></div>
       <div style="flex:1;padding:9px 12px;background:${t.rowAlt};">
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:1.2px;color:${isDark ? t.accent : t.labelColor};font-weight:800;margin-bottom:3px;">Bill To</div>
-        <div style="font-size:12px;font-weight:800;color:${isDark ? '#fff' : t.primary};">${invoice.clientName}</div>
+        <div style="font-size:12px;font-weight:800;color:${isDark ? '#fff' : t.primary};">${safeClient}</div>
         <div style="font-size:9px;color:${t.metaText};line-height:1.6;margin-top:1px;">
-          ${[invoice.clientPhone, invoice.clientAddress, invoice.clientGST ? `GSTIN: ${invoice.clientGST}` : ''].filter(Boolean).join(' · ')}
+          ${[safeClientPhone, safeClientAddress, safeClientGST ? `GSTIN: ${safeClientGST}` : ''].filter(Boolean).join(' · ')}
         </div>
       </div>
     </div>
@@ -744,22 +771,22 @@ function renderA5Invoice(
     <div style="background:${isDark ? t.rowAlt : t.tripBg};border-left:4px solid ${t.primary};border-radius:0 5px 5px 0;padding:7px 12px;margin-bottom:11px;display:flex;flex-wrap:wrap;gap:5px 14px;align-items:center;">
       <div>
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:0.7px;color:${t.metaText};font-weight:700;">From</div>
-        <div style="font-size:11px;font-weight:900;color:${isDark ? t.accent : t.primary};">${invoice.fromLocation || '—'}</div>
+        <div style="font-size:11px;font-weight:900;color:${isDark ? t.accent : t.primary};">${safeFrom}</div>
       </div>
       <div style="font-size:14px;color:${t.accent};font-weight:900;margin:0 2px;">→</div>
       <div>
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:0.7px;color:${t.metaText};font-weight:700;">To</div>
-        <div style="font-size:11px;font-weight:900;color:${isDark ? t.accent : t.primary};">${invoice.toLocation || '—'}</div>
+        <div style="font-size:11px;font-weight:900;color:${isDark ? t.accent : t.primary};">${safeTo}</div>
       </div>
       <div style="width:1px;height:24px;background:${t.borderColor};margin:0 3px;"></div>
       <div>
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:0.7px;color:${t.metaText};font-weight:700;">Vehicle</div>
-        <div style="font-size:10px;font-weight:700;color:${isDark ? '#E2E8F0' : t.bodyText};">${invoice.truckNumber || '—'}</div>
+        <div style="font-size:10px;font-weight:700;color:${isDark ? '#E2E8F0' : t.bodyText};">${safeTruck}</div>
       </div>
       <div style="width:1px;height:24px;background:${t.borderColor};margin:0 3px;"></div>
       <div>
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:0.7px;color:${t.metaText};font-weight:700;">Driver</div>
-        <div style="font-size:10px;font-weight:700;color:${isDark ? '#E2E8F0' : t.bodyText};">${invoice.driverName || '—'}</div>
+        <div style="font-size:10px;font-weight:700;color:${isDark ? '#E2E8F0' : t.bodyText};">${safeDriver}</div>
       </div>
     </div>
 
@@ -769,7 +796,7 @@ function renderA5Invoice(
         <tr style="background:${t.tableHeadBg};">
           <th style="padding:8px 10px;font-size:8px;color:${t.tableHeadText};text-align:center;width:26px;text-transform:uppercase;letter-spacing:0.5px;">#</th>
           <th style="padding:8px 10px;font-size:8px;color:${t.tableHeadText};text-align:left;text-transform:uppercase;letter-spacing:0.5px;">Service / Expense Name</th>
-          <th style="padding:8px 10px;font-size:8px;color:${t.tableHeadText};text-align:right;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;">Amount (${cur})</th>
+          <th style="padding:8px 10px;font-size:8px;color:${t.tableHeadText};text-align:right;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap;">Amount (${escapeHtml(cur)})</th>
         </tr>
       </thead>
       <tbody>${expenseRows}</tbody>
@@ -779,13 +806,13 @@ function renderA5Invoice(
     <div style="display:flex;justify-content:flex-end;margin-bottom:11px;">
       <div style="min-width:205px;border:1px solid ${t.borderColor};border-top:none;border-radius:0 0 6px 6px;overflow:hidden;">
         <div style="display:flex;justify-content:space-between;padding:5px 11px;font-size:10px;color:${t.metaText};border-bottom:1px solid ${t.borderColor};background:${isDark ? t.rowAlt : '#fff'};">
-          <span>Advance Received</span><span style="font-weight:700;">${cur} ${fmt(invoice.advanceAmount)}</span>
+          <span>Advance Received</span><span style="font-weight:700;">${escapeHtml(cur)} ${fmt(invoice.advanceAmount)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:5px 11px;font-size:10px;color:${t.metaText};border-bottom:1px solid ${t.borderColor};background:${isDark ? t.rowAlt : '#fff'};">
-          <span>Total Expenses</span><span style="font-weight:700;">${cur} ${fmt(invoice.totalExpenses)}</span>
+          <span>Total Expenses</span><span style="font-weight:700;">${escapeHtml(cur)} ${fmt(invoice.totalExpenses)}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:9px 11px;font-size:13px;font-weight:900;background:${t.grandRowBg};color:${t.grandRowText};">
-          <span>BALANCE DUE</span><span>${cur} ${fmt(Math.abs(invoice.balance))}</span>
+          <span>BALANCE DUE</span><span>${escapeHtml(cur)} ${fmt(Math.abs(invoice.balance))}</span>
         </div>
       </div>
     </div>
@@ -796,10 +823,10 @@ function renderA5Invoice(
     </div>
 
     <!-- ══ NOTES ══ -->
-    ${invoice.notes ? `<div style="background:${isDark ? t.rowAlt : t.notesBg};border-left:3px solid ${t.notesAccent};border-radius:0 4px 4px 0;padding:7px 11px;margin-bottom:8px;font-size:10px;color:${t.metaText};line-height:1.6;"><strong style="color:${t.notesAccent};">Notes:</strong> ${invoice.notes}</div>` : ''}
+    ${safeNotes ? `<div style="background:${isDark ? t.rowAlt : t.notesBg};border-left:3px solid ${t.notesAccent};border-radius:0 4px 4px 0;padding:7px 11px;margin-bottom:8px;font-size:10px;color:${t.metaText};line-height:1.6;"><strong style="color:${t.notesAccent};">Notes:</strong> ${safeNotes}</div>` : ''}
 
     <!-- ══ PAYMENT TERMS ══ -->
-    ${invoice.paymentTerms ? `<div style="font-size:9px;color:${t.metaText};line-height:1.6;margin-bottom:9px;"><strong style="color:${isDark ? '#E2E8F0' : t.bodyText};">Payment Terms:</strong> ${invoice.paymentTerms}</div>` : ''}
+    ${safeTerms ? `<div style="font-size:9px;color:${t.metaText};line-height:1.6;margin-bottom:9px;"><strong style="color:${isDark ? '#E2E8F0' : t.bodyText};">Payment Terms:</strong> ${safeTerms}</div>` : ''}
 
     <!-- ══ QR PAYMENT SECTION (only when UPI ID is provided) ══ -->
     ${qrSection}
@@ -807,14 +834,14 @@ function renderA5Invoice(
     <!-- ══ FOOTER: thank-you note LEFT | Authorized Signature BOTTOM-RIGHT ══ -->
     <div style="display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid ${isDark ? t.accent + '44' : t.borderColor};padding-top:9px;margin-top:3px;">
       <div style="flex:1;padding-right:12px;">
-        <div style="font-size:9px;color:${t.metaText};line-height:1.6;">${biz.footerNotes || 'Thank you for your business.'}</div>
+        <div style="font-size:9px;color:${t.metaText};line-height:1.6;">${safeFooter}</div>
         <div style="font-size:7px;color:${t.metaText};opacity:0.45;margin-top:5px;">Page 1 of 1 &nbsp;·&nbsp; Generated with FleetInvoice</div>
       </div>
       <div style="text-align:right;flex-shrink:0;min-width:105px;">
         ${sigHtml}
         <div style="width:95px;height:1px;background:${t.metaText};opacity:0.28;margin:0 0 3px auto;"></div>
         <div style="font-size:7px;text-transform:uppercase;letter-spacing:1px;color:${t.metaText};">Authorized Signature</div>
-        <div style="font-size:9px;font-weight:700;color:${isDark ? '#9CA3AF' : t.primary};margin-top:1px;">${biz.ownerName || biz.companyName || ''}</div>
+        <div style="font-size:9px;font-weight:700;color:${isDark ? '#9CA3AF' : t.primary};margin-top:1px;">${safeOwner}</div>
       </div>
     </div>
 

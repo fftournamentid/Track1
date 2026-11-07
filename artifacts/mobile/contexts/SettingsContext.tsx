@@ -11,6 +11,8 @@ import {
   type UserDocument,
 } from '@/services/firebase/repositories/user.repository';
 import { db } from '@/services/firebase/config';
+import { generateProvisionalInvoiceNumber } from '@/utils/invoiceNumbering';
+import { log } from '@/utils/logger';
 
 interface SettingsContextType {
   settings: AppSettings;
@@ -53,26 +55,30 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const generateNextInvoiceNumber = useCallback(async (): Promise<string> => {
     if (!user) {
-      const num = String(settings.nextInvoiceNumber).padStart(4, '0');
-      return `${settings.invoicePrefix}-${num}`;
+      return generateProvisionalInvoiceNumber();
     }
 
-    return runTransaction(db, async (tx) => {
-      const userRef = doc(db, 'users', user.uid);
-      const snap = await tx.get(userRef);
-      if (!snap.exists()) {
-        return `${DEFAULT_SETTINGS.invoicePrefix}-0001`;
-      }
-      const current = (snap.data() as UserDocument).settings ?? DEFAULT_SETTINGS;
-      const num = String(current.nextInvoiceNumber).padStart(4, '0');
-      const invoiceNumber = `${current.invoicePrefix}-${num}`;
-      tx.update(userRef, {
-        'settings.nextInvoiceNumber': current.nextInvoiceNumber + 1,
-        updatedAt: serverTimestamp(),
+    try {
+      return await runTransaction(db, async (tx) => {
+        const userRef = doc(db, 'users', user.uid);
+        const snap = await tx.get(userRef);
+        if (!snap.exists()) {
+          return `${DEFAULT_SETTINGS.invoicePrefix}-0001`;
+        }
+        const current = (snap.data() as UserDocument).settings ?? DEFAULT_SETTINGS;
+        const num = String(current.nextInvoiceNumber).padStart(4, '0');
+        const invoiceNumber = `${current.invoicePrefix}-${num}`;
+        tx.update(userRef, {
+          'settings.nextInvoiceNumber': current.nextInvoiceNumber + 1,
+          updatedAt: serverTimestamp(),
+        });
+        setSettings((prev) => ({ ...prev, nextInvoiceNumber: current.nextInvoiceNumber + 1 }));
+        return invoiceNumber;
       });
-      setSettings((prev) => ({ ...prev, nextInvoiceNumber: current.nextInvoiceNumber + 1 }));
-      return invoiceNumber;
-    });
+    } catch (err) {
+      log.warn('Firestore transaction failed or offline, falling back to provisional number');
+      return generateProvisionalInvoiceNumber();
+    }
   }, [user, settings]);
 
   return (

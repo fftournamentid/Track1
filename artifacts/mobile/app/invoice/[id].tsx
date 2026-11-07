@@ -317,8 +317,6 @@ export default function InvoiceDetailScreen() {
           'Monthly Limit Reached',
           `You've used ${result.used} of ${result.limit} free cloud uploads this month.`
         );
-      } else if (result.status === 'ad_not_watched') {
-        Alert.alert('Watch an Ad to Upload', 'Please watch the full ad to earn your cloud upload, then try again.');
       } else if (result.status === 'not_configured') {
         Alert.alert('Cloud Not Available', 'Cloud backup is not configured for this installation.');
       } else {
@@ -472,6 +470,11 @@ export default function InvoiceDetailScreen() {
           {invoice.isArchived && (
             <View style={[styles.statusBadge, { backgroundColor: '#FEF3C7' }]}>
               <Text style={[styles.statusText, { color: '#92400E' }]}>ARCHIVED</Text>
+            </View>
+          )}
+          {invoice.numberProvisional && (
+            <View style={[styles.statusBadge, { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }]}>
+              <Text style={[styles.statusText, { color: '#B91C1C' }]}>Number pending sync</Text>
             </View>
           )}
         </View>

@@ -1,7 +1,6 @@
 import { BlurView } from "expo-blur";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { Feather } from "@expo/vector-icons";
 import React, { useRef, useEffect } from "react";
 import { Platform, StyleSheet, View, useColorScheme, Animated } from "react-native";
@@ -88,32 +87,7 @@ const iconStyles = StyleSheet.create({
   },
 });
 
-// ─── Native tab layout (iOS Liquid Glass) ─────────────────────────────────────
-
-function NativeTabLayout() {
-  return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="invoices">
-        <Icon sf={{ default: "doc.text", selected: "doc.text.fill" }} />
-        <Label>Invoices</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="tools">
-        <Icon sf={{ default: "wrench.and.screwdriver", selected: "wrench.and.screwdriver.fill" }} />
-        <Label>Tools</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person.circle", selected: "person.circle.fill" }} />
-        <Label>Profile</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
-  );
-}
-
-// ─── Classic tab layout (Android / Web / older iOS) ──────────────────────────
+// ─── Tab layout (Universal Classic Tabs: iOS / Android / Web) ─────────────────
 
 function ClassicTabLayout() {
   const colors = useColors();
@@ -232,8 +206,5 @@ const tabStyles = StyleSheet.create({
 // ─── Root export ──────────────────────────────────────────────────────────────
 
 export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
   return <ClassicTabLayout />;
 }

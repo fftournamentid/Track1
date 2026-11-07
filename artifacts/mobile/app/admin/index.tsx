@@ -259,7 +259,7 @@ function UsersTab({ users, onGrantPremium, onVerifyUser }: {
               {u.role !== 'admin' && (
                 <>
                   <Pressable
-                    onPress={() => handleGrant(u.uid, u.isPremium)}
+                    onPress={() => handleGrant(u.uid, !!u.isPremium)}
                     disabled={grantingId === u.uid}
                     style={({ pressed }) => [
                       styles.grantBtn,

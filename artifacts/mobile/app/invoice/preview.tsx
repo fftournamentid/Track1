@@ -35,7 +35,6 @@ import Toast from '@/components/Toast';
 import { loadPreviewData, clearPreviewData, clearDraft } from '@/services/draftService';
 import {
   generateAndSaveInvoicePDF,
-  uploadSavedPDFToCloud,
   sharePDF,
   savePDFToDownloads,
   downloadForWeb,
@@ -748,32 +747,10 @@ export default function InvoicePreviewScreen() {
       <Toast visible={toastVisible} message={toastMsg} type={toastType} />
 
       {/* Cloud-sync credit gate — shown when upload is blocked */}
-      {user?.uid ? (
-        <PremiumSyncDialog
-          visible={showSyncDialog}
-          userId={user.uid}
-          onClose={() => setShowSyncDialog(false)}
-          onCreditGranted={async () => {
-            setShowSyncDialog(false);
-            const last = lastPdfRef.current;
-            if (!last || !user?.uid) return;
-            // Retry the Supabase upload now that a credit has been granted
-            try {
-              const { publicUrl, blocked } = await uploadSavedPDFToCloud(
-                last.uri, last.filename, user.uid,
-              );
-              if (publicUrl) {
-                showToast('Invoice backed up to cloud ✓');
-              } else if (blocked) {
-                showToast('Still no credits. Watch one more ad.', 'error');
-                setShowSyncDialog(true);
-              }
-            } catch {
-              showToast('Cloud backup failed. Try again later.', 'error');
-            }
-          }}
-        />
-      ) : null}
+      <PremiumSyncDialog
+        visible={showSyncDialog}
+        onClose={() => setShowSyncDialog(false)}
+      />
     </View>
   );
 }
